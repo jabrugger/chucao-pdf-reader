@@ -1,11 +1,13 @@
 # Plan de trabajo
 
-1. **Base funcional (actual)**: C++, PDFium, abrir, página individual, zoom,
+1. **Base funcional (implementada)**: C++, PDFium, abrir, zoom,
    contraseña, búsqueda e impresión. Compilar y verificar el motor con fixtures
-   sintéticos. Git local y repo remoto privado cuando haya autenticación disponible.
-2. **Experiencia de lectura**: desplazamiento continuo, caché acotada, precarga de
-   páginas vecinas, cancelación de render progresivo y prioridad de página visible.
-   Selección/copia, enlaces, índice y navegación precisa al resultado de búsqueda.
+   sintéticos. Git local y repo remoto privado creados. Contraseña e impresión
+   todavía requieren validación funcional adicional.
+2. **Experiencia de lectura (en curso)**: implementados desplazamiento continuo,
+   caché acotada, precarga de páginas vecinas, cancelación de render progresivo y
+   prioridad de página visible. Pendientes selección/copia, enlaces, índice y
+   navegación precisa al resultado de búsqueda.
 3. **Interfaz**: propuesta visual inspirada en MarkPad, toolbar compacta, panel
    opcional, pestañas, claro/oscuro, DPI por monitor y navegación por teclado.
    Validar con el usuario antes de convertir la propuesta en diseño definitivo.

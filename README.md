@@ -27,17 +27,23 @@ El motor y sus avisos de terceros se conservan en `deps/pdfium`; no se suben al 
 ## Uso del prototipo
 
 - Abrir: Ctrl+O, arrastrar un PDF o pasar su ruta como argumento.
-- Página anterior/siguiente: botones, flechas izquierda/derecha, Page Up/Page Down.
+- Página anterior/siguiente: botones y flechas izquierda/derecha.
+- Lectura continua: rueda, barra de desplazamiento, Page Up/Page Down y flechas arriba/abajo.
+- Home/End: principio/final del documento.
 - Zoom: botones +/−, Ctrl+rueda. Ajustar al ancho: Ctrl+0.
 - Buscar: Ctrl+F, escribir y pulsar Enter; F3 repite la búsqueda.
 - Imprimir: Ctrl+P (diálogo de Windows, documento completo o rango de páginas).
 - Los documentos cifrados solicitan contraseña; no se guarda en disco ni en logs.
-- Rueda y barra de desplazamiento recorren la página actual.
+- El zoom conserva la página y la posición de lectura; la imagen anterior sirve de
+  vista previa mientras llega el render a la nueva escala.
 
-El motor se ejecuta en un hilo dedicado. Las solicitudes de renderizado antiguas
-se descartan; las páginas se cargan bajo demanda. Todavía faltan desplazamiento
-continuo entre páginas, selección/copia de texto, índice, pestañas, caché de páginas,
-persistencia de posición y pulido visual/accesibilidad. Buscar en escaneos requiere
+El motor se ejecuta en un hilo dedicado. Los renderizados obsoletos se cancelan en
+los puntos de pausa que ofrece PDFium; las páginas visibles tienen prioridad sobre
+la precarga de vecinas. La caché de imágenes está limitada a 96 MiB y cada render a
+12 millones de píxeles; estos límites no incluyen la memoria interna del motor.
+Las dimensiones de las páginas lejanas se estiman hasta visitarlas, para evitar
+recorrer el PDF completo al abrir. Todavía faltan selección/copia de texto, índice,
+pestañas, persistencia de posición y pulido visual/accesibilidad. Buscar en escaneos requiere
 una capa de texto ya existente. No se implementará OCR.
 
 PDFium se carga e inicializa al abrir el primer documento; abrir la ventana vacía
@@ -49,6 +55,9 @@ no inicializa el motor. Un render inmediato cancela el render de tamaño pendien
 # Solo procesa el documento localmente: no lo modifica ni lo sube a ningún servicio.
 build\pdf-smoke.exe "P:\ruta\documento.pdf" --benchmark
 powershell -ExecutionPolicy Bypass -File scripts/benchmark-open.ps1 -Pdf "P:\ruta\documento.pdf"
+# Prueba oculta de navegación, caché, zoom y reapertura con el ejecutable real:
+powershell -ExecutionPolicy Bypass -File scripts/benchmark-open.ps1 -Pdf "P:\ruta\documento.pdf" -Runs 1 -Navigation
+build\layout-test.exe
 ```
 
 El primer comando mide inicialización, apertura, carga y dibujo de la primera página
@@ -64,8 +73,12 @@ incorporarla a Chucao. Ver [mediciones](docs/performance.md).
 
 ## Verificación
 
+`-Navigation` mide toda la secuencia de prueba, no solo la apertura.
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/smoke-test.ps1
+# Geometría y navegación con páginas de tamaños distintos:
+powershell -ExecutionPolicy Bypass -File scripts/test-reader.ps1
 ```
 
 Genera un PDF sintético (sin datos personales) y verifica apertura,

@@ -21,4 +21,6 @@ copy /y deps\pdfium\bin\pdfium.dll build\pdfium.dll >nul
 if errorlevel 1 exit /b 1
 cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /I deps\pdfium\include tools\pdf-smoke.cpp /Fo:build\pdf-smoke.obj /Fe:build\pdf-smoke.exe /link /LIBPATH:deps\pdfium\lib pdfium.dll.lib
 if errorlevel 1 exit /b 1
+cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /utf-8 /DNOMINMAX tools\layout-test.cpp /Fo:build\layout-test.obj /Fe:build\layout-test.exe
+if errorlevel 1 exit /b 1
 echo Compilacion completada: build\Chucao.exe

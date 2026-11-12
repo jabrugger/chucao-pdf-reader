@@ -4,6 +4,8 @@
 #include <shellapi.h>
 #include <fpdfview.h>
 #include <fpdf_text.h>
+#include <fpdf_progressive.h>
+#include "document-layout.h"
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
@@ -17,6 +19,7 @@
 #include <cmath>
 #include <chrono>
 #include <cstdio>
+#include <map>
 
 namespace {
 constexpr UINT Ready = WM_APP + 1;
@@ -37,10 +40,11 @@ std::wstring Text(HWND window) {
 }
 struct Result {
     enum Kind { Image, Opened, Password, Failure, Search, Printed } kind = Failure;
-    unsigned long long document = 0, revision = 0;
+    unsigned long long document = 0, revision = 0, viewVersion = 0;
     int page = 0, pages = 0, width = 0, height = 0, match = -1;
     double milliseconds = 0;
     double scale = 1;
+    double pageWidth = 0, pageHeight = 0;
     std::wstring message;
     std::vector<unsigned char> pixels;
 };
@@ -55,6 +59,7 @@ class PdfWorker {
     FPDF_DOCUMENT pdf_ = nullptr;
     unsigned long long document_ = 0;
     std::atomic<unsigned long long> revision_{0};
+    std::atomic<unsigned long long> wantedDocument_{0};
     std::atomic<bool> cancelled_{false};
     int searchPage_ = -1, searchIndex_ = -1;
     std::wstring lastQuery_;
@@ -92,9 +97,10 @@ public:
         wake_.notify_one(); thread_.join();
     }
     void Load(std::wstring path, std::wstring password, unsigned long long document) {
+        wantedDocument_ = document;
         ++revision_;
         Queue([this, path, password, document] {
-            if (cancelled_) return;
+            if (cancelled_ || document != wantedDocument_) return;
             if (pdf_) { FPDF_CloseDocument(pdf_); pdf_ = nullptr; }
             document_ = document; searchPage_ = searchIndex_ = -1; lastQuery_.clear();
             pdf_ = FPDF_LoadDocument(Utf8(path).c_str(), Utf8(password).c_str());
@@ -110,23 +116,25 @@ public:
             Send(std::move(result));
         });
     }
-    unsigned long long Render(int page, int viewport, double zoom, unsigned long long document) {
+    unsigned long long Render(std::vector<int> requested, int viewport, double zoom, unsigned long long document, unsigned long long viewVersion) {
         auto revision = ++revision_;
-        Queue([this, page, viewport, zoom, revision, document] {
+        Queue([this, requested, viewport, zoom, revision, document, viewVersion] {
+          for (int page : requested) {
             if (cancelled_ || !pdf_ || document != document_ || revision != revision_) return;
             LARGE_INTEGER start{}, end{}, frequency{};
             QueryPerformanceFrequency(&frequency); QueryPerformanceCounter(&start);
-            auto result = std::make_unique<Result>(); result->revision = revision; result->page = page;
+            auto result = std::make_unique<Result>(); result->revision = revision; result->viewVersion = viewVersion; result->page = page;
             FPDF_PAGE pdfPage = FPDF_LoadPage(pdf_, page);
-            if (!pdfPage) { result->message = L"No se pudo leer la página."; Send(std::move(result)); return; }
+            if (!pdfPage) { result->message = L"No se pudo leer la página."; Send(std::move(result)); continue; }
             double width = FPDF_GetPageWidth(pdfPage), height = FPDF_GetPageHeight(pdfPage);
             if (!(width > 0 && height > 0 && std::isfinite(width) && std::isfinite(height))) {
-                FPDF_ClosePage(pdfPage); result->message = L"Dimensiones de página inválidas."; Send(std::move(result)); return;
+                FPDF_ClosePage(pdfPage); result->message = L"Dimensiones de página inválidas."; Send(std::move(result)); continue;
             }
             double scale = zoom > 0 ? zoom : std::max(100, viewport - 64) / width;
+            result->pageWidth = width; result->pageHeight = height;
             double w = std::max(1.0, width * scale), h = std::max(1.0, height * scale);
             // Bound allocations before conversion to integers; never render giant pages unchecked.
-            double reduction = std::min(1.0, std::min(16000.0 / std::max(w, h), std::sqrt(20000000.0 / (w * h))));
+            double reduction = std::min(1.0, std::min(16000.0 / std::max(w, h), std::sqrt(12000000.0 / (w * h))));
             result->width = std::max(1, static_cast<int>(w * reduction));
             result->height = std::max(1, static_cast<int>(h * reduction));
             result->scale = result->width / width;
@@ -134,12 +142,24 @@ public:
             FPDF_BITMAP bitmap = FPDFBitmap_CreateEx(result->width, result->height, FPDFBitmap_BGRA, result->pixels.data(), result->width * 4);
             if (bitmap) {
                 FPDFBitmap_FillRect(bitmap, 0, 0, result->width, result->height, 0xffffffff);
-                FPDF_RenderPageBitmap(bitmap, pdfPage, 0, 0, result->width, result->height, 0, FPDF_ANNOT);
-                FPDFBitmap_Destroy(bitmap); result->kind = Result::Image;
+                struct PauseContext { PdfWorker* worker; unsigned long long revision; } context{this, revision};
+                IFSDK_PAUSE pause{}; pause.version = 1; pause.user = &context;
+                pause.NeedToPauseNow = [](IFSDK_PAUSE* value) -> FPDF_BOOL {
+                    auto state = static_cast<PauseContext*>(value->user);
+                    return state->worker->cancelled_ || state->revision != state->worker->revision_;
+                };
+                int state = FPDF_RenderPageBitmap_Start(bitmap, pdfPage, 0, 0, result->width, result->height, 0, FPDF_ANNOT, &pause);
+                while (state == FPDF_RENDER_TOBECONTINUED && !cancelled_ && revision == revision_)
+                    state = FPDF_RenderPage_Continue(pdfPage, &pause);
+                FPDF_RenderPage_Close(pdfPage);
+                FPDFBitmap_Destroy(bitmap);
+                if (state == FPDF_RENDER_DONE) result->kind = Result::Image;
+                else result->message = L"No se pudo dibujar la página.";
             } else result->message = L"No hay memoria para dibujar la página.";
             FPDF_ClosePage(pdfPage); QueryPerformanceCounter(&end);
             result->milliseconds = 1000.0 * (end.QuadPart - start.QuadPart) / frequency.QuadPart;
             if (revision == revision_) Send(std::move(result));
+          }
         });
         return revision;
     }
@@ -149,7 +169,7 @@ public:
             auto result = std::make_unique<Result>(); result->kind = Result::Search;
             int count = FPDF_GetPageCount(pdf_);
             int first = query == lastQuery_ && searchPage_ == page ? searchIndex_ + 1 : 0;
-            for (int step = 0; step <= count && !cancelled_; ++step) {
+            for (int step = 0; step <= count && !cancelled_ && document == wantedDocument_; ++step) {
                 int index = (page + step) % count;
                 FPDF_PAGE pdfPage = FPDF_LoadPage(pdf_, index);
                 if (!pdfPage) continue;
@@ -246,44 +266,154 @@ public:
     HWND window = nullptr, query = nullptr;
     HFONT font = nullptr;
     std::unique_ptr<PdfWorker> worker;
-    std::unique_ptr<Result> image;
+    struct CachedPage { std::unique_ptr<Result> image; unsigned long long version = 0, used = 0; };
+    std::map<int, CachedPage> cache;
+    DocumentLayout layout;
+    std::vector<int> planned;
+    unsigned long long viewVersion = 0, plannedVersion = 0, useClock = 0;
+    int renderWidth = 0;
+    double renderZoom = -1;
+    size_t cacheBytes = 0;
+    static constexpr size_t CacheLimit = 96u * 1024u * 1024u;
     unsigned long long document = 0, revision = 0;
-    int page = 0, pages = 0, scroll = 0;
+    int page = 0, pages = 0;
+    std::int64_t scroll = 0;
     double zoom = 0;
     bool searching = false, printing = false;
     std::wstring path, status = L"Abrí un PDF para empezar · Ctrl+O";
     std::wstring benchmarkReport;
+    bool navigationTest = false;
+    int navigationStep = 0;
+    size_t navigationHits = 0;
     std::chrono::steady_clock::time_point started;
     double shellMs = 0, openedMs = 0;
     void BenchmarkResult(bool success) {
         if (benchmarkReport.empty()) return;
         double readyMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         char data[512]{};
-        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages);
+        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d,\"navigation_steps\":%d,\"cache_hits\":%zu,\"cache_bytes\":%zu}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages, navigationStep, navigationHits, cacheBytes);
         HANDLE output = CreateFileW(benchmarkReport.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (output != INVALID_HANDLE_VALUE) { DWORD written = 0; WriteFile(output, data, size, &written, nullptr); CloseHandle(output); }
         PostMessageW(window, WM_CLOSE, 0, 0);
     }
+    void CheckNavigation() {
+        if (!navigationTest || !pages || benchmarkReport.empty()) return;
+        auto current = cache.find(page);
+        if (current == cache.end() || current->second.version != viewVersion) return;
+        if (cacheBytes > CacheLimit) { BenchmarkResult(false); return; }
+        switch (navigationStep) {
+        case 0:
+            navigationStep = 1;
+            ScrollTo(layout.Top(std::min(1, pages - 1)) + layout.Height(std::min(1, pages - 1)) / 3);
+            break;
+        case 1: {
+            int anchor = layout.PageAt(scroll);
+            double before = (scroll - layout.Top(anchor)) / static_cast<double>(layout.Height(anchor));
+            navigationStep = 2; Command(Larger);
+            double after = (scroll - layout.Top(anchor)) / static_cast<double>(layout.Height(anchor));
+            if (std::abs(before - after) > 0.01 && scroll > 0 && scroll < MaxScroll()) { BenchmarkResult(false); return; }
+            break;
+        }
+        case 2: navigationStep = 3; ChangePage(pages - 1); break;
+        case 3:
+            // Reuse the last page at the same scale without another render.
+            {
+                auto before = revision; ChangePage(pages - 1);
+                if (revision != before) { BenchmarkResult(false); return; }
+                ++navigationHits; navigationStep = 4;
+            }
+            break;
+        case 4: navigationStep = 5; ChangePage(0); break;
+        case 5:
+            navigationStep = 6;
+            // Reopen with queued work and verify that old-document results are ignored.
+            Load(path); break;
+        case 6: navigationStep = 7; BenchmarkResult(true); break;
+        }
+        if (navigationStep < 7) PostMessageW(window, WM_TIMER, 3, 0);
+    }
 
     void Redraw() { InvalidateRect(window, nullptr, FALSE); }
-    void ScrollTo(int value) {
+    int ViewHeight() const { RECT rc{}; GetClientRect(window, &rc); return std::max<int>(1, rc.bottom - BarHeight - 26); }
+    int ViewWidth() const { RECT rc{}; GetClientRect(window, &rc); return rc.right; }
+    std::int64_t MaxScroll() const { return std::max<std::int64_t>(0, layout.Total() - ViewHeight()); }
+    void PageStatus() { if (pages) status = L"Página " + std::to_wstring(page + 1) + L" de " + std::to_wstring(pages); }
+    void ScrollTo(std::int64_t value, bool request = true) {
         RECT rc{}; GetClientRect(window, &rc);
-        scroll = std::max(0, std::min(value, image ? std::max<int>(0, image->height - (rc.bottom - BarHeight - 48)) : 0));
+        scroll = std::max<std::int64_t>(0, std::min(value, MaxScroll()));
+        int previous = page;
+        if (pages) page = layout.PageAt(scroll + std::min(40, ViewHeight() / 2));
+        if (page != previous) PageStatus();
         SCROLLINFO info{sizeof(info), SIF_RANGE | SIF_PAGE | SIF_POS};
-        info.nMin = 0; info.nMax = image ? image->height + 47 : 0;
-        info.nPage = std::max<int>(1, rc.bottom - BarHeight); info.nPos = scroll;
+        info.nMin = 0;
+        if (layout.Total() < 1000000000) {
+            info.nMax = static_cast<int>(std::max<std::int64_t>(0, layout.Total() - 1));
+            info.nPage = ViewHeight(); info.nPos = static_cast<int>(scroll);
+        } else {
+            info.nMax = 1000000000;
+            info.nPage = std::max(1u, static_cast<unsigned int>(1000000000.0 * ViewHeight() / layout.Total()));
+            info.nPos = MaxScroll() ? static_cast<int>((info.nMax - info.nPage + 1.0) * scroll / MaxScroll()) : 0;
+        }
         SetScrollInfo(window, SB_VERT, &info, TRUE); Redraw();
+        if (request) Render();
+    }
+    void Reflow(bool keepAnchor = true) {
+        int anchor = pages ? layout.PageAt(scroll) : 0;
+        double fraction = pages && layout.Count() ? (scroll - layout.Top(anchor)) / static_cast<double>(layout.Height(anchor)) : 0;
+        layout.Rebuild(ViewWidth(), zoom);
+        if (keepAnchor && pages) scroll = layout.Top(anchor) + static_cast<std::int64_t>(fraction * layout.Height(anchor));
+        ScrollTo(scroll, false);
+    }
+    void TrimCache() {
+        int first = pages ? layout.PageAt(scroll) : 0, last = pages ? layout.PageAt(scroll + ViewHeight()) : 0;
+        while (cacheBytes > CacheLimit && cache.size() > 1) {
+            auto victim = cache.end();
+            for (auto i = cache.begin(); i != cache.end(); ++i) {
+                if (i->first >= first && i->first <= last) continue;
+                if (victim == cache.end() || i->second.used < victim->second.used) victim = i;
+            }
+            // Very short pages can make many pages visible: the cap still applies.
+            if (victim == cache.end()) {
+                for (auto i = cache.begin(); i != cache.end(); ++i)
+                    if (i->first != page && (victim == cache.end() || i->second.used < victim->second.used)) victim = i;
+            }
+            if (victim == cache.end()) break;
+            cacheBytes -= victim->second.image->pixels.size(); cache.erase(victim);
+        }
     }
     void Render() {
         KillTimer(window, 1); // An immediate render supersedes a pending resize render.
         if (!pages) return;
-        RECT rc{}; GetClientRect(window, &rc);
-        revision = worker->Render(page, rc.right, zoom, document);
-        status = L"Cargando página " + std::to_wstring(page + 1) + L"…"; Redraw();
+        int width = ViewWidth();
+        if (renderWidth != width || renderZoom != zoom) {
+            renderWidth = width; renderZoom = zoom; ++viewVersion;
+        }
+        int first = layout.PageAt(scroll), last = layout.PageAt(scroll + ViewHeight());
+        std::vector<int> wanted;
+        for (int i = first; i <= last; ++i) wanted.push_back(i);
+        if (benchmarkReport.empty() || navigationTest) {
+            if (last + 1 < pages) wanted.push_back(last + 1);
+            if (first > 0) wanted.push_back(first - 1);
+        }
+        if (wanted == planned && plannedVersion == viewVersion) return;
+        planned = wanted; plannedVersion = viewVersion;
+        std::vector<int> missing;
+        for (int i : wanted) {
+            auto found = cache.find(i);
+            if (found != cache.end()) found->second.used = ++useClock;
+            if (found == cache.end() || found->second.version != viewVersion) missing.push_back(i);
+        }
+        // Even an empty batch cancels work from a view that is no longer visible.
+        revision = worker->Render(std::move(missing), width, zoom, document, viewVersion);
+        Redraw();
     }
     void Load(const std::wstring& file, const std::wstring& password = L"", bool retry = false) {
         if (!worker) worker = std::make_unique<PdfWorker>(window);
-        if (!retry) { path = file; ++document; pages = 0; page = 0; scroll = 0; image.reset(); zoom = 0; searching = false; }
+        if (!retry) {
+            path = file; ++document; pages = 0; page = 0; scroll = 0; zoom = 0; searching = false;
+            cache.clear(); cacheBytes = 0; layout.Reset(0); layout.Rebuild(ViewWidth(), zoom);
+            planned.clear(); renderWidth = 0; renderZoom = -1; ++viewVersion;
+        }
         status = L"Abriendo documento…"; Redraw(); worker->Load(path, password, document);
     }
     void ChooseFile() {
@@ -296,7 +426,7 @@ public:
     void ChangePage(int target) {
         if (!pages) return;
         target = std::max(0, std::min(pages - 1, target));
-        if (page != target) { page = target; scroll = 0; image.reset(); Render(); }
+        page = target; PageStatus(); ScrollTo(std::max<std::int64_t>(0, layout.Top(target) - DocumentLayout::Gap));
     }
     void Search() {
         if (!pages || searching) return;
@@ -325,12 +455,15 @@ public:
         case Open: ChooseFile(); break;
         case Previous: ChangePage(page - 1); break;
         case Next: ChangePage(page + 1); break;
-        case Fit: zoom = 0; scroll = 0; Render(); break;
+        case Fit: zoom = 0; Reflow(); Render(); break;
         case Larger: case Smaller: {
             // Start manual zoom from the current fit-width image scale.
-            if (!zoom) zoom = image ? image->scale : 1.0;
+            if (!zoom) {
+                auto found = cache.find(page);
+                zoom = found != cache.end() ? found->second.image->scale : 1.0;
+            }
             zoom = std::max(0.25, std::min(4.0, zoom * (id == Larger ? 1.2 : 1 / 1.2)));
-            Render(); break;
+            Reflow(); Render(); break;
         }
         case Find: SetFocus(query); SendMessageW(query, EM_SETSEL, 0, -1); break;
         case FindNext: Search(); break;
@@ -340,14 +473,30 @@ public:
     void Receive(std::unique_ptr<Result> result) {
         if (result->kind == Result::Printed) printing = false;
         if (result->document != document) return;
+        if (result->kind == Result::Failure && result->revision && result->revision != revision) return;
         switch (result->kind) {
         case Result::Opened:
             openedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-            pages = result->pages; SetWindowTextW(window, (L"Chucao — " + path.substr(path.find_last_of(L"\\/") + 1)).c_str()); Render(); break;
+            pages = result->pages; layout.Reset(pages); layout.Rebuild(ViewWidth(), zoom);
+            SetWindowTextW(window, (L"Chucao — " + path.substr(path.find_last_of(L"\\/") + 1)).c_str()); PageStatus(); Render(); break;
         case Result::Image:
-            if (result->revision != revision || result->page != page) return;
-            status = L"Página " + std::to_wstring(page + 1) + L" de " + std::to_wstring(pages);
-            image = std::move(result); ScrollTo(scroll); BenchmarkResult(true); break;
+            // A completed bitmap from the same zoom/width is useful even if the
+            // scroll position has changed since it was queued.
+            if (result->viewVersion != viewVersion) return;
+            {
+                int index = result->page;
+                int anchor = layout.PageAt(scroll);
+                double fraction = (scroll - layout.Top(anchor)) / static_cast<double>(layout.Height(anchor));
+                layout.Learn(index, result->pageWidth, result->pageHeight); layout.Rebuild(ViewWidth(), zoom);
+                scroll = layout.Top(anchor) + static_cast<std::int64_t>(fraction * layout.Height(anchor));
+                auto& entry = cache[index];
+                if (entry.image) cacheBytes -= entry.image->pixels.size();
+                cacheBytes += result->pixels.size(); entry = {std::move(result), viewVersion, ++useClock};
+                ScrollTo(scroll, false); TrimCache(); Render();
+                if (navigationTest) { PostMessageW(window, WM_TIMER, 3, 0); }
+                else BenchmarkResult(true);
+            }
+            break;
         case Result::Password: {
             if (!benchmarkReport.empty()) { BenchmarkResult(false); break; }
             std::wstring password;
@@ -367,17 +516,35 @@ public:
         }
     }
     void Paint() {
-        PAINTSTRUCT ps{}; HDC dc = BeginPaint(window, &ps); RECT rc{}; GetClientRect(window, &rc);
+        PAINTSTRUCT ps{}; HDC target = BeginPaint(window, &ps); RECT rc{}; GetClientRect(window, &rc);
+        HDC dc = CreateCompatibleDC(target);
+        HBITMAP buffer = CreateCompatibleBitmap(target, std::max<LONG>(1, rc.right), std::max<LONG>(1, rc.bottom));
+        HGDIOBJ oldBuffer = SelectObject(dc, buffer);
         HBRUSH background = CreateSolidBrush(RGB(238, 240, 243)); FillRect(dc, &rc, background); DeleteObject(background);
         RECT bar{0, 0, rc.right, BarHeight}; FillRect(dc, &bar, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
         SelectObject(dc, font); SetBkMode(dc, TRANSPARENT); SetTextColor(dc, RGB(72, 79, 92));
-        if (image) {
-            BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-            info.bmiHeader.biWidth = image->width; info.bmiHeader.biHeight = -image->height;
-            info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32; info.bmiHeader.biCompression = BI_RGB;
-            int x = std::max<int>(24, (rc.right - image->width) / 2), y = BarHeight + 24 - scroll;
+        if (pages) {
             IntersectClipRect(dc, 0, BarHeight, rc.right, rc.bottom - 26);
-            SetDIBitsToDevice(dc, x, y, image->width, image->height, 0, 0, 0, image->height, image->pixels.data(), &info, DIB_RGB_COLORS);
+            int first = layout.PageAt(scroll), last = layout.PageAt(scroll + ViewHeight());
+            SetStretchBltMode(dc, COLORONCOLOR); // Quick preview while a new zoom is rendered.
+            for (int i = first; i <= last; ++i) {
+                int width = layout.Width(i), height = layout.Height(i);
+                int x = std::max<int>(24, (rc.right - width) / 2);
+                int y = BarHeight + static_cast<int>(layout.Top(i) - scroll);
+                RECT sheet{x, y, x + width, y + height};
+                FillRect(dc, &sheet, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
+                auto found = cache.find(i);
+                if (found != cache.end()) {
+                    const auto& image = found->second.image;
+                    BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                    info.bmiHeader.biWidth = image->width; info.bmiHeader.biHeight = -image->height;
+                    info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32; info.bmiHeader.biCompression = BI_RGB;
+                    StretchDIBits(dc, x, y, width, height, 0, 0, image->width, image->height, image->pixels.data(), &info, DIB_RGB_COLORS, SRCCOPY);
+                } else {
+                    auto label = L"Página " + std::to_wstring(i + 1) + L" · Cargando…";
+                    sheet.top += 24; DrawTextW(dc, label.c_str(), -1, &sheet, DT_CENTER | DT_TOP | DT_SINGLELINE);
+                }
+            }
             SelectClipRgn(dc, nullptr);
         } else if (!pages) {
             RECT empty{24, BarHeight, rc.right - 24, rc.bottom - 40};
@@ -386,6 +553,8 @@ public:
         RECT footer{16, rc.bottom - 24, rc.right - 16, rc.bottom};
         FillRect(dc, &footer, background = CreateSolidBrush(RGB(238, 240, 243))); DeleteObject(background);
         DrawTextW(dc, status.c_str(), -1, &footer, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+        BitBlt(target, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
+        SelectObject(dc, oldBuffer); DeleteObject(buffer); DeleteDC(dc);
         EndPaint(window, &ps);
     }
 };
@@ -418,9 +587,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         DragFinish(drop); return 0;
     }
     case Ready: app->Receive(std::unique_ptr<Result>(reinterpret_cast<Result*>(lp))); return 0;
-    case WM_SIZE: app->ScrollTo(app->scroll); if (wp != SIZE_MINIMIZED) SetTimer(window, 1, 120, nullptr); return 0;
+    case WM_SIZE: app->Reflow(); if (wp != SIZE_MINIMIZED) SetTimer(window, 1, 120, nullptr); return 0;
     case WM_TIMER:
-        if (wp == 2) { KillTimer(window, 2); app->BenchmarkResult(false); }
+        if (wp == 3) app->CheckNavigation();
+        else if (wp == 2) { KillTimer(window, 2); app->BenchmarkResult(false); }
         else { KillTimer(window, 1); app->Render(); }
         return 0;
     case WM_GETMINMAXINFO: reinterpret_cast<MINMAXINFO*>(lp)->ptMinTrackSize = {820, 400}; return 0;
@@ -429,11 +599,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         else app->ScrollTo(app->scroll - GET_WHEEL_DELTA_WPARAM(wp)); return 0;
     case WM_VSCROLL: {
         SCROLLINFO info{sizeof(info), SIF_ALL}; GetScrollInfo(window, SB_VERT, &info);
-        int value = app->scroll;
+        std::int64_t value = app->scroll;
         switch (LOWORD(wp)) {
         case SB_LINEUP: value -= 40; break; case SB_LINEDOWN: value += 40; break;
         case SB_PAGEUP: value -= info.nPage; break; case SB_PAGEDOWN: value += info.nPage; break;
-        case SB_THUMBTRACK: value = info.nTrackPos; break;
+        case SB_TOP: value = 0; break; case SB_BOTTOM: value = app->MaxScroll(); break;
+        case SB_THUMBPOSITION: case SB_THUMBTRACK:
+            value = app->layout.Total() < 1000000000 ? info.nTrackPos : static_cast<std::int64_t>(app->MaxScroll() * (info.nTrackPos / (info.nMax - info.nPage + 1.0))); break;
         }
         app->ScrollTo(value); return 0;
     }
@@ -452,7 +624,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     auto started = std::chrono::steady_clock::now();
     int argc = 0; LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    bool benchmark = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-open";
+    bool navigationTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-navigation";
+    bool benchmark = argv && argc == 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest);
     bool shellBenchmark = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-shell";
     SetProcessDPIAware();
     WNDCLASSW wc{}; wc.hInstance = instance; wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
@@ -461,6 +634,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1); RegisterClassW(&wc);
     Reader app;
     app.started = started;
+    app.navigationTest = navigationTest;
     if (benchmark) app.benchmarkReport = argv[3];
     if (shellBenchmark) app.benchmarkReport = argv[2];
     HWND window = CreateWindowW(L"ChucaoReader", L"Chucao PDF Reader", WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_CLIPCHILDREN,
@@ -476,14 +650,20 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
         if (msg.message == WM_KEYDOWN) {
             bool ctrl = GetKeyState(VK_CONTROL) < 0, edit = GetFocus() == app.query;
+            if (!edit && (msg.wParam == VK_NEXT || msg.wParam == VK_PRIOR || msg.wParam == VK_DOWN || msg.wParam == VK_UP || msg.wParam == VK_HOME || msg.wParam == VK_END)) {
+                if (msg.wParam == VK_HOME) app.ScrollTo(0);
+                else if (msg.wParam == VK_END) app.ScrollTo(app.MaxScroll());
+                else app.ScrollTo(app.scroll + (msg.wParam == VK_UP ? -40 : msg.wParam == VK_DOWN ? 40 : msg.wParam == VK_PRIOR ? -app.ViewHeight() + 40 : app.ViewHeight() - 40));
+                continue;
+            }
             int command = 0;
             if (ctrl && msg.wParam == 'O') command = Open;
             else if (ctrl && msg.wParam == 'F') command = Find;
             else if (ctrl && msg.wParam == 'P') command = Print;
             else if (ctrl && msg.wParam == '0') command = Fit;
             else if (msg.wParam == VK_F3 || (edit && msg.wParam == VK_RETURN)) command = FindNext;
-            else if (!edit && (msg.wParam == VK_RIGHT || msg.wParam == VK_NEXT)) command = Next;
-            else if (!edit && (msg.wParam == VK_LEFT || msg.wParam == VK_PRIOR)) command = Previous;
+            else if (!edit && msg.wParam == VK_RIGHT) command = Next;
+            else if (!edit && msg.wParam == VK_LEFT) command = Previous;
             if (command) { app.Command(command); continue; }
         }
         TranslateMessage(&msg); DispatchMessageW(&msg);

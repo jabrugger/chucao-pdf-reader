@@ -13,17 +13,26 @@ $objects = @(
     "<< /Length $($ascii.GetByteCount($content)) >>`nstream`n$content`nendstream",
     '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>'
 )
+function Write-PdfFixture([string]$destination, [string[]]$pdfObjects) {
 $pdf = "%PDF-1.4`n"
 $offsets = @()
-for ($i=0; $i -lt $objects.Count; $i++) {
+for ($i=0; $i -lt $pdfObjects.Count; $i++) {
     $offsets += $ascii.GetByteCount($pdf)
-    $pdf += "$($i+1) 0 obj`n$($objects[$i])`nendobj`n"
+    $pdf += "$($i+1) 0 obj`n$($pdfObjects[$i])`nendobj`n"
 }
 $xref = $ascii.GetByteCount($pdf)
-$pdf += "xref`n0 7`n0000000000 65535 f `n"
+$size = $pdfObjects.Count + 1
+$pdf += "xref`n0 $size`n0000000000 65535 f `n"
 foreach ($offset in $offsets) { $pdf += $offset.ToString('0000000000') + " 00000 n `n" }
-$pdf += "trailer`n<< /Size 7 /Root 1 0 R >>`nstartxref`n$xref`n%%EOF`n"
-[IO.File]::WriteAllBytes($fixture, $ascii.GetBytes($pdf))
+$pdf += "trailer`n<< /Size $size /Root 1 0 R >>`nstartxref`n$xref`n%%EOF`n"
+[IO.File]::WriteAllBytes($destination, $ascii.GetBytes($pdf))
+}
+Write-PdfFixture $fixture $objects
+$objects[1] = '<< /Type /Pages /Kids [3 0 R 6 0 R 7 0 R 8 0 R] /Count 4 >>'
+$objects[5] = $objects[2].Replace('[0 0 612 792]', '[0 0 792 400]')
+$objects += $objects[2].Replace('[0 0 612 792]', '[0 0 612 200]')
+$objects += $objects[2].Replace('[0 0 612 792]', '[0 0 400 1600]')
+Write-PdfFixture ([IO.Path]::Combine($output, 'mixed-pages.pdf')) $objects
 $exe = [IO.Path]::Combine($root, 'build', 'pdf-smoke.exe')
 & $exe $fixture
 if ($LASTEXITCODE -ne 0) { throw 'Falló apertura/renderizado/búsqueda.' }
