@@ -373,6 +373,7 @@ public:
     unsigned long long document = 0, revision = 0;
     int page = 0, pages = 0;
     std::int64_t scroll = 0;
+    int horizontal = 0;
     double zoom = 0;
     bool searching = false, printing = false;
     struct TextPoint { int page = 0; double x = 0, y = 0; };
@@ -413,6 +414,8 @@ public:
         if (textStep == 0 && kind == Result::Image) {
             if (pages < 2) { BenchmarkResult(false); return; }
             textStep = 1; SetWindowTextW(query, L"Chucao"); Search();
+        } else if (textStep == -1 && kind == Result::Image) {
+            textStep = 1; Search();
         } else if (textStep == 1 && kind == Result::Search) {
             if (searchPage != 0 || searchBoxes.empty() || !searchBoxes.front().Valid()) { BenchmarkResult(false); return; }
             testWordStart[0] = searchMatch;
@@ -425,12 +428,18 @@ public:
             const auto& a = boxes[first]; const auto& b = boxes[first + 5];
             selectionStart = {0, (a.left + a.right) / 2, (a.top + a.bottom) / 2};
             selectionEnd = {0, (b.left + b.right) / 2, (b.top + b.bottom) / 2};
+            TextPoint hit;
+            int x = layout.Left(0, ViewWidth(), horizontal) + static_cast<int>(selectionStart.x * layout.Width(0));
+            int y = BarHeight + static_cast<int>(layout.Top(0) - scroll + selectionStart.y * layout.Height(0));
+            if (!PointOnPage(x, y, hit) || NearestCharacter(boxes, hit.x, hit.y, layout.Height(0) / static_cast<double>(layout.Width(0))) != first) { BenchmarkResult(false); return; }
             selected = true; ++selectionRevision; textStep = 3; CopySelection();
         } else if (textStep == 3 && kind == Result::Copied) {
             if (value != L"Chucao") { BenchmarkResult(false); return; }
-            ++textChecks; textStep = 4; Search(true);
+            ++textChecks; textStep = 4; ScrollHorizontal(layout.MaxHorizontal(ViewWidth())); Search(true);
         } else if (textStep == 4 && kind == Result::Search) {
             if (searchPage != 1 || searchBoxes.empty()) { BenchmarkResult(false); return; }
+            int left = layout.Left(1, ViewWidth(), horizontal) + static_cast<int>(searchBoxes.front().left * layout.Width(1));
+            if (left < 0 || left >= ViewWidth()) { BenchmarkResult(false); return; }
             testWordStart[1] = searchMatch;
             ++textChecks; textStep = 5; NeedText(1);
         } else if (textStep == 5 && kind == Result::Geometry) {
@@ -448,6 +457,10 @@ public:
             if (value != crossPageExpected) { BenchmarkResult(false); return; }
             ++textChecks; textStep = 8;
             SaveTestImage(benchmarkReport + L".bmp");
+            if (zoom == 0) {
+                ClearSelection(); textPages.clear(); pendingText.clear();
+                textStep = -1; zoom = 3; Reflow(); Render(); return;
+            }
             BenchmarkResult(true);
         }
     }
@@ -469,23 +482,42 @@ public:
             if (std::abs(before - after) > 0.01 && scroll > 0 && scroll < MaxScroll()) { BenchmarkResult(false); return; }
             break;
         }
-        case 2: navigationStep = 3; ChangePage(pages - 1); break;
-        case 3:
+        case 2: navigationStep = 3; zoom = 4; Reflow(); Render(); break;
+        case 3: {
+            auto before = revision;
+            SendMessageW(window, WM_HSCROLL, SB_RIGHT, 0);
+            int right = layout.Left(page, ViewWidth(), horizontal) + layout.Width(page);
+            if (horizontal <= 0 || horizontal != layout.MaxHorizontal(ViewWidth()) || right > ViewWidth() - DocumentLayout::Gap) { BenchmarkResult(false); return; }
+            SaveTestImage(benchmarkReport + L".horizontal.bmp");
+            SendMessageW(window, WM_HSCROLL, SB_LEFT, 0);
+            if (horizontal != 0 || revision != before) { BenchmarkResult(false); return; }
+            ScrollHorizontal(layout.MaxHorizontal(ViewWidth()) / 2);
+            int anchor = layout.PageAt(scroll);
+            double center = (ViewWidth() / 2.0 - layout.Left(anchor, ViewWidth(), horizontal)) / layout.Width(anchor);
+            Command(Smaller);
+            double after = (ViewWidth() / 2.0 - layout.Left(anchor, ViewWidth(), horizontal)) / layout.Width(anchor);
+            if (std::abs(center - after) > 0.003) { BenchmarkResult(false); return; }
+            navigationStep = 4; Command(Fit);
+            if (horizontal != 0 || layout.MaxHorizontal(ViewWidth()) != 0) { BenchmarkResult(false); return; }
+            break;
+        }
+        case 4: navigationStep = 5; ChangePage(pages - 1); break;
+        case 5:
             // Reuse the last page at the same scale without another render.
             {
                 auto before = revision; ChangePage(pages - 1);
                 if (revision != before) { BenchmarkResult(false); return; }
-                ++navigationHits; navigationStep = 4;
+                ++navigationHits; navigationStep = 6;
             }
             break;
-        case 4: navigationStep = 5; ChangePage(0); break;
-        case 5:
-            navigationStep = 6;
+        case 6: navigationStep = 7; ChangePage(0); break;
+        case 7:
+            navigationStep = 8;
             // Reopen with queued work and verify that old-document results are ignored.
             Load(path); break;
-        case 6: navigationStep = 7; BenchmarkResult(true); break;
+        case 8: navigationStep = 9; BenchmarkResult(true); break;
         }
-        if (navigationStep < 7) PostMessageW(window, WM_TIMER, 3, 0);
+        if (navigationStep < 9) PostMessageW(window, WM_TIMER, 3, 0);
     }
 
     void Redraw() { InvalidateRect(window, nullptr, FALSE); }
@@ -493,7 +525,7 @@ public:
         if (!pages || (!clamp && (y < BarHeight || y >= BarHeight + ViewHeight()))) return false;
         auto documentY = scroll + y - BarHeight;
         int index = layout.PageAt(documentY);
-        int left = std::max(24, (ViewWidth() - layout.Width(index)) / 2);
+        int left = layout.Left(index, ViewWidth(), horizontal);
         double px = (x - left) / static_cast<double>(layout.Width(index));
         double py = (documentY - layout.Top(index)) / static_cast<double>(layout.Height(index));
         if (!clamp && (px < 0 || px > 1 || py < 0 || py > 1)) return false;
@@ -563,9 +595,17 @@ public:
     int ViewHeight() const { RECT rc{}; GetClientRect(window, &rc); return std::max<int>(1, rc.bottom - BarHeight - 26); }
     int ViewWidth() const { RECT rc{}; GetClientRect(window, &rc); return rc.right; }
     std::int64_t MaxScroll() const { return std::max<std::int64_t>(0, layout.Total() - ViewHeight()); }
+    void ScrollHorizontal(int value) {
+        horizontal = std::max(0, std::min(value, layout.MaxHorizontal(ViewWidth())));
+        SCROLLINFO info{sizeof(info), SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL};
+        info.nMax = layout.HorizontalExtent(ViewWidth()) - 1;
+        info.nPage = ViewWidth(); info.nPos = horizontal;
+        SetScrollInfo(window, SB_HORZ, &info, TRUE); Redraw();
+    }
     void PageStatus() { if (pages) status = L"Página " + std::to_wstring(page + 1) + L" de " + std::to_wstring(pages); }
     void ScrollTo(std::int64_t value, bool request = true) {
         RECT rc{}; GetClientRect(window, &rc);
+        ScrollHorizontal(horizontal);
         scroll = std::max<std::int64_t>(0, std::min(value, MaxScroll()));
         int previous = page;
         if (pages) page = layout.PageAt(scroll + std::min(40, ViewHeight() / 2));
@@ -587,8 +627,10 @@ public:
     void Reflow(bool keepAnchor = true) {
         int anchor = pages ? layout.PageAt(scroll) : 0;
         double fraction = pages && layout.Count() ? (scroll - layout.Top(anchor)) / static_cast<double>(layout.Height(anchor)) : 0;
+        double center = pages && layout.Count() ? (ViewWidth() / 2.0 - layout.Left(anchor, ViewWidth(), horizontal)) / layout.Width(anchor) : 0.5;
         layout.Rebuild(ViewWidth(), zoom);
         if (keepAnchor && pages) scroll = layout.Top(anchor) + static_cast<std::int64_t>(fraction * layout.Height(anchor));
+        if (keepAnchor && pages) horizontal = static_cast<int>(layout.Left(anchor, ViewWidth()) + center * layout.Width(anchor) - ViewWidth() / 2.0);
         ScrollTo(scroll, false);
     }
     void TrimCache() {
@@ -638,9 +680,10 @@ public:
         if (!worker) worker = std::make_unique<PdfWorker>(window);
         if (!retry) {
             EndSelection(); ClearSelection(); textPages.clear(); pendingText.clear(); searchPage = -1; searchBoxes.clear();
-            path = file; ++document; pages = 0; page = 0; scroll = 0; zoom = 0; searching = false;
+            path = file; ++document; pages = 0; page = 0; scroll = 0; horizontal = 0; zoom = 0; searching = false;
             cache.clear(); cacheBytes = 0; layout.Reset(0); layout.Rebuild(ViewWidth(), zoom);
             planned.clear(); renderWidth = 0; renderZoom = -1; ++viewVersion;
+            ScrollHorizontal(0);
         }
         status = L"Abriendo documento…"; Redraw(); worker->Load(path, password, document);
     }
@@ -707,7 +750,7 @@ public:
         switch (result->kind) {
         case Result::Opened:
             openedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-            pages = result->pages; layout.Reset(pages); layout.Rebuild(ViewWidth(), zoom);
+            pages = result->pages; layout.Reset(pages); layout.Rebuild(ViewWidth(), zoom); ScrollTo(0, false);
             SetWindowTextW(window, (L"Chucao — " + path.substr(path.find_last_of(L"\\/") + 1)).c_str()); PageStatus(); Render(); break;
         case Result::Image:
             // A completed bitmap from the same zoom/width is useful even if the
@@ -715,10 +758,7 @@ public:
             if (result->viewVersion != viewVersion) return;
             {
                 int index = result->page;
-                int anchor = layout.PageAt(scroll);
-                double fraction = (scroll - layout.Top(anchor)) / static_cast<double>(layout.Height(anchor));
-                layout.Learn(index, result->pageWidth, result->pageHeight); layout.Rebuild(ViewWidth(), zoom);
-                scroll = layout.Top(anchor) + static_cast<std::int64_t>(fraction * layout.Height(anchor));
+                layout.Learn(index, result->pageWidth, result->pageHeight); Reflow();
                 auto& entry = cache[index];
                 if (entry.image) cacheBytes -= entry.image->pixels.size();
                 cacheBytes += result->pixels.size(); entry = {std::move(result), viewVersion, ++useClock};
@@ -741,13 +781,11 @@ public:
             if (result->text != Text(query)) break;
             searchBoxes.clear(); searchPage = -1;
             if (result->match >= 0) {
-                int anchor = layout.PageAt(scroll);
-                double fraction = (scroll - layout.Top(anchor)) / static_cast<double>(layout.Height(anchor));
-                layout.Learn(result->page, result->pageWidth, result->pageHeight); layout.Rebuild(ViewWidth(), zoom);
-                scroll = layout.Top(anchor) + static_cast<std::int64_t>(fraction * layout.Height(anchor));
+                layout.Learn(result->page, result->pageWidth, result->pageHeight); Reflow();
                 searchPage = result->page; searchMatch = result->match; searchBoxes = std::move(result->boxes);
                 double top = searchBoxes.empty() ? 0 : searchBoxes.front().top;
                 ScrollTo(layout.Top(searchPage) + static_cast<std::int64_t>(top * layout.Height(searchPage)) - ViewHeight() / 3);
+                if (!searchBoxes.empty()) ScrollHorizontal(static_cast<int>(layout.Left(searchPage, ViewWidth()) + searchBoxes.front().left * layout.Width(searchPage) - ViewWidth() / 3.0));
                 status = L"Coincidencia en página " + std::to_wstring(result->page + 1) + L". F3: siguiente.";
             } else status = L"No se encontró el texto.";
             Redraw(); CheckText(Result::Search); break;
@@ -791,7 +829,7 @@ public:
             SetStretchBltMode(dc, COLORONCOLOR); // Quick preview while a new zoom is rendered.
             for (int i = first; i <= last; ++i) {
                 int width = layout.Width(i), height = layout.Height(i);
-                int x = std::max<int>(24, (rc.right - width) / 2);
+                int x = layout.Left(i, ViewWidth(), horizontal);
                 int y = BarHeight + static_cast<int>(layout.Top(i) - scroll);
                 RECT sheet{x, y, x + width, y + height};
                 FillRect(dc, &sheet, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
@@ -902,6 +940,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
             POINT pointer{}; GetCursorPos(&pointer); ScreenToClient(window, &pointer);
             if (pointer.y < BarHeight + 20) { app->ScrollTo(app->scroll - 28); app->MoveSelection(pointer.x, pointer.y); }
             else if (pointer.y > BarHeight + app->ViewHeight() - 20) { app->ScrollTo(app->scroll + 28); app->MoveSelection(pointer.x, pointer.y); }
+            if (pointer.x < 20) { app->ScrollHorizontal(app->horizontal - 28); app->MoveSelection(pointer.x, pointer.y); }
+            else if (pointer.x > app->ViewWidth() - 20) { app->ScrollHorizontal(app->horizontal + 28); app->MoveSelection(pointer.x, pointer.y); }
         }
         else if (wp == 3) app->CheckNavigation();
         else if (wp == 2) { KillTimer(window, 2); app->BenchmarkResult(false); }
@@ -910,7 +950,20 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     case WM_GETMINMAXINFO: reinterpret_cast<MINMAXINFO*>(lp)->ptMinTrackSize = {820, 400}; return 0;
     case WM_MOUSEWHEEL:
         if (GetKeyState(VK_CONTROL) < 0) app->Command(GET_WHEEL_DELTA_WPARAM(wp) > 0 ? Larger : Smaller);
+        else if (GetKeyState(VK_SHIFT) < 0) app->ScrollHorizontal(app->horizontal - GET_WHEEL_DELTA_WPARAM(wp));
         else app->ScrollTo(app->scroll - GET_WHEEL_DELTA_WPARAM(wp)); return 0;
+    case WM_MOUSEHWHEEL: app->ScrollHorizontal(app->horizontal + GET_WHEEL_DELTA_WPARAM(wp)); return 0;
+    case WM_HSCROLL: {
+        SCROLLINFO info{sizeof(info), SIF_ALL}; GetScrollInfo(window, SB_HORZ, &info);
+        int value = app->horizontal;
+        switch (LOWORD(wp)) {
+        case SB_LINELEFT: value -= 40; break; case SB_LINERIGHT: value += 40; break;
+        case SB_PAGELEFT: value -= info.nPage; break; case SB_PAGERIGHT: value += info.nPage; break;
+        case SB_LEFT: value = 0; break; case SB_RIGHT: value = app->layout.MaxHorizontal(app->ViewWidth()); break;
+        case SB_THUMBPOSITION: case SB_THUMBTRACK: value = info.nTrackPos; break;
+        }
+        app->ScrollHorizontal(value); return 0;
+    }
     case WM_VSCROLL: {
         SCROLLINFO info{sizeof(info), SIF_ALL}; GetScrollInfo(window, SB_VERT, &info);
         std::int64_t value = app->scroll;
@@ -953,7 +1006,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.textTest = textTest;
     if (benchmark) app.benchmarkReport = argv[3];
     if (shellBenchmark) app.benchmarkReport = argv[2];
-    HWND window = CreateWindowW(L"ChucaoReader", L"Chucao PDF Reader", WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_CLIPCHILDREN,
+    HWND window = CreateWindowW(L"ChucaoReader", L"Chucao PDF Reader", WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_HSCROLL | WS_CLIPCHILDREN,
         CW_USEDEFAULT, CW_USEDEFAULT, 1080, 800, nullptr, nullptr, instance, &app);
     if (!window) return 1;
     if (!benchmark && !shellBenchmark) { ShowWindow(window, show); UpdateWindow(window); }

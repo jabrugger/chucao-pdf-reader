@@ -16,9 +16,17 @@ int main() {
         layout.Learn(0, 600, 400); layout.Learn(1, 300, 900); layout.Rebuild(1000, 0);
         Check(layout.Height(1) > oldHeight && layout.Height(2) == layout.Height(0), "mixed sizes and estimates");
         Check(layout.Width(0) == layout.Width(1), "fit width");
+        Check(layout.MaxHorizontal(1000) == 0 && layout.Left(0, 1000) >= DocumentLayout::Gap, "fit horizontal bounds");
         auto position = layout.Top(1) + layout.Height(1) / 3;
         double fraction = (position - layout.Top(1)) / static_cast<double>(layout.Height(1));
         layout.Rebuild(1000, 2);
+        Check(layout.MaxHorizontal(1000) > 0, "zoom horizontal overflow");
+        int extent = layout.HorizontalExtent(1000);
+        for (int i = 0; i < layout.Count(); ++i) {
+            Check(layout.Left(i, 1000) >= DocumentLayout::Gap, "left edge reachable");
+            Check(layout.Left(i, 1000, layout.MaxHorizontal(1000)) + layout.Width(i) <= 1000 - DocumentLayout::Gap, "right edge reachable");
+            Check(layout.Left(i, 1000) * 2 + layout.Width(i) >= extent - 1, "mixed pages centered");
+        }
         auto restored = layout.Top(1) + static_cast<std::int64_t>(fraction * layout.Height(1));
         Check(layout.PageAt(restored) == 1, "zoom anchor page");
         Check(std::abs((restored-layout.Top(1))/static_cast<double>(layout.Height(1))-fraction) < 0.001, "zoom anchor fraction");

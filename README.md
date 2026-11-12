@@ -11,8 +11,10 @@ funcional; todavía no representa el diseño final inspirado en MarkPad.
 
 ## Compilar (Windows x64)
 
-Requiere Visual Studio con las herramientas de C++ y Windows SDK; se admite el
-compilador de Visual Studio 2017 instalado en esta PC y versiones posteriores.
+Requiere Visual Studio con las herramientas de C++ x64 y Windows SDK (carga
+«Desarrollo para el escritorio con C++»). El script detecta la instalación con
+`vswhere`, admite un Developer Command Prompt x64 y conserva el respaldo para
+Visual Studio 2017 de la PC original.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/setup-pdfium.ps1
@@ -31,6 +33,8 @@ El motor y sus avisos de terceros se conservan en `deps/pdfium`; no se suben al 
 - Lectura continua: rueda, barra de desplazamiento, Page Up/Page Down y flechas arriba/abajo.
 - Home/End: principio/final del documento.
 - Zoom: botones +/−, Ctrl+rueda. Ajustar al ancho: Ctrl+0.
+- Desplazamiento horizontal: barra inferior, Shift+rueda o rueda horizontal.
+  La búsqueda lleva también a las coincidencias fuera del ancho visible.
 - Buscar: Ctrl+F, escribir y pulsar Enter; F3 avanza y Shift+F3 retrocede.
   La coincidencia aparece resaltada y la vista se desplaza hasta ella.
 - Seleccionar: arrastrar sobre el texto, incluso entre páginas. Ctrl+C copia;
