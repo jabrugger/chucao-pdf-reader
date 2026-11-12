@@ -31,7 +31,10 @@ El motor y sus avisos de terceros se conservan en `deps/pdfium`; no se suben al 
 - Lectura continua: rueda, barra de desplazamiento, Page Up/Page Down y flechas arriba/abajo.
 - Home/End: principio/final del documento.
 - Zoom: botones +/−, Ctrl+rueda. Ajustar al ancho: Ctrl+0.
-- Buscar: Ctrl+F, escribir y pulsar Enter; F3 repite la búsqueda.
+- Buscar: Ctrl+F, escribir y pulsar Enter; F3 avanza y Shift+F3 retrocede.
+  La coincidencia aparece resaltada y la vista se desplaza hasta ella.
+- Seleccionar: arrastrar sobre el texto, incluso entre páginas. Ctrl+C copia;
+  Escape limpia la selección. Al arrastrar cerca de un borde la vista se desplaza.
 - Imprimir: Ctrl+P (diálogo de Windows, documento completo o rango de páginas).
 - Los documentos cifrados solicitan contraseña; no se guarda en disco ni en logs.
 - El zoom conserva la página y la posición de lectura; la imagen anterior sirve de
@@ -42,8 +45,10 @@ los puntos de pausa que ofrece PDFium; las páginas visibles tienen prioridad so
 la precarga de vecinas. La caché de imágenes está limitada a 96 MiB y cada render a
 12 millones de píxeles; estos límites no incluyen la memoria interna del motor.
 Las dimensiones de las páginas lejanas se estiman hasta visitarlas, para evitar
-recorrer el PDF completo al abrir. Todavía faltan selección/copia de texto, índice,
-pestañas, persistencia de posición y pulido visual/accesibilidad. Buscar en escaneos requiere
+recorrer el PDF completo al abrir. La geometría del texto se obtiene bajo demanda
+al seleccionar, con caché acotada. La copia respeta los permisos del PDF y usa
+Unicode en el portapapeles. Todavía faltan índice, pestañas, persistencia de posición
+y pulido visual/accesibilidad. Buscar o seleccionar en escaneos requiere
 una capa de texto ya existente. No se implementará OCR.
 
 PDFium se carga e inicializa al abrir el primer documento; abrir la ventana vacía
@@ -73,7 +78,9 @@ incorporarla a Chucao. Ver [mediciones](docs/performance.md).
 
 ## Verificación
 
-`-Navigation` mide toda la secuencia de prueba, no solo la apertura.
+`-Navigation` y `-Text` miden toda la secuencia de prueba, no solo la apertura.
+Las pruebas de texto no modifican el portapapeles: verifican internamente el
+resultado y generan imágenes locales del visor para inspección visual.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/smoke-test.ps1

@@ -1,4 +1,5 @@
 #include "../src/document-layout.h"
+#include "../src/text-geometry.h"
 #include <cstdio>
 #include <stdexcept>
 
@@ -25,6 +26,12 @@ int main() {
         Check(layout.Total() > 2147483647LL, "64-bit scroll extent");
         Check(layout.PageAt(layout.Top(199999)) == 199999, "last page in large layout");
         Check(layout.Width(0) * static_cast<long long>(layout.Height(0)) <= 12000000, "bitmap bound");
+        std::vector<TextBox> boxes{{.1, .1, .2, .2}, {.21, .1, .3, .2}, {}, {.1, .3, .2, .4}};
+        Check(NearestCharacter(boxes, .25, .15, 1) == 1, "character hit");
+        Check(NearestCharacter(boxes, .15, .35, 1) == 3, "line hit");
+        Check(NearestCharacter({}, .1, .1, 1) == -1, "empty text page");
+        Check(SelectionBoxes(boxes, 0, 3).size() == 2, "line selection merging");
+        Check(SelectionBoxes(boxes, 3, 1).empty(), "empty selection interval");
         std::puts("layout: bounds, mixed pages, estimates, zoom anchor and 64-bit extent OK"); return 0;
     } catch (const std::exception& error) { std::fprintf(stderr, "%s\n", error.what()); return 1; }
 }

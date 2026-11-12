@@ -6,6 +6,7 @@
 #include <fpdf_text.h>
 #include <fpdf_progressive.h>
 #include "document-layout.h"
+#include "text-geometry.h"
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
@@ -20,11 +21,35 @@
 #include <chrono>
 #include <cstdio>
 #include <map>
+#include <set>
 
 namespace {
 constexpr UINT Ready = WM_APP + 1;
 constexpr int BarHeight = 58;
-enum { Open = 100, Previous, Next, Smaller, Larger, Fit, Find, Print, Query, FindNext };
+enum { Open = 100, Previous, Next, Smaller, Larger, Fit, Find, Print, Query, FindNext, FindPrevious, Copy };
+
+TextBox PageBox(FPDF_PAGE page, double left, double right, double bottom, double top) {
+    int x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+    if (!FPDF_PageToDevice(page, 0, 0, 100000, 100000, 0, left, bottom, &x1, &y1) ||
+        !FPDF_PageToDevice(page, 0, 0, 100000, 100000, 0, right, top, &x2, &y2)) return {};
+    auto unit = [](int value) { return std::max(0.0, std::min(1.0, value / 100000.0)); };
+    return {unit(std::min(x1, x2)), unit(std::min(y1, y2)), unit(std::max(x1, x2)), unit(std::max(y1, y2))};
+}
+
+void Highlight(HDC dc, int x, int y, int width, int height, const std::vector<TextBox>& boxes, COLORREF color) {
+    if (boxes.empty()) return;
+    HDC tint = CreateCompatibleDC(dc); HBITMAP pixel = CreateCompatibleBitmap(dc, 1, 1);
+    if (!tint || !pixel) { if (tint) DeleteDC(tint); if (pixel) DeleteObject(pixel); return; }
+    auto old = SelectObject(tint, pixel); SetPixel(tint, 0, 0, color);
+    BLENDFUNCTION blend{AC_SRC_OVER, 0, 85, 0};
+    for (const auto& box : boxes) {
+        if (!box.Valid()) continue;
+        int left = x + static_cast<int>(box.left * width), top = y + static_cast<int>(box.top * height);
+        int right = x + static_cast<int>(std::ceil(box.right * width)), bottom = y + static_cast<int>(std::ceil(box.bottom * height));
+        AlphaBlend(dc, left, top, std::max(1, right - left), std::max(1, bottom - top), tint, 0, 0, 1, 1, blend);
+    }
+    SelectObject(tint, old); DeleteObject(pixel); DeleteDC(tint);
+}
 
 std::string Utf8(const std::wstring& value) {
     int size = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
@@ -39,12 +64,15 @@ std::wstring Text(HWND window) {
     return value;
 }
 struct Result {
-    enum Kind { Image, Opened, Password, Failure, Search, Printed } kind = Failure;
+    enum Kind { Image, Opened, Password, Failure, Search, Printed, Geometry, Copied } kind = Failure;
     unsigned long long document = 0, revision = 0, viewVersion = 0;
     int page = 0, pages = 0, width = 0, height = 0, match = -1;
     double milliseconds = 0;
     double scale = 1;
     double pageWidth = 0, pageHeight = 0;
+    bool copyAllowed = false;
+    std::vector<TextBox> boxes;
+    std::wstring text;
     std::wstring message;
     std::vector<unsigned char> pixels;
 };
@@ -60,6 +88,7 @@ class PdfWorker {
     unsigned long long document_ = 0;
     std::atomic<unsigned long long> revision_{0};
     std::atomic<unsigned long long> wantedDocument_{0};
+    std::atomic<unsigned long long> searchRevision_{0};
     std::atomic<bool> cancelled_{false};
     int searchPage_ = -1, searchIndex_ = -1;
     std::wstring lastQuery_;
@@ -98,6 +127,7 @@ public:
     }
     void Load(std::wstring path, std::wstring password, unsigned long long document) {
         wantedDocument_ = document;
+        ++searchRevision_;
         ++revision_;
         Queue([this, path, password, document] {
             if (cancelled_ || document != wantedDocument_) return;
@@ -163,26 +193,91 @@ public:
         });
         return revision;
     }
-    void Search(std::wstring query, int page, unsigned long long document) {
-        Queue([this, query, page, document] {
+    void CancelSearch() { ++searchRevision_; }
+    void Search(std::wstring query, int page, unsigned long long document, bool backwards = false) {
+        auto searchRevision = ++searchRevision_;
+        Queue([this, query, page, document, backwards, searchRevision] {
             if (cancelled_ || !pdf_ || document != document_ || query.empty()) return;
             auto result = std::make_unique<Result>(); result->kind = Result::Search;
+            result->text = query;
             int count = FPDF_GetPageCount(pdf_);
-            int first = query == lastQuery_ && searchPage_ == page ? searchIndex_ + 1 : 0;
-            for (int step = 0; step <= count && !cancelled_ && document == wantedDocument_; ++step) {
-                int index = (page + step) % count;
+            int first = query == lastQuery_ && searchPage_ == page ? searchIndex_ + (backwards ? -1 : 1) : (backwards ? -1 : 0);
+            bool beforeStart = backwards && query == lastQuery_ && searchPage_ == page && searchIndex_ == 0;
+            for (int step = 0; step <= count && !cancelled_ && document == wantedDocument_ && searchRevision == searchRevision_; ++step) {
+                if (step == 0 && beforeStart) continue;
+                int index = (page + (backwards ? -step : step) + count) % count;
                 FPDF_PAGE pdfPage = FPDF_LoadPage(pdf_, index);
                 if (!pdfPage) continue;
                 FPDF_TEXTPAGE text = FPDFText_LoadPage(pdfPage);
-                auto find = text ? FPDFText_FindStart(text, reinterpret_cast<FPDF_WIDESTRING>(query.c_str()), 0, step == 0 ? first : 0) : nullptr;
-                bool found = find && FPDFText_FindNext(find);
+                auto find = text ? FPDFText_FindStart(text, reinterpret_cast<FPDF_WIDESTRING>(query.c_str()), 0, step == 0 ? first : (backwards ? -1 : 0)) : nullptr;
+                bool found = find && (backwards ? FPDFText_FindPrev(find) : FPDFText_FindNext(find));
                 int match = found ? FPDFText_GetSchResultIndex(find) : -1;
+                if (found) {
+                    result->pageWidth = FPDF_GetPageWidth(pdfPage); result->pageHeight = FPDF_GetPageHeight(pdfPage);
+                    int rectangles = FPDFText_CountRects(text, match, FPDFText_GetSchCount(find));
+                    for (int i = 0; i < rectangles; ++i) {
+                        double left, right, top, bottom;
+                        if (FPDFText_GetRect(text, i, &left, &top, &right, &bottom)) result->boxes.push_back(PageBox(pdfPage, left, right, bottom, top));
+                    }
+                }
                 if (find) FPDFText_FindClose(find);
                 if (text) FPDFText_ClosePage(text);
                 FPDF_ClosePage(pdfPage);
                 if (found) {
                     result->page = index; result->match = match;
                     searchPage_ = index; searchIndex_ = match; lastQuery_ = query; break;
+                }
+            }
+            if (searchRevision == searchRevision_) Send(std::move(result));
+        });
+    }
+    void TextGeometry(int page, unsigned long long document) {
+        Queue([this, page, document] {
+            if (cancelled_ || !pdf_ || document != document_ || document != wantedDocument_) return;
+            auto result = std::make_unique<Result>(); result->kind = Result::Geometry; result->page = page;
+            result->copyAllowed = (FPDF_GetDocPermissions(pdf_) & 16) != 0;
+            FPDF_PAGE pdfPage = FPDF_LoadPage(pdf_, page);
+            FPDF_TEXTPAGE text = pdfPage ? FPDFText_LoadPage(pdfPage) : nullptr;
+            int count = text ? FPDFText_CountChars(text) : 0;
+            if (count > 200000) result->message = L"Esta página tiene demasiado texto para seleccionar.";
+            else if (count > 0) {
+                result->boxes.resize(count);
+                for (int i = 0; i < count && !cancelled_ && document == wantedDocument_; ++i) {
+                    double left, right, bottom, top;
+                    if (FPDFText_GetCharBox(text, i, &left, &right, &bottom, &top)) result->boxes[i] = PageBox(pdfPage, left, right, bottom, top);
+                }
+            }
+            if (text) FPDFText_ClosePage(text);
+            if (pdfPage) FPDF_ClosePage(pdfPage);
+            if (!cancelled_ && document == wantedDocument_) Send(std::move(result));
+        });
+    }
+    void CopyText(int firstPage, int firstChar, int lastPage, int lastChar, unsigned long long document, unsigned long long selection) {
+        Queue([this, firstPage, firstChar, lastPage, lastChar, document, selection] {
+            if (cancelled_ || !pdf_ || document != document_ || document != wantedDocument_) return;
+            auto result = std::make_unique<Result>(); result->kind = Result::Copied; result->revision = selection;
+            if (!(FPDF_GetDocPermissions(pdf_) & 16)) result->message = L"El documento no permite copiar texto con esta contraseña.";
+            else {
+                for (int i = firstPage; i <= lastPage && !cancelled_ && document == wantedDocument_; ++i) {
+                    FPDF_PAGE pdfPage = FPDF_LoadPage(pdf_, i);
+                    FPDF_TEXTPAGE text = pdfPage ? FPDFText_LoadPage(pdfPage) : nullptr;
+                    if (!text) result->message = L"No se pudo leer todo el texto seleccionado.";
+                    int total = text ? FPDFText_CountChars(text) : 0;
+                    int start = i == firstPage ? firstChar : 0;
+                    int end = i == lastPage ? std::min(total, lastChar + 1) : total;
+                    int count = std::max(0, end - start);
+                    if (count > 1000000 || result->text.size() + count > 1000000) result->message = L"La selección es demasiado grande para copiar de una vez.";
+                    if (result->message.empty() && count) {
+                        std::vector<unsigned short> buffer(static_cast<size_t>(count) + 1);
+                        int written = FPDFText_GetText(text, start, count, buffer.data());
+                        if (written > 1) {
+                            if (!result->text.empty()) result->text += L"\r\n";
+                            result->text.append(reinterpret_cast<wchar_t*>(buffer.data()), written - 1);
+                        }
+                    }
+                    if (text) FPDFText_ClosePage(text);
+                    if (pdfPage) FPDF_ClosePage(pdfPage);
+                    if (!result->message.empty()) { result->text.clear(); break; }
                 }
             }
             Send(std::move(result));
@@ -280,9 +375,24 @@ public:
     std::int64_t scroll = 0;
     double zoom = 0;
     bool searching = false, printing = false;
+    struct TextPoint { int page = 0; double x = 0, y = 0; };
+    struct Endpoint { int page = 0, character = -1; };
+    std::map<int, std::vector<TextBox>> textPages;
+    std::set<int> pendingText;
+    TextPoint selectionStart, selectionEnd;
+    POINT dragStart{};
+    bool dragging = false, selected = false, copyWhenReady = false;
+    unsigned long long selectionRevision = 0;
+    int searchPage = -1;
+    int searchMatch = -1;
+    int testWordStart[2]{0, 0};
+    std::vector<TextBox> searchBoxes;
     std::wstring path, status = L"Abrí un PDF para empezar · Ctrl+O";
     std::wstring benchmarkReport;
     bool navigationTest = false;
+    bool textTest = false;
+    int textStep = 0, textChecks = 0;
+    std::wstring crossPageExpected;
     int navigationStep = 0;
     size_t navigationHits = 0;
     std::chrono::steady_clock::time_point started;
@@ -290,11 +400,56 @@ public:
     void BenchmarkResult(bool success) {
         if (benchmarkReport.empty()) return;
         double readyMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-        char data[512]{};
-        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d,\"navigation_steps\":%d,\"cache_hits\":%zu,\"cache_bytes\":%zu}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages, navigationStep, navigationHits, cacheBytes);
+        char data[768]{};
+        Endpoint a, b; SelectionRange(a, b);
+        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d,\"navigation_steps\":%d,\"cache_hits\":%zu,\"cache_bytes\":%zu,\"text_checks\":%d,\"text_step\":%d,\"selection_first\":%d,\"selection_last\":%d}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages, navigationStep, navigationHits, cacheBytes, textChecks, textStep, a.character, b.character);
         HANDLE output = CreateFileW(benchmarkReport.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (output != INVALID_HANDLE_VALUE) { DWORD written = 0; WriteFile(output, data, size, &written, nullptr); CloseHandle(output); }
         PostMessageW(window, WM_CLOSE, 0, 0);
+    }
+    void CheckText(Result::Kind kind, const std::wstring& value = L"") {
+        // The diagnostic consumes copy results internally, never touches the clipboard.
+        if (!textTest) return;
+        if (textStep == 0 && kind == Result::Image) {
+            if (pages < 2) { BenchmarkResult(false); return; }
+            textStep = 1; SetWindowTextW(query, L"Chucao"); Search();
+        } else if (textStep == 1 && kind == Result::Search) {
+            if (searchPage != 0 || searchBoxes.empty() || !searchBoxes.front().Valid()) { BenchmarkResult(false); return; }
+            testWordStart[0] = searchMatch;
+            SaveTestImage(benchmarkReport + L".search.bmp");
+            ++textChecks; textStep = 2; NeedText(0);
+        } else if (textStep == 2 && kind == Result::Geometry) {
+            const auto& boxes = textPages[0];
+            int first = testWordStart[0];
+            if (first < 0 || boxes.size() < static_cast<size_t>(first + 6) || !boxes[first].Valid() || !boxes[first + 5].Valid()) { BenchmarkResult(false); return; }
+            const auto& a = boxes[first]; const auto& b = boxes[first + 5];
+            selectionStart = {0, (a.left + a.right) / 2, (a.top + a.bottom) / 2};
+            selectionEnd = {0, (b.left + b.right) / 2, (b.top + b.bottom) / 2};
+            selected = true; ++selectionRevision; textStep = 3; CopySelection();
+        } else if (textStep == 3 && kind == Result::Copied) {
+            if (value != L"Chucao") { BenchmarkResult(false); return; }
+            ++textChecks; textStep = 4; Search(true);
+        } else if (textStep == 4 && kind == Result::Search) {
+            if (searchPage != 1 || searchBoxes.empty()) { BenchmarkResult(false); return; }
+            testWordStart[1] = searchMatch;
+            ++textChecks; textStep = 5; NeedText(1);
+        } else if (textStep == 5 && kind == Result::Geometry) {
+            const auto& start = textPages[1]; const auto& end = textPages[0];
+            if (testWordStart[1] < 0 || start.size() < static_cast<size_t>(testWordStart[1] + 6) || end.empty()) { BenchmarkResult(false); return; }
+            const auto& a = start[testWordStart[1] + 5]; const auto& b = end[testWordStart[0]];
+            selectionStart = {1, (a.left + a.right) / 2, (a.top + a.bottom) / 2};
+            selectionEnd = {0, (b.left + b.right) / 2, (b.top + b.bottom) / 2};
+            selected = true; ++selectionRevision; textStep = 6; CopySelection();
+        } else if (textStep == 6 && kind == Result::Copied) {
+            if (value.size() <= 12 || value.substr(0, 6) != L"Chucao" || value.substr(value.size() - 6) != L"Chucao" || value.find(L"\r\n") == std::wstring::npos || value.find(L"café") == std::wstring::npos) { BenchmarkResult(false); return; }
+            crossPageExpected = value; ++textChecks;
+            std::swap(selectionStart, selectionEnd); ++selectionRevision; textStep = 7; CopySelection();
+        } else if (textStep == 7 && kind == Result::Copied) {
+            if (value != crossPageExpected) { BenchmarkResult(false); return; }
+            ++textChecks; textStep = 8;
+            SaveTestImage(benchmarkReport + L".bmp");
+            BenchmarkResult(true);
+        }
     }
     void CheckNavigation() {
         if (!navigationTest || !pages || benchmarkReport.empty()) return;
@@ -334,6 +489,77 @@ public:
     }
 
     void Redraw() { InvalidateRect(window, nullptr, FALSE); }
+    bool PointOnPage(int x, int y, TextPoint& point, bool clamp = false) {
+        if (!pages || (!clamp && (y < BarHeight || y >= BarHeight + ViewHeight()))) return false;
+        auto documentY = scroll + y - BarHeight;
+        int index = layout.PageAt(documentY);
+        int left = std::max(24, (ViewWidth() - layout.Width(index)) / 2);
+        double px = (x - left) / static_cast<double>(layout.Width(index));
+        double py = (documentY - layout.Top(index)) / static_cast<double>(layout.Height(index));
+        if (!clamp && (px < 0 || px > 1 || py < 0 || py > 1)) return false;
+        point = {index, std::max(0.0, std::min(1.0, px)), std::max(0.0, std::min(1.0, py))}; return true;
+    }
+    void NeedText(int index) {
+        if (textPages.count(index) || pendingText.count(index)) return;
+        if (pendingText.size() >= 4) return;
+        pendingText.insert(index); worker->TextGeometry(index, document);
+    }
+    void SelectionText() {
+        NeedText(selectionStart.page); NeedText(selectionEnd.page);
+        int low = std::min(selectionStart.page, selectionEnd.page), high = std::max(selectionStart.page, selectionEnd.page);
+        int first = layout.PageAt(scroll), last = layout.PageAt(scroll + ViewHeight());
+        for (int i = std::max(low, first); i <= std::min(high, last); ++i) NeedText(i);
+    }
+    bool SelectionRange(Endpoint& first, Endpoint& last) {
+        if (!selected) return false;
+        auto a = textPages.find(selectionStart.page), b = textPages.find(selectionEnd.page);
+        if (a == textPages.end() || b == textPages.end()) return false;
+        first = {selectionStart.page, NearestCharacter(a->second, selectionStart.x, selectionStart.y, layout.Height(selectionStart.page) / static_cast<double>(layout.Width(selectionStart.page)))};
+        last = {selectionEnd.page, NearestCharacter(b->second, selectionEnd.x, selectionEnd.y, layout.Height(selectionEnd.page) / static_cast<double>(layout.Width(selectionEnd.page)))};
+        if (first.character < 0 || last.character < 0) return false;
+        if (first.page > last.page || (first.page == last.page && first.character > last.character)) std::swap(first, last);
+        return true;
+    }
+    void ClearSelection() { selected = false; copyWhenReady = false; ++selectionRevision; Redraw(); }
+    void BeginSelection(int x, int y) {
+        TextPoint point;
+        if (!PointOnPage(x, y, point)) { ClearSelection(); SetFocus(window); return; }
+        ClearSelection(); selectionStart = selectionEnd = point; dragStart = {x, y}; dragging = true;
+        SetFocus(window); SetCapture(window); SetTimer(window, 4, 35, nullptr); NeedText(point.page);
+    }
+    void MoveSelection(int x, int y) {
+        if (!dragging) return;
+        TextPoint point; if (!PointOnPage(x, y, point, true)) return;
+        if (std::abs(x - dragStart.x) + std::abs(y - dragStart.y) >= 3 || point.page != selectionStart.page) selected = true;
+        selectionEnd = point; copyWhenReady = false; ++selectionRevision; SelectionText(); Redraw();
+    }
+    void EndSelection() { dragging = false; KillTimer(window, 4); if (GetCapture() == window) ReleaseCapture(); }
+    void CopySelection() {
+        if (!selected) return;
+        Endpoint first, last;
+        if (!SelectionRange(first, last)) {
+            if (!pendingText.empty()) { copyWhenReady = true; status = L"Preparando texto…"; }
+            else status = L"No hay texto seleccionable en esta zona.";
+            Redraw(); return;
+        }
+        copyWhenReady = false;
+        worker->CopyText(first.page, first.character, last.page, last.character, document, selectionRevision);
+    }
+    void SetClipboardText(const std::wstring& value) {
+        if (value.empty()) { status = L"La selección no contiene texto."; Redraw(); return; }
+        size_t bytes = (value.size() + 1) * sizeof(wchar_t);
+        HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
+        void* destination = memory ? GlobalLock(memory) : nullptr;
+        if (!destination) { if (memory) GlobalFree(memory); status = L"No hay memoria para copiar el texto."; Redraw(); return; }
+        memcpy(destination, value.c_str(), bytes); GlobalUnlock(memory);
+        if (!OpenClipboard(window)) { GlobalFree(memory); status = L"El portapapeles está ocupado. Intentá copiar otra vez."; }
+        else {
+            if (EmptyClipboard() && SetClipboardData(CF_UNICODETEXT, memory)) { memory = nullptr; status = L"Texto copiado."; }
+            else status = L"No se pudo copiar el texto.";
+            CloseClipboard(); if (memory) GlobalFree(memory);
+        }
+        Redraw();
+    }
     int ViewHeight() const { RECT rc{}; GetClientRect(window, &rc); return std::max<int>(1, rc.bottom - BarHeight - 26); }
     int ViewWidth() const { RECT rc{}; GetClientRect(window, &rc); return rc.right; }
     std::int64_t MaxScroll() const { return std::max<std::int64_t>(0, layout.Total() - ViewHeight()); }
@@ -356,6 +582,7 @@ public:
         }
         SetScrollInfo(window, SB_VERT, &info, TRUE); Redraw();
         if (request) Render();
+        if (selected && worker) SelectionText();
     }
     void Reflow(bool keepAnchor = true) {
         int anchor = pages ? layout.PageAt(scroll) : 0;
@@ -410,6 +637,7 @@ public:
     void Load(const std::wstring& file, const std::wstring& password = L"", bool retry = false) {
         if (!worker) worker = std::make_unique<PdfWorker>(window);
         if (!retry) {
+            EndSelection(); ClearSelection(); textPages.clear(); pendingText.clear(); searchPage = -1; searchBoxes.clear();
             path = file; ++document; pages = 0; page = 0; scroll = 0; zoom = 0; searching = false;
             cache.clear(); cacheBytes = 0; layout.Reset(0); layout.Rebuild(ViewWidth(), zoom);
             planned.clear(); renderWidth = 0; renderZoom = -1; ++viewVersion;
@@ -428,10 +656,10 @@ public:
         target = std::max(0, std::min(pages - 1, target));
         page = target; PageStatus(); ScrollTo(std::max<std::int64_t>(0, layout.Top(target) - DocumentLayout::Gap));
     }
-    void Search() {
+    void Search(bool backwards = false) {
         if (!pages || searching) return;
         auto value = Text(query); if (value.empty()) { SetFocus(query); return; }
-        searching = true; status = L"Buscando…"; Redraw(); worker->Search(value, page, document);
+        ClearSelection(); searching = true; status = L"Buscando…"; Redraw(); worker->Search(value, page, document, backwards);
     }
     void PrintFile() {
         if (!pages || printing) return;
@@ -467,6 +695,8 @@ public:
         }
         case Find: SetFocus(query); SendMessageW(query, EM_SETSEL, 0, -1); break;
         case FindNext: Search(); break;
+        case FindPrevious: Search(true); break;
+        case Copy: CopySelection(); break;
         case Print: PrintFile(); break;
         }
     }
@@ -493,7 +723,8 @@ public:
                 if (entry.image) cacheBytes -= entry.image->pixels.size();
                 cacheBytes += result->pixels.size(); entry = {std::move(result), viewVersion, ++useClock};
                 ScrollTo(scroll, false); TrimCache(); Render();
-                if (navigationTest) { PostMessageW(window, WM_TIMER, 3, 0); }
+                if (textTest) CheckText(Result::Image);
+                else if (navigationTest) { PostMessageW(window, WM_TIMER, 3, 0); }
                 else BenchmarkResult(true);
             }
             break;
@@ -507,16 +738,47 @@ public:
         }
         case Result::Search:
             searching = false;
+            if (result->text != Text(query)) break;
+            searchBoxes.clear(); searchPage = -1;
             if (result->match >= 0) {
-                if (page != result->page) ChangePage(result->page);
+                int anchor = layout.PageAt(scroll);
+                double fraction = (scroll - layout.Top(anchor)) / static_cast<double>(layout.Height(anchor));
+                layout.Learn(result->page, result->pageWidth, result->pageHeight); layout.Rebuild(ViewWidth(), zoom);
+                scroll = layout.Top(anchor) + static_cast<std::int64_t>(fraction * layout.Height(anchor));
+                searchPage = result->page; searchMatch = result->match; searchBoxes = std::move(result->boxes);
+                double top = searchBoxes.empty() ? 0 : searchBoxes.front().top;
+                ScrollTo(layout.Top(searchPage) + static_cast<std::int64_t>(top * layout.Height(searchPage)) - ViewHeight() / 3);
                 status = L"Coincidencia en página " + std::to_wstring(result->page + 1) + L". F3: siguiente.";
             } else status = L"No se encontró el texto.";
-            Redraw(); break;
+            Redraw(); CheckText(Result::Search); break;
+        case Result::Geometry: {
+            pendingText.erase(result->page);
+            textPages[result->page] = std::move(result->boxes);
+            size_t bytes = 0; for (const auto& item : textPages) bytes += item.second.size() * sizeof(TextBox);
+            while (bytes > 16u * 1024u * 1024u) {
+                auto victim = textPages.end(); int distance = -1;
+                for (auto i = textPages.begin(); i != textPages.end(); ++i) {
+                    if (i->first == selectionStart.page || i->first == selectionEnd.page) continue;
+                    if (std::abs(i->first - page) > distance) { victim = i; distance = std::abs(i->first - page); }
+                }
+                if (victim == textPages.end()) break;
+                bytes -= victim->second.size() * sizeof(TextBox); textPages.erase(victim);
+            }
+            if (!result->message.empty()) status = result->message;
+            if (dragging || selected) { NeedText(selectionStart.page); NeedText(selectionEnd.page); }
+            if (copyWhenReady) CopySelection();
+            Redraw(); CheckText(Result::Geometry); break;
+        }
+        case Result::Copied:
+            if (result->revision != selectionRevision) break;
+            if (textTest) { if (!result->message.empty()) BenchmarkResult(false); else CheckText(Result::Copied, result->text); break; }
+            if (!result->message.empty()) { status = result->message; Redraw(); }
+            else SetClipboardText(result->text);
+            break;
         case Result::Failure: case Result::Printed: status = result->message; Redraw(); if (result->kind == Result::Failure) BenchmarkResult(false); break;
         }
     }
-    void Paint() {
-        PAINTSTRUCT ps{}; HDC target = BeginPaint(window, &ps); RECT rc{}; GetClientRect(window, &rc);
+    void Draw(HDC target, RECT rc) {
         HDC dc = CreateCompatibleDC(target);
         HBITMAP buffer = CreateCompatibleBitmap(target, std::max<LONG>(1, rc.right), std::max<LONG>(1, rc.bottom));
         HGDIOBJ oldBuffer = SelectObject(dc, buffer);
@@ -540,6 +802,15 @@ public:
                     info.bmiHeader.biWidth = image->width; info.bmiHeader.biHeight = -image->height;
                     info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32; info.bmiHeader.biCompression = BI_RGB;
                     StretchDIBits(dc, x, y, width, height, 0, 0, image->width, image->height, image->pixels.data(), &info, DIB_RGB_COLORS, SRCCOPY);
+                    Endpoint selectionFirst, selectionLast;
+                    auto text = textPages.find(i);
+                    bool selectingHere = text != textPages.end() && SelectionRange(selectionFirst, selectionLast) && i >= selectionFirst.page && i <= selectionLast.page;
+                    if (i == searchPage && !selectingHere) Highlight(dc, x, y, width, height, searchBoxes, RGB(255, 193, 24));
+                    if (selectingHere) {
+                        int firstChar = i == selectionFirst.page ? selectionFirst.character : 0;
+                        int lastChar = i == selectionLast.page ? selectionLast.character : static_cast<int>(text->second.size()) - 1;
+                        Highlight(dc, x, y, width, height, SelectionBoxes(text->second, firstChar, lastChar), RGB(65, 130, 245));
+                    }
                 } else {
                     auto label = L"Página " + std::to_wstring(i + 1) + L" · Cargando…";
                     sheet.top += 24; DrawTextW(dc, label.c_str(), -1, &sheet, DT_CENTER | DT_TOP | DT_SINGLELINE);
@@ -555,7 +826,30 @@ public:
         DrawTextW(dc, status.c_str(), -1, &footer, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
         BitBlt(target, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
         SelectObject(dc, oldBuffer); DeleteObject(buffer); DeleteDC(dc);
-        EndPaint(window, &ps);
+    }
+    void Paint() {
+        PAINTSTRUCT ps{}; HDC target = BeginPaint(window, &ps); RECT rc{}; GetClientRect(window, &rc);
+        Draw(target, rc); EndPaint(window, &ps);
+    }
+    void SaveTestImage(const std::wstring& filename) {
+        RECT rc{}; GetClientRect(window, &rc);
+        BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        info.bmiHeader.biWidth = rc.right; info.bmiHeader.biHeight = -rc.bottom;
+        info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32; info.bmiHeader.biCompression = BI_RGB;
+        void* bits = nullptr; HDC dc = CreateCompatibleDC(nullptr);
+        HBITMAP bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+        if (!dc || !bitmap) { if (dc) DeleteDC(dc); if (bitmap) DeleteObject(bitmap); return; }
+        auto old = SelectObject(dc, bitmap); Draw(dc, rc); GdiFlush();
+        BITMAPFILEHEADER header{}; header.bfType = 0x4d42;
+        header.bfOffBits = sizeof(header) + sizeof(BITMAPINFOHEADER);
+        DWORD bytes = rc.right * rc.bottom * 4; header.bfSize = header.bfOffBits + bytes;
+        HANDLE output = CreateFileW(filename.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (output != INVALID_HANDLE_VALUE) {
+            DWORD written = 0; WriteFile(output, &header, sizeof(header), &written, nullptr);
+            WriteFile(output, &info.bmiHeader, sizeof(info.bmiHeader), &written, nullptr);
+            WriteFile(output, bits, bytes, &written, nullptr); CloseHandle(output);
+        }
+        SelectObject(dc, old); DeleteObject(bitmap); DeleteDC(dc);
     }
 };
 
@@ -580,7 +874,22 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         SendMessageW(app->query, WM_SETFONT, reinterpret_cast<WPARAM>(app->font), TRUE); SendMessageW(app->query, EM_SETLIMITTEXT, 256, 0);
         DragAcceptFiles(window, TRUE); return 0;
     }
-    case WM_COMMAND: app->Command(LOWORD(wp)); return 0;
+    case WM_COMMAND:
+        if (LOWORD(wp) == Query && HIWORD(wp) == EN_CHANGE) {
+            app->searching = false; app->searchPage = -1; app->searchBoxes.clear();
+            if (app->worker) app->worker->CancelSearch(); app->Redraw();
+        } else app->Command(LOWORD(wp));
+        return 0;
+    case WM_LBUTTONDOWN: app->BeginSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
+    case WM_MOUSEMOVE: app->MoveSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
+    case WM_LBUTTONUP: app->MoveSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); app->EndSelection(); return 0;
+    case WM_CAPTURECHANGED: app->EndSelection(); return 0;
+    case WM_SETCURSOR:
+        if (reinterpret_cast<HWND>(wp) == window && LOWORD(lp) == HTCLIENT && app->pages) {
+            POINT mouse{}; GetCursorPos(&mouse); ScreenToClient(window, &mouse); Reader::TextPoint point;
+            if (app->PointOnPage(mouse.x, mouse.y, point)) { SetCursor(LoadCursor(nullptr, IDC_IBEAM)); return TRUE; }
+        }
+        break;
     case WM_DROPFILES: {
         wchar_t path[32768]{}; HDROP drop = reinterpret_cast<HDROP>(wp);
         if (DragQueryFileW(drop, 0, path, 32768)) app->Load(path);
@@ -589,7 +898,12 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     case Ready: app->Receive(std::unique_ptr<Result>(reinterpret_cast<Result*>(lp))); return 0;
     case WM_SIZE: app->Reflow(); if (wp != SIZE_MINIMIZED) SetTimer(window, 1, 120, nullptr); return 0;
     case WM_TIMER:
-        if (wp == 3) app->CheckNavigation();
+        if (wp == 4 && app->dragging) {
+            POINT pointer{}; GetCursorPos(&pointer); ScreenToClient(window, &pointer);
+            if (pointer.y < BarHeight + 20) { app->ScrollTo(app->scroll - 28); app->MoveSelection(pointer.x, pointer.y); }
+            else if (pointer.y > BarHeight + app->ViewHeight() - 20) { app->ScrollTo(app->scroll + 28); app->MoveSelection(pointer.x, pointer.y); }
+        }
+        else if (wp == 3) app->CheckNavigation();
         else if (wp == 2) { KillTimer(window, 2); app->BenchmarkResult(false); }
         else { KillTimer(window, 1); app->Render(); }
         return 0;
@@ -625,7 +939,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     auto started = std::chrono::steady_clock::now();
     int argc = 0; LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     bool navigationTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-navigation";
-    bool benchmark = argv && argc == 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest);
+    bool textTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-text";
+    bool benchmark = argv && argc == 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest);
     bool shellBenchmark = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-shell";
     SetProcessDPIAware();
     WNDCLASSW wc{}; wc.hInstance = instance; wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
@@ -635,6 +950,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     Reader app;
     app.started = started;
     app.navigationTest = navigationTest;
+    app.textTest = textTest;
     if (benchmark) app.benchmarkReport = argv[3];
     if (shellBenchmark) app.benchmarkReport = argv[2];
     HWND window = CreateWindowW(L"ChucaoReader", L"Chucao PDF Reader", WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_CLIPCHILDREN,
@@ -657,11 +973,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
                 continue;
             }
             int command = 0;
+            if (!edit && msg.wParam == VK_ESCAPE) { app.EndSelection(); app.ClearSelection(); continue; }
             if (ctrl && msg.wParam == 'O') command = Open;
             else if (ctrl && msg.wParam == 'F') command = Find;
             else if (ctrl && msg.wParam == 'P') command = Print;
+            else if (ctrl && !edit && msg.wParam == 'C') command = Copy;
             else if (ctrl && msg.wParam == '0') command = Fit;
-            else if (msg.wParam == VK_F3 || (edit && msg.wParam == VK_RETURN)) command = FindNext;
+            else if (msg.wParam == VK_F3 || (edit && msg.wParam == VK_RETURN)) command = GetKeyState(VK_SHIFT) < 0 ? FindPrevious : FindNext;
             else if (!edit && msg.wParam == VK_RIGHT) command = Next;
             else if (!edit && msg.wParam == VK_LEFT) command = Previous;
             if (command) { app.Command(command); continue; }
