@@ -4,13 +4,19 @@
 #include <cstdio>
 #include <vector>
 #include <string>
+#include "pdf-source.h"
 
-int main(int argc, char** argv) {
+int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { std::fprintf(stderr, "Usage: pdf-smoke file.pdf [password] [--expect-password]\n"); return 2; }
-    FPDF_LIBRARY_CONFIG config{}; config.version = 2; FPDF_InitLibraryWithConfig(&config);
     auto start = std::chrono::steady_clock::now();
-    FPDF_DOCUMENT doc = FPDF_LoadDocument(argv[1], argc > 2 ? argv[2] : nullptr);
-    bool expectPassword = argc > 3 && std::string(argv[3]) == "--expect-password";
+    FPDF_LIBRARY_CONFIG config{}; config.version = 2; FPDF_InitLibraryWithConfig(&config);
+    auto initialized = std::chrono::steady_clock::now();
+    bool benchmark = argc > 2 && std::wstring(argv[2]) == L"--benchmark";
+    bool buffered = argc > 3 && (std::wstring(argv[3]) == L"--buffered" || std::wstring(argv[3]) == L"--buffered-64k");
+    auto utf8 = [](const wchar_t* value) { int n = WideCharToMultiByte(CP_UTF8, 0, value, -1, nullptr, 0, nullptr, nullptr); std::string result(n, 0); WideCharToMultiByte(CP_UTF8, 0, value, -1, &result[0], n, nullptr, nullptr); return result; };
+    PdfSource source(argc > 3 && std::wstring(argv[3]) == L"--buffered-64k" ? 65536 : 4096);
+    FPDF_DOCUMENT doc = buffered ? (source.Open(argv[1]) ? FPDF_LoadCustomDocument(&source.access, nullptr) : nullptr) : FPDF_LoadDocument(utf8(argv[1]).c_str(), argc > 2 && !benchmark ? utf8(argv[2]).c_str() : nullptr);
+    bool expectPassword = argc > 3 && std::wstring(argv[3]) == L"--expect-password";
     if (!doc) {
         auto error = FPDF_GetLastError(); FPDF_DestroyLibrary();
         std::printf("open_error=%lu\n", error);
@@ -18,7 +24,10 @@ int main(int argc, char** argv) {
     }
     if (expectPassword) { FPDF_CloseDocument(doc); FPDF_DestroyLibrary(); return 1; }
     auto opened = std::chrono::steady_clock::now();
+    int pageCount = FPDF_GetPageCount(doc);
+    auto counted = std::chrono::steady_clock::now();
     FPDF_PAGE page = FPDF_LoadPage(doc, 0);
+    auto loaded = std::chrono::steady_clock::now();
     if (!page) { FPDF_CloseDocument(doc); FPDF_DestroyLibrary(); return 1; }
     FPDF_BITMAP bitmap = FPDFBitmap_Create(800, 1000, 0);
     if (!bitmap) { FPDF_ClosePage(page); FPDF_CloseDocument(doc); FPDF_DestroyLibrary(); return 1; }
@@ -32,11 +41,11 @@ int main(int argc, char** argv) {
     const unsigned short term[] = {'C','h','u','c','a','o',0};
     auto search = text ? FPDFText_FindStart(text, term, 0, 0) : nullptr;
     bool found = search && FPDFText_FindNext(search);
-    std::printf("pages=%d open_ms=%.3f first_page_ms=%.3f dark_pixels=%d search=%s\n", FPDF_GetPageCount(doc),
-        std::chrono::duration<double, std::milli>(opened-start).count(),
-        std::chrono::duration<double, std::milli>(rendered-start).count(), dark, found ? "ok" : "missing");
+    auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b-a).count(); };
+    std::printf("io=%s pages=%d init_ms=%.3f open_ms=%.3f count_ms=%.3f page_ms=%.3f render_ms=%.3f first_page_ms=%.3f dark_pixels=%d search=%s requests=%llu reads=%llu bytes=%llu\n", buffered ? "buffered" : "native", pageCount,
+        ms(start, initialized), ms(initialized, opened), ms(opened, counted), ms(counted, loaded), ms(loaded, rendered), ms(start, rendered), dark, found ? "ok" : "missing", source.requests, source.reads, source.bytesRead);
     if (search) FPDFText_FindClose(search);
     if (text) FPDFText_ClosePage(text);
     FPDFBitmap_Destroy(bitmap); FPDF_ClosePage(page); FPDF_CloseDocument(doc); FPDF_DestroyLibrary();
-    return dark > 10 && found ? 0 : 1;
+    return dark > 10 && (benchmark || found) ? 0 : 1;
 }

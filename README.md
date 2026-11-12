@@ -40,6 +40,28 @@ continuo entre páginas, selección/copia de texto, índice, pestañas, caché d
 persistencia de posición y pulido visual/accesibilidad. Buscar en escaneos requiere
 una capa de texto ya existente. No se implementará OCR.
 
+PDFium se carga e inicializa al abrir el primer documento; abrir la ventana vacía
+no inicializa el motor. Un render inmediato cancela el render de tamaño pendiente.
+
+## Diagnóstico de velocidad
+
+```powershell
+# Solo procesa el documento localmente: no lo modifica ni lo sube a ningún servicio.
+build\pdf-smoke.exe "P:\ruta\documento.pdf" --benchmark
+powershell -ExecutionPolicy Bypass -File scripts/benchmark-open.ps1 -Pdf "P:\ruta\documento.pdf"
+```
+
+El primer comando mide inicialización, apertura, carga y dibujo de la primera página
+a 800 × 1000. El segundo recorre el ejecutable real con una ventana oculta y termina
+cuando la UI recibe el primer bitmap; no mide la presentación física en pantalla.
+Sus informes quedan en `test-results`, excluido de Git. No se vacían cachés del
+sistema o pCloud. La primera ejecución observada no equivale a una caché vacía.
+
+Los modos `--buffered` y `--buffered-64k` del diagnóstico permiten comparar una
+caché experimental; no están activados en el visor. El experimento de KillerPDF
+en `tools/killer-benchmark` usa la biblioteca de una instalación existente, sin
+incorporarla a Chucao. Ver [mediciones](docs/performance.md).
+
 ## Verificación
 
 ```powershell

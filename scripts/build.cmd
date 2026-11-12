@@ -15,7 +15,7 @@ if errorlevel 1 (
   )
 )
 if not exist build mkdir build
-cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /I deps\pdfium\include src\main.cpp /Fo:build\main.obj /Fe:build\Chucao.exe /link /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /LIBPATH:deps\pdfium\lib pdfium.dll.lib user32.lib gdi32.lib comdlg32.lib shell32.lib ole32.lib
+cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /I deps\pdfium\include src\main.cpp /Fo:build\main.obj /Fe:build\Chucao.exe /link /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /DELAYLOAD:pdfium.dll /LIBPATH:deps\pdfium\lib pdfium.dll.lib delayimp.lib user32.lib gdi32.lib comdlg32.lib shell32.lib ole32.lib
 if errorlevel 1 exit /b 1
 copy /y deps\pdfium\bin\pdfium.dll build\pdfium.dll >nul
 if errorlevel 1 exit /b 1

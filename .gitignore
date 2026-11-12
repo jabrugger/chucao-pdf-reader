@@ -8,3 +8,5 @@
 *.exe
 *.dll
 /test-results/
+**/obj/
+**/bin/

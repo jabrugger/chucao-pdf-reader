@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <KillerDirectory Condition="'$(KillerDirectory)' == ''">C:\Program Files\KillerPDF</KillerDirectory>
+    <BaseOutputPath>../../build/killer-benchmark/</BaseOutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="KillerPdf.Engine"><HintPath>$(KillerDirectory)/KillerPdf.Engine.dll</HintPath></Reference>
+    <Reference Include="CoreJ2K"><HintPath>$(KillerDirectory)/CoreJ2K.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>
