@@ -15,6 +15,8 @@
 #include <thread>
 #include <vector>
 #include <cmath>
+#include <chrono>
+#include <cstdio>
 
 namespace {
 constexpr UINT Ready = WM_APP + 1;
@@ -250,6 +252,18 @@ public:
     double zoom = 0;
     bool searching = false, printing = false;
     std::wstring path, status = L"Abrí un PDF para empezar · Ctrl+O";
+    std::wstring benchmarkReport;
+    std::chrono::steady_clock::time_point started;
+    double shellMs = 0, openedMs = 0;
+    void BenchmarkResult(bool success) {
+        if (benchmarkReport.empty()) return;
+        double readyMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+        char data[512]{};
+        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages);
+        HANDLE output = CreateFileW(benchmarkReport.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (output != INVALID_HANDLE_VALUE) { DWORD written = 0; WriteFile(output, data, size, &written, nullptr); CloseHandle(output); }
+        PostMessageW(window, WM_CLOSE, 0, 0);
+    }
 
     void Redraw() { InvalidateRect(window, nullptr, FALSE); }
     void ScrollTo(int value) {
@@ -261,12 +275,14 @@ public:
         SetScrollInfo(window, SB_VERT, &info, TRUE); Redraw();
     }
     void Render() {
+        KillTimer(window, 1); // An immediate render supersedes a pending resize render.
         if (!pages) return;
         RECT rc{}; GetClientRect(window, &rc);
         revision = worker->Render(page, rc.right, zoom, document);
         status = L"Cargando página " + std::to_wstring(page + 1) + L"…"; Redraw();
     }
     void Load(const std::wstring& file, const std::wstring& password = L"", bool retry = false) {
+        if (!worker) worker = std::make_unique<PdfWorker>(window);
         if (!retry) { path = file; ++document; pages = 0; page = 0; scroll = 0; image.reset(); zoom = 0; searching = false; }
         status = L"Abriendo documento…"; Redraw(); worker->Load(path, password, document);
     }
@@ -326,12 +342,14 @@ public:
         if (result->document != document) return;
         switch (result->kind) {
         case Result::Opened:
+            openedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
             pages = result->pages; SetWindowTextW(window, (L"Chucao — " + path.substr(path.find_last_of(L"\\/") + 1)).c_str()); Render(); break;
         case Result::Image:
             if (result->revision != revision || result->page != page) return;
             status = L"Página " + std::to_wstring(page + 1) + L" de " + std::to_wstring(pages);
-            image = std::move(result); ScrollTo(scroll); break;
+            image = std::move(result); ScrollTo(scroll); BenchmarkResult(true); break;
         case Result::Password: {
+            if (!benchmarkReport.empty()) { BenchmarkResult(false); break; }
             std::wstring password;
             if (PasswordDialog(window, password)) Load(path, password, true);
             else { status = L"Apertura cancelada."; Redraw(); }
@@ -345,7 +363,7 @@ public:
                 status = L"Coincidencia en página " + std::to_wstring(result->page + 1) + L". F3: siguiente.";
             } else status = L"No se encontró el texto.";
             Redraw(); break;
-        case Result::Failure: case Result::Printed: status = result->message; Redraw(); break;
+        case Result::Failure: case Result::Printed: status = result->message; Redraw(); if (result->kind == Result::Failure) BenchmarkResult(false); break;
         }
     }
     void Paint() {
@@ -391,7 +409,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         }
         app->query = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL, x + 8, 16, 220, 26, window, reinterpret_cast<HMENU>(Query), nullptr, nullptr);
         SendMessageW(app->query, WM_SETFONT, reinterpret_cast<WPARAM>(app->font), TRUE); SendMessageW(app->query, EM_SETLIMITTEXT, 256, 0);
-        app->worker = std::make_unique<PdfWorker>(window); DragAcceptFiles(window, TRUE); return 0;
+        DragAcceptFiles(window, TRUE); return 0;
     }
     case WM_COMMAND: app->Command(LOWORD(wp)); return 0;
     case WM_DROPFILES: {
@@ -401,7 +419,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     }
     case Ready: app->Receive(std::unique_ptr<Result>(reinterpret_cast<Result*>(lp))); return 0;
     case WM_SIZE: app->ScrollTo(app->scroll); if (wp != SIZE_MINIMIZED) SetTimer(window, 1, 120, nullptr); return 0;
-    case WM_TIMER: KillTimer(window, 1); app->Render(); return 0;
+    case WM_TIMER:
+        if (wp == 2) { KillTimer(window, 2); app->BenchmarkResult(false); }
+        else { KillTimer(window, 1); app->Render(); }
+        return 0;
     case WM_GETMINMAXINFO: reinterpret_cast<MINMAXINFO*>(lp)->ptMinTrackSize = {820, 400}; return 0;
     case WM_MOUSEWHEEL:
         if (GetKeyState(VK_CONTROL) < 0) app->Command(GET_WHEEL_DELTA_WPARAM(wp) > 0 ? Larger : Smaller);
@@ -429,18 +450,28 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
 } // namespace
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
+    auto started = std::chrono::steady_clock::now();
+    int argc = 0; LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    bool benchmark = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-open";
+    bool shellBenchmark = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-shell";
     SetProcessDPIAware();
     WNDCLASSW wc{}; wc.hInstance = instance; wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.lpszClassName = L"ChucaoReader"; wc.lpfnWndProc = WindowProc; RegisterClassW(&wc);
     wc.lpszClassName = L"ChucaoPassword"; wc.lpfnWndProc = PasswordProc;
     wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1); RegisterClassW(&wc);
     Reader app;
+    app.started = started;
+    if (benchmark) app.benchmarkReport = argv[3];
+    if (shellBenchmark) app.benchmarkReport = argv[2];
     HWND window = CreateWindowW(L"ChucaoReader", L"Chucao PDF Reader", WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_CLIPCHILDREN,
         CW_USEDEFAULT, CW_USEDEFAULT, 1080, 800, nullptr, nullptr, instance, &app);
     if (!window) return 1;
-    ShowWindow(window, show); UpdateWindow(window);
-    int argc = 0; LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    if (argv && argc > 1) app.Load(argv[1]); if (argv) LocalFree(argv);
+    if (!benchmark && !shellBenchmark) { ShowWindow(window, show); UpdateWindow(window); }
+    app.shellMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    if (shellBenchmark) app.BenchmarkResult(true);
+    else if (benchmark) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
+    else if (argv && argc > 1) app.Load(argv[1]);
+    if (argv) LocalFree(argv);
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
         if (msg.message == WM_KEYDOWN) {
