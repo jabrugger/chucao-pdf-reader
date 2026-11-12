@@ -7,7 +7,8 @@
 2. **Experiencia de lectura (en curso)**: implementados desplazamiento continuo,
    caché acotada, precarga de páginas vecinas, cancelación de render progresivo y
    prioridad de página visible, selección/copia entre páginas y búsqueda con
-   resaltado y salto preciso. Pendientes enlaces e índice.
+   resaltado y salto preciso, y desplazamiento horizontal con zoom alto.
+   Pendientes enlaces e índice.
 3. **Interfaz**: propuesta visual inspirada en MarkPad, toolbar compacta, panel
    opcional, pestañas, claro/oscuro, DPI por monitor y navegación por teclado.
    Validar con el usuario antes de convertir la propuesta en diseño definitivo.

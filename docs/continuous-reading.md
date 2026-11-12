@@ -40,6 +40,26 @@ La prueba de geometría cubre límites de documento, páginas de proporciones di
 estimaciones, ancla de zoom y extensiones superiores a 32 bits. El recorrido integrado
 se probó además con el libro de PHP de 410 páginas indicado por el usuario.
 
-Estas pruebas no equivalen a inspección visual ni evalúan sensación de fluidez en
-pantalla. Pendientes: inspección visual, selección/copia, resaltado de búsqueda,
-índice, desplazamiento horizontal en zoom alto y validación de impresión/contraseñas.
+Estas pruebas no evalúan sensación de fluidez en pantalla. Selección/copia y búsqueda
+se documentan en [text-reading.md](text-reading.md). Pendientes: validación manual,
+índice, enlaces y validación de impresión/contraseñas.
+
+## Desplazamiento horizontal
+
+La barra inferior, Shift+rueda y la rueda horizontal permiten recorrer páginas
+ampliadas. Las páginas de tamaños distintos se centran en una extensión común,
+calculada con las dimensiones conocidas y estimadas. No se consultan páginas
+adicionales del PDF al abrir. La barra permanece deshabilitada cuando no hace falta,
+para evitar cambios de tamaño y renderizados al aparecer o desaparecer.
+
+El zoom conserva también el punto horizontal del centro de la vista, dentro de los
+límites del documento. Ajustar al ancho y abrir otro archivo restablecen el offset.
+La selección usa la misma geometría que la pintura y puede desplazarse al arrastrar
+cerca de los bordes laterales. La búsqueda revela horizontalmente la coincidencia.
+Moverse horizontalmente reutiliza el bitmap existente; no solicita otro render.
+
+La prueba oculta de navegación comprueba extremos, reutilización del bitmap,
+ancla horizontal de zoom, ajuste al ancho y reapertura. Las pruebas de texto repiten
+selección/copia y búsqueda tanto al ancho como con zoom alto, incluidos rotación y
+CropBox. Se revisan pinturas fuera de pantalla; todavía falta probar la rueda física
+y el arrastre de la barra con el usuario.
