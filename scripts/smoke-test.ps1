@@ -4,12 +4,12 @@ $output = [IO.Path]::Combine($root, 'test-results')
 [IO.Directory]::CreateDirectory($output) | Out-Null
 $fixture = [IO.Path]::Combine($output, 'sample.pdf')
 $ascii = [Text.Encoding]::ASCII
-$content = "BT /F1 24 Tf 72 740 Td (Chucao PDF Reader - smoke test) Tj ET"
+$content = 'BT /F1 24 Tf 72 740 Td (Chucao PDF Reader - caf\351 - smoke test) Tj 0 -32 Td (Second line - selection test) Tj ET'
 $objects = @(
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>',
     '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
     "<< /Length $($ascii.GetByteCount($content)) >>`nstream`n$content`nendstream",
     '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>'
 )
@@ -28,6 +28,10 @@ $pdf += "trailer`n<< /Size $size /Root 1 0 R >>`nstartxref`n$xref`n%%EOF`n"
 [IO.File]::WriteAllBytes($destination, $ascii.GetBytes($pdf))
 }
 Write-PdfFixture $fixture $objects
+$rotated = @($objects)
+$rotated[2] = $rotated[2].Replace('/MediaBox', '/Rotate 90 /CropBox [18 18 594 774] /MediaBox')
+$rotated[5] = $rotated[5].Replace('/MediaBox', '/Rotate 90 /CropBox [18 18 594 774] /MediaBox')
+Write-PdfFixture ([IO.Path]::Combine($output, 'rotated-text.pdf')) $rotated
 $objects[1] = '<< /Type /Pages /Kids [3 0 R 6 0 R 7 0 R 8 0 R] /Count 4 >>'
 $objects[5] = $objects[2].Replace('[0 0 612 792]', '[0 0 792 400]')
 $objects += $objects[2].Replace('[0 0 612 792]', '[0 0 612 200]')
