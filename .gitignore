@@ -1,0 +1,10 @@
+/build/
+/deps/
+/.tools/
+/.vs/
+*.user
+*.pdb
+*.obj
+*.exe
+*.dll
+/test-results/
