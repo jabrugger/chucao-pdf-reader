@@ -8,6 +8,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <functional>
 
 struct ReadingState {
     std::wstring path;
@@ -98,8 +99,9 @@ public:
         for (auto i = entries.rbegin(); i != entries.rend(); ++i) if (SamePath(i->path, key) && i->pages == pages) return *i;
         return {};
     }
-    bool Update(ReadingState state) const {
-        state.path = NormalizePath(state.path); if (!Valid(state) || Encode(state.path).empty() || filename_.empty()) return false;
+private:
+    bool Change(const std::function<void(std::vector<ReadingState>&)>& edit) const {
+        if (filename_.empty()) return false;
         auto slash = filename_.find_last_of(L"\\/"); if (slash == std::wstring::npos) return false;
         auto folder = filename_.substr(0, slash);
         if (!CreateDirectoryW(folder.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) return false;
@@ -113,8 +115,7 @@ public:
         }
         if (lock == INVALID_HANDLE_VALUE) return false;
         auto entries = Read();
-        entries.erase(std::remove_if(entries.begin(), entries.end(), [&](const ReadingState& old) { return SamePath(old.path, state.path); }), entries.end());
-        entries.push_back(std::move(state)); while (entries.size() > 128) entries.erase(entries.begin());
+        edit(entries); while (entries.size() > 128) entries.erase(entries.begin());
         auto data = Serialize(entries);
         while (data.size() > FileLimit && entries.size() > 1) { entries.erase(entries.begin()); data = Serialize(entries); }
         auto temporary = filename_ + L"." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64()) + L".tmp";
@@ -128,4 +129,13 @@ public:
         }
         CloseHandle(lock); return ok;
     }
+public:
+    bool Update(ReadingState state) const {
+        state.path = NormalizePath(state.path); if (!Valid(state) || Encode(state.path).empty()) return false;
+        return Change([&](std::vector<ReadingState>& entries) {
+            entries.erase(std::remove_if(entries.begin(), entries.end(), [&](const ReadingState& old) { return SamePath(old.path, state.path); }), entries.end());
+            entries.push_back(state);
+        });
+    }
+    bool Clear() const { return Change([](std::vector<ReadingState>& entries) { entries.clear(); }); }
 };

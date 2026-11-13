@@ -20,8 +20,8 @@ La lista consolidada y verificable de pendientes está en [TODO.md](TODO.md).
 4. **Validación de motor**: corpus y métricas reproducibles contra Sumatra/KillerPDF.
    Comparar MuPDF si hay fallos que justifiquen el coste; motor KillerPDF aislado
    si aporta ventajas medibles. No asumir que un lenguaje determina el resultado.
-5. **Versión de uso diario**: archivos recientes, permisos de
-   impresión/copia, errores claros, accesibilidad, pruebas con impresoras físicas
+5. **Versión de uso diario (en curso)**: implementados archivos recientes y permisos
+   de impresión/copia. Pendientes errores claros, accesibilidad, pruebas con impresoras físicas
    y virtuales, documentos grandes/remotos, empaquetado y avisos de dependencias.
 
 Fuera de alcance permanente: editar PDF, anotaciones, OCR, combinar/dividir,

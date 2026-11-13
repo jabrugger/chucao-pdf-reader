@@ -13,6 +13,7 @@
 #include "document-links.h"
 #include "resource.h"
 #include "reading-state.h"
+#include "recent-files.h"
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
@@ -32,7 +33,8 @@
 namespace {
 constexpr UINT Ready = WM_APP + 1;
 constexpr int BarHeight = 58;
-enum { Open = 100, Previous, Next, Smaller, Larger, Fit, Find, Print, Query, FindNext, FindPrevious, Copy, Outline };
+enum { Open = 100, Previous, Next, Smaller, Larger, Fit, Find, Print, Query, FindNext, FindPrevious, Copy, Outline, OpenMenu, ForgetHistory };
+constexpr int RecentBase = 4000;
 
 void Highlight(HDC dc, int x, int y, int width, int height, const std::vector<TextBox>& boxes, COLORREF color) {
     if (boxes.empty()) return;
@@ -148,6 +150,7 @@ public:
                 result->kind = error == FPDF_ERR_PASSWORD ? Result::Password : Result::Failure;
                 result->message = error == FPDF_ERR_FORMAT ? L"El archivo no es un PDF válido o está dañado." : L"No se pudo abrir el PDF.";
                 if (error == FPDF_ERR_PASSWORD) result->message = suppliedPassword ? L"La contraseña es incorrecta. Volvé a intentarlo." : L"Este documento está protegido. Ingresá la contraseña.";
+                if (error == FPDF_ERR_FILE) result->message = L"No se pudo abrir el archivo. Puede haberse movido o no estar disponible.";
             } else {
                 result->kind = Result::Opened; result->pages = FPDF_GetPageCount(pdf_);
                 auto permissions = FPDF_GetDocPermissions(pdf_);
@@ -440,6 +443,11 @@ public:
     bool readingStateFound = false;
     int stateAuthenticationAttempts = 0;
     bool savedOnClose = false;
+    bool suppressCurrentState = false;
+    std::vector<ReadingState> recentEntries;
+    bool recentTest = false;
+    int recentStep = 0, recentChecks = 0;
+    std::wstring recentOther, recentMissing;
     std::unique_ptr<PdfWorker> worker;
     struct CachedPage { std::unique_ptr<Result> image; unsigned long long version = 0, used = 0; };
     std::map<int, CachedPage> cache;
@@ -563,7 +571,7 @@ public:
         double readyMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         char data[768]{};
         Endpoint a, b; SelectionRange(a, b);
-        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d,\"navigation_steps\":%d,\"cache_hits\":%zu,\"cache_bytes\":%zu,\"outline_checks\":%d,\"link_checks\":%d,\"password_checks\":%d,\"state_checks\":%d,\"text_checks\":%d,\"text_step\":%d,\"selection_first\":%d,\"selection_last\":%d}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages, navigationStep, navigationHits, cacheBytes, outlineChecks, linkChecks, passwordChecks, readingStateChecks, textChecks, textStep, a.character, b.character);
+        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d,\"navigation_steps\":%d,\"cache_hits\":%zu,\"cache_bytes\":%zu,\"outline_checks\":%d,\"link_checks\":%d,\"password_checks\":%d,\"state_checks\":%d,\"recent_checks\":%d,\"text_checks\":%d,\"text_step\":%d,\"selection_first\":%d,\"selection_last\":%d}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages, navigationStep, navigationHits, cacheBytes, outlineChecks, linkChecks, passwordChecks, readingStateChecks, recentChecks, textChecks, textStep, a.character, b.character);
         HANDLE output = CreateFileW(benchmarkReport.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (output != INVALID_HANDLE_VALUE) { DWORD written = 0; WriteFile(output, data, size, &written, nullptr); CloseHandle(output); }
         PostMessageW(window, WM_CLOSE, 0, 0);
@@ -765,6 +773,68 @@ public:
     }
 
     void Redraw() { InvalidateRect(window, nullptr, FALSE); }
+    HMENU BuildOpenMenu() {
+        recentEntries.clear();
+        if (ConfigureReadingState()) {
+            std::optional<ReadingState> current;
+            if (pages && viewReady && !pendingReadingState && !suppressCurrentState) current = CurrentReadingState();
+            recentEntries = RecentFiles(ReadingStateStore(readingStateFile).Read(), current);
+        }
+        HMENU menu = CreatePopupMenu(); if (!menu) return nullptr;
+        AppendMenuW(menu, MF_STRING, Open, L"Abrir PDF…\tCtrl+O");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING | MF_DISABLED, 0, recentEntries.empty() ? L"No hay archivos recientes" : L"Recientes");
+        for (size_t i = 0; i < recentEntries.size(); ++i) AppendMenuW(menu, MF_STRING, RecentBase + i, RecentLabel(recentEntries[i].path, i).c_str());
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING | (recentEntries.empty() ? MF_DISABLED : 0), ForgetHistory, L"Olvidar historial y posiciones…");
+        return menu;
+    }
+    void ShowOpenMenu() {
+        HMENU menu = BuildOpenMenu();
+        if (!menu) { status = L"No se pudo abrir el menú."; Redraw(); return; }
+        RECT button{}; GetWindowRect(GetDlgItem(window, OpenMenu), &button);
+        UINT command = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN, button.left, button.bottom, window, nullptr);
+        DestroyMenu(menu); if (command) Command(static_cast<int>(command));
+    }
+    bool ClearReadingHistory(bool confirm = true) {
+        if (!readingStateWrites || !ConfigureReadingState() || (!confirm && !recentTest)) return false;
+        if (confirm && MessageBoxW(window, L"¿Olvidar la lista de recientes y las posiciones guardadas?", L"Historial de Chucao", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES) return false;
+        if (!ReadingStateStore(readingStateFile).Clear()) { status = L"No se pudo guardar el cambio del historial."; Redraw(); return false; }
+        recentEntries.clear(); suppressCurrentState = true; pendingReadingState.reset();
+        status = L"Historial y posiciones olvidados."; Redraw(); return true;
+    }
+    void CheckRecents() {
+        if (!recentTest || !pages || pendingReadingState || !cache.count(layout.PageAt(scroll))) return;
+        HMENU menu = BuildOpenMenu();
+        bool ok = menu && GetMenuItemCount(menu) == static_cast<int>(recentEntries.size()) + 5;
+        if (recentStep == 0) {
+            ok = ok && recentEntries.size() == 3 && recentEntries.front().path == ReadingStateStore::NormalizePath(path);
+            for (size_t i = 0; i < recentEntries.size(); ++i) {
+                ok = ok && GetMenuItemID(menu, static_cast<int>(i) + 3) == RecentBase + i;
+                if (recentEntries[i].path != ReadingStateStore::NormalizePath(path)) {
+                    if (recentEntries[i].path.find(L"ausente.pdf") != std::wstring::npos) recentMissing = recentEntries[i].path;
+                    else recentOther = recentEntries[i].path;
+                }
+            }
+            ok = ok && !recentOther.empty() && !recentMissing.empty();
+        } else ok = ok && path == recentOther;
+        if (menu) DestroyMenu(menu);
+        if (!ok) { BenchmarkResult(false); return; }
+        ++recentChecks;
+        if (recentStep == 0) { recentStep = 1; OpenRecentForTest(recentOther); }
+        else if (recentStep == 1) { recentStep = 2; OpenRecentForTest(recentMissing); }
+        else {
+            SaveTestImage(benchmarkReport + L".bmp", window);
+            if (!ClearReadingHistory(false) || !ReadingStateStore(readingStateFile).Read().empty() || SaveReadingState() || !pages) { BenchmarkResult(false); return; }
+            menu = BuildOpenMenu(); ok = menu && recentEntries.empty() && (GetMenuState(menu, ForgetHistory, MF_BYCOMMAND) & MF_DISABLED);
+            if (menu) DestroyMenu(menu);
+            ++recentChecks; recentStep = 4; BenchmarkResult(ok);
+        }
+    }
+    void OpenRecentForTest(const std::wstring& target) {
+        for (size_t i = 0; i < recentEntries.size(); ++i) if (recentEntries[i].path == target) { Command(RecentBase + static_cast<int>(i)); return; }
+        BenchmarkResult(false);
+    }
     void CheckReadingState() {
         if (!readingStateTest || !pages || pendingReadingState) return;
         if (readingStateTest == 1 && readingStateStep == 0) {
@@ -803,7 +873,7 @@ public:
         return state;
     }
     bool SaveReadingState() {
-        if (!readingStateEnabled || !readingStateWrites || !pages || !viewReady || pendingReadingState || !cache.count(layout.PageAt(scroll)) || !ConfigureReadingState()) return false;
+        if (suppressCurrentState || !readingStateEnabled || !readingStateWrites || !pages || !viewReady || pendingReadingState || !cache.count(layout.PageAt(scroll)) || !ConfigureReadingState()) return false;
         return ReadingStateStore(readingStateFile).Update(CurrentReadingState());
     }
     void ApplyReadingState(const ReadingState& state) {
@@ -1003,6 +1073,7 @@ public:
         if (!worker) worker = std::make_unique<PdfWorker>(window);
         if (!retry) {
             SaveReadingState(); viewReady = false; pendingReadingState.reset();
+            suppressCurrentState = false;
             pageLinks.clear(); pendingLinks.clear(); linkHistory.clear();
             outline = {}; outlineLoaded = outlinePending = false; PopulateOutline();
             EndSelection(); ClearSelection(); textPages.clear(); pendingText.clear(); searchPage = -1; searchBoxes.clear();
@@ -1049,8 +1120,13 @@ public:
         if (pd.hDevNames) GlobalFree(pd.hDevNames);
     }
     void Command(int id) {
+        if (id == OpenMenu) { ShowOpenMenu(); return; }
+        if (id == ForgetHistory) { ClearReadingHistory(); return; }
         pendingReadingState.reset();
         ++linkEpoch;
+        if (id >= RecentBase && id < RecentBase + static_cast<int>(recentEntries.size())) {
+            auto selectedPath = recentEntries[id - RecentBase].path; Load(selectedPath); return;
+        }
         switch (id) {
         case Open: ChooseFile(); break;
         case Previous: ChangePage(page - 1); break;
@@ -1144,6 +1220,7 @@ public:
                 else if (linksTest) CheckLinks(Result::Image);
                 else if (passwordTest) CheckPasswordImage();
                 else if (readingStateTest) CheckReadingState();
+                else if (recentTest) CheckRecents();
                 else BenchmarkResult(true);
             }
             break;
@@ -1214,7 +1291,17 @@ public:
                 else { ++passwordChecks; passwordStage = 11; BenchmarkResult(true); }
             }
             break;
-        case Result::Failure: status = result->message; Redraw(); BenchmarkResult(false); break;
+        case Result::Failure:
+            status = result->message; Redraw();
+            if (recentTest && recentStep == 2 && path == recentMissing) {
+                HMENU menu = BuildOpenMenu();
+                bool retained = false;
+                for (const auto& entry : recentEntries) if (entry.path == recentMissing) retained = true;
+                if (menu) DestroyMenu(menu);
+                if (!retained) { BenchmarkResult(false); break; }
+                ++recentChecks; recentStep = 3; OpenRecentForTest(recentOther);
+            } else BenchmarkResult(false);
+            break;
         }
     }
     void Draw(HDC target, RECT rc) {
@@ -1299,7 +1386,8 @@ public:
         if (!dc || !bitmap) { if (dc) DeleteDC(dc); if (bitmap) DeleteObject(bitmap); return; }
         auto old = SelectObject(dc, bitmap);
         if (control) {
-            FillRect(dc, &rc, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
+            if (control == window) Draw(dc, rc);
+            else FillRect(dc, &rc, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
             for (HWND child = GetWindow(control, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
                 RECT bounds{}; GetWindowRect(child, &bounds);
                 MapWindowPoints(nullptr, control, reinterpret_cast<POINT*>(&bounds), 2);
@@ -1369,7 +1457,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->welcomeFont = CreateFontW(-28, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
         SendMessageW(window, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_CHUCAO), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_SHARED)));
         struct Control { const wchar_t* text; int id, width; };
-        Control buttons[] = {{L"Abrir", Open, 64}, {L"‹", Previous, 34}, {L"›", Next, 34}, {L"−", Smaller, 34}, {L"+", Larger, 34}, {L"Ancho", Fit, 64}, {L"Índice", Outline, 64}, {L"Buscar", FindNext, 64}, {L"Imprimir", Print, 78}};
+        Control buttons[] = {{L"Abrir ▾", OpenMenu, 82}, {L"‹", Previous, 34}, {L"›", Next, 34}, {L"−", Smaller, 34}, {L"+", Larger, 34}, {L"Ancho", Fit, 64}, {L"Índice", Outline, 64}, {L"Buscar", FindNext, 64}, {L"Imprimir", Print, 78}};
         int x = 14;
         for (const auto& button : buttons) {
             HWND control = CreateWindowW(L"BUTTON", button.text, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_FLAT, x, 14, button.width, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(button.id)), nullptr, nullptr);
@@ -1478,7 +1566,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool linksTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-links";
     bool passwordTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-passwords";
     int stateTest = argv && argc == 5 ? (std::wstring(argv[1]) == L"--benchmark-state-write" ? 1 : std::wstring(argv[1]) == L"--benchmark-state-read" ? 2 : 0) : 0;
-    bool benchmark = stateTest || (argv && argc == 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
+    bool recentTest = argv && argc == 5 && std::wstring(argv[1]) == L"--benchmark-recents";
+    bool benchmark = recentTest || stateTest || (argv && argc == 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
     bool previewHome = argv && argc == 3 && std::wstring(argv[1]) == L"--preview-home";
     bool shellBenchmark = argv && argc == 3 && (std::wstring(argv[1]) == L"--benchmark-shell" || previewHome);
     SetProcessDPIAware();
@@ -1497,6 +1586,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.linksTest = linksTest;
     app.passwordTest = passwordTest;
     app.readingStateEnabled = !benchmark && !shellBenchmark;
+    if (recentTest) { app.recentTest = true; app.readingStateFile = argv[4]; app.readingStateEnabled = true; }
     if (stateTest) {
         app.readingStateTest = stateTest; app.readingStateFile = argv[4];
         app.readingStateEnabled = true; app.readingStateWrites = stateTest == 1;
@@ -1534,7 +1624,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
             }
             int command = 0;
             if (!edit && msg.wParam == VK_ESCAPE) { app.EndSelection(); app.ClearSelection(); continue; }
-            if (ctrl && msg.wParam == 'O') command = Open;
+            if (ctrl && msg.wParam == 'O') command = GetKeyState(VK_SHIFT) < 0 ? OpenMenu : Open;
             else if (ctrl && msg.wParam == 'B') command = Outline;
             else if (ctrl && msg.wParam == 'F') command = Find;
             else if (ctrl && msg.wParam == 'P') command = Print;

@@ -17,7 +17,8 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
 - [ ] Incorporar pestañas para varios documentos.
 - [x] Recordar página, zoom y posición vertical/horizontal por documento, al cerrar
   o cambiar de PDF. Evidencia: [reading-state.md](reading-state.md).
-- [ ] Incorporar archivos recientes.
+- [x] Incorporar archivos recientes, con apertura bajo demanda y opción para
+  olvidar historial y posiciones. Evidencia: [recent-files.md](recent-files.md).
 - [ ] Permitir abrir enlaces web mediante una acción explícita del usuario.
 - [ ] Respetar posición y modo de ajuste de los marcadores del índice; actualmente
   saltan al inicio de la página conservando el zoom.
@@ -30,6 +31,11 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   - [x] Distinguir el primer pedido de contraseña del aviso de contraseña incorrecta.
 
 ## Validación de funciones implementadas
+
+- [x] Comprobar orden y límite de recientes, nombres repetidos, Unicode,
+  apertura desde el menú, archivo no disponible y borrado sin reinserción al cerrar.
+- [ ] Validar manualmente el menú de recientes con mouse y teclado, su confirmación
+  de borrado y la reapertura de archivos remotos/protegidos.
 
 - [x] Comprobar la recuperación de posición entre procesos, rutas Unicode, dos
   documentos distintos y PDF protegido, sin guardar la contraseña.
