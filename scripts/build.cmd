@@ -25,6 +25,8 @@ cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /utf-8 /DNOMINMAX tools\layout-test.cpp 
 if errorlevel 1 exit /b 1
 cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /I deps\pdfium\include tools\outline-test.cpp /Fo:build\outline-test.obj /Fe:build\outline-test.exe /link /LIBPATH:deps\pdfium\lib pdfium.dll.lib
 if errorlevel 1 exit /b 1
+cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /I deps\pdfium\include tools\links-test.cpp /Fo:build\links-test.obj /Fe:build\links-test.exe /link /LIBPATH:deps\pdfium\lib pdfium.dll.lib
+if errorlevel 1 exit /b 1
 echo Compilacion completada: build\Chucao.exe
 exit /b 0
 
