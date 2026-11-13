@@ -30,7 +30,7 @@ $pdf += "trailer`n<< /Size $size /Root 1 0 R >>`nstartxref`n$xref`n%%EOF`n"
 Write-PdfFixture $fixture $objects
 $linkObjects = @($objects)
 $linkObjects[0] = '<< /Type /Catalog /Pages 2 0 R /Dests << /capitulo [6 0 R /XYZ 150 500 null] >> >>'
-$linkObjects[2] = $linkObjects[2].Replace('/MediaBox', '/Annots [7 0 R 8 0 R 9 0 R 10 0 R 11 0 R 12 0 R 13 0 R] /MediaBox')
+$linkObjects[2] = $linkObjects[2].Replace('/MediaBox', '/Annots [7 0 R 8 0 R 9 0 R 10 0 R 11 0 R 12 0 R 13 0 R 14 0 R 15 0 R 16 0 R 17 0 R 18 0 R 19 0 R] /MediaBox')
 $linkObjects += @(
     '<< /Type /Annot /Subtype /Link /Rect [72 736 160 764] /Border [0 0 0] /Dest [6 0 R /XYZ 150 500 null] >>',
     '<< /Type /Annot /Subtype /Link /Rect [72 700 160 732] /Border [0 0 0] /A << /S /GoTo /D /capitulo >> >>',
@@ -38,7 +38,13 @@ $linkObjects += @(
     '<< /Type /Annot /Subtype /Link /Rect [72 600 160 630] /A << /S /JavaScript /JS (app.alert\(1\)) >> >>',
     '<< /Type /Annot /Subtype /Link /Rect [72 560 160 590] /A << /S /Launch /F (never-run.exe) >> >>',
     '<< /Type /Annot /Subtype /Link /Rect [72 520 160 550] /Dest [999 /Fit] >>',
-    '<< /Type /Annot /Subtype /Link /Rect [72 480 160 510] /Dest [6 0 R /Fit] /A << /S /URI /URI (https://example.invalid) >> >>'
+    '<< /Type /Annot /Subtype /Link /Rect [72 480 160 510] /Dest [6 0 R /Fit] /A << /S /URI /URI (https://example.invalid) >> >>',
+    '<< /Type /Annot /Subtype /Link /Rect [72 440 160 470] /A << /S /URI /URI (file:///C:/never-run.exe) >> >>',
+    '<< /Type /Annot /Subtype /Link /Rect [72 400 160 430] /A << /S /URI /URI (javascript:alert\(1\)) >> >>',
+    '<< /Type /Annot /Subtype /Link /Rect [72 360 160 390] /A << /S /URI /URI (https:///missing-host) >> >>',
+    '<< /Type /Annot /Subtype /Link /Rect [72 320 160 350] /A << /S /URI /URI (https://example.invalid/ bad) >> >>',
+    '<< /Type /Annot /Subtype /Link /Rect [72 280 160 310] /A << /S /URI /URI <68747470733a2f2f6578616d706c652e696e76616c69642fff> >> >>',
+    '<< /Type /Annot /Subtype /Link /Rect [72 240 160 270] /A << /S /URI /URI (mailto:never@example.invalid) >> >>'
 )
 Write-PdfFixture ([IO.Path]::Combine($output, 'links.pdf')) $linkObjects
 $rotatedLinks = @($linkObjects)

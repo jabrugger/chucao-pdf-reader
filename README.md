@@ -37,6 +37,8 @@ documento. Ver [alcance y pruebas](docs/reading-state.md).
 
 - Enlaces internos: clic para ir al destino; Alt+Izquierda vuelve al punto anterior.
   El cursor cambia a una mano cuando se reconoce un enlace interno.
+- Enlaces web HTTP/HTTPS: clic para abrirlos en el navegador predeterminado.
+  Pasar el mouse, seleccionar texto o abrir el PDF no abre el navegador.
 
 - Abrir: Ctrl+O, arrastrar un PDF o pasar su ruta como argumento.
 - Recientes: menú **Abrir ▾** o Ctrl+Shift+O; muestra hasta diez documentos.
@@ -68,7 +70,7 @@ Las dimensiones de las páginas lejanas se estiman hasta visitarlas, para evitar
 recorrer el PDF completo al abrir. La geometría del texto se obtiene bajo demanda
 al seleccionar, con caché acotada. La copia respeta los permisos del PDF y usa
 Unicode en el portapapeles. El índice del PDF se carga al pedirlo y permite saltar
-a capítulos y subcapítulos. Todavía faltan enlaces web, pestañas
+a capítulos y subcapítulos. Todavía faltan pestañas
 y pulido visual/accesibilidad. Buscar o seleccionar en escaneos requiere
 una capa de texto ya existente. No se implementará OCR.
 
@@ -101,7 +103,8 @@ incorporarla a Chucao. Ver [mediciones](docs/performance.md).
 
 Las pruebas incluyen enlaces directos y nombrados, posiciones XYZ, rotación y
 recorte, y regreso desde un enlace con zoom alto y desplazamiento horizontal.
-Los enlaces externos y las acciones de scripts/archivos no se ejecutan.
+Los enlaces HTTP/HTTPS solo se envían al navegador por un clic explícito.
+Las acciones de scripts/archivos y otros protocolos permanecen inactivos.
 
 `-Navigation` y `-Text` miden toda la secuencia de prueba, no solo la apertura.
 Las pruebas de texto no modifican el portapapeles: verifican internamente el
@@ -126,7 +129,8 @@ manuales; ver [plan de trabajo](docs/roadmap.md).
 Repositorio privado durante el desarrollo. No se ha elegido todavía una licencia
 para el código propio. No se incorpora código de SumatraPDF, KillerPDF o MarkPad.
 Antes de distribuir: revisar los avisos de PDFium y de sus dependencias y establecer
-el proceso de actualización del motor. No hay telemetría ni conexión de red en el visor.
+el proceso de actualización del motor. No hay telemetría ni conexión de red en el visor;
+el navegador puede conectarse al sitio elegido al hacer clic en un enlace web.
 
 La imagen elegida por el usuario está en [assets/branding](assets/branding/README.md).
 El icono y la bienvenida se incluyen en el EXE; no requieren imágenes externas al ejecutarlo.

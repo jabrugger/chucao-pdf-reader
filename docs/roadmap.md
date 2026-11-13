@@ -13,7 +13,7 @@ La lista consolidada y verificable de pendientes está en [TODO.md](TODO.md).
    resaltado y salto preciso, y desplazamiento horizontal con zoom alto.
    Índice jerárquico bajo demanda con navegación a páginas. Enlaces internos con
    destinos directos/nombrados y regreso al punto de lectura. Persistencia local de
-   página, zoom y posición por documento. Pendientes enlaces web.
+   página, zoom y posición por documento. Enlaces web HTTP/HTTPS por clic explícito.
 3. **Interfaz**: propuesta visual inspirada en MarkPad, toolbar compacta, panel
    opcional, pestañas, claro/oscuro, DPI por monitor y navegación por teclado.
    Validar con el usuario antes de convertir la propuesta en diseño definitivo.
@@ -33,7 +33,8 @@ redactar, firmar o crear documentos. La impresión no modifica el archivo de ori
 - Unicode en rutas y texto; documentos con restricciones de impresión/copia.
 - Abrir A y luego B rápidamente; cambiar zoom y tamaño mientras se dibuja.
 - Cerrar durante lectura, búsqueda o renderizado, sin resultados tardíos ni fugas.
-- No ejecutar acciones JavaScript ni abrir enlaces externos automáticamente.
+- No ejecutar acciones JavaScript ni abrir enlaces web automáticamente; comprobar
+  el clic explícito y la apertura en el navegador predeterminado.
 - Impresión: rangos, orientación, tamaño, copias, cancelar y errores del spooler.
 - CPU/memoria tras muchas aperturas; documentos dañados o de dimensiones extremas.
 - En esta fase no cambiar asociaciones de PDF ni instalar servicios en Windows.

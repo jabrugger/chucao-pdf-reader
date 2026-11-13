@@ -428,6 +428,7 @@ public:
     int outlineChecks = 0;
     bool linksTest = false;
     int linkChecks = 0, linkStep = 0;
+    int webOpenAttempts = 0;
     std::int64_t linkTestScroll = 0;
     int linkTestHorizontal = 0;
     bool passwordTest = false, canCopy = false, canPrint = false;
@@ -627,7 +628,7 @@ public:
             linkStep = linkStep == 0 ? 1 : 6;
             pendingLinks.insert(0); worker->LoadLinks(0, document);
         } else if (kind == Result::LinksReady && linkStep == 1) {
-            if (pageLinks[0].size() != 2) { BenchmarkResult(false); return; }
+            if (pageLinks[0].size() != 4 || webOpenAttempts) { BenchmarkResult(false); return; }
             auto box = pageLinks[0][0].box; TextPoint point{0, (box.left + box.right) / 2, (box.top + box.bottom) / 2};
             if (!LinkAt(point)) { BenchmarkResult(false); return; }
             zoom = 3; Reflow(); Render();
@@ -650,13 +651,19 @@ public:
             superseded->document = document; superseded->revision = linkEpoch - 1; superseded->linkTarget = target;
             Receive(std::move(superseded));
             if (page != 0) { BenchmarkResult(false); return; }
-            ++linkChecks; linkStep = 4; ActivateLink({0, 100.0 / 612, 1.0 - 650.0 / 792});
+            auto web = pageLinks[0][2].box;
+            ++linkChecks; linkStep = 4; ActivateLink({0, (web.left + web.right) / 2, (web.top + web.bottom) / 2});
         } else if (kind == Result::LinkFollowed && linkStep == 4) {
-            if (!target.hit || target.page >= 0 || page != 0 || !linkHistory.empty()) { BenchmarkResult(false); return; }
+            if (!target.hit || target.page >= 0 || target.webUrl != L"https://example.invalid" || webOpenAttempts != 1 || page != 0 || !linkHistory.empty()) { BenchmarkResult(false); return; }
+            auto late = std::make_unique<Result>(); late->kind = Result::LinkFollowed; late->document = document - 1; late->linkTarget = target;
+            Receive(std::move(late));
+            auto old = std::make_unique<Result>(); old->kind = Result::LinkFollowed; old->document = document; old->revision = linkEpoch - 1; old->linkTarget = target;
+            Receive(std::move(old));
+            if (webOpenAttempts != 1) { BenchmarkResult(false); return; }
             ++linkChecks; linkStep = 5; Load(path);
             if (!pageLinks.empty()) { BenchmarkResult(false); return; }
         } else if (kind == Result::LinksReady && linkStep == 6) {
-            if (pageLinks[0].size() != 2 || !linkHistory.empty()) { BenchmarkResult(false); return; }
+            if (pageLinks[0].size() != 4 || !linkHistory.empty() || webOpenAttempts != 1) { BenchmarkResult(false); return; }
             ++linkChecks; linkStep = 7; BenchmarkResult(true);
         }
     }
@@ -927,6 +934,15 @@ public:
         }
     }
     void ActivateLink(const TextPoint& point) { worker->FollowLink(point.page, point.x, point.y, document, linkEpoch); }
+    void OpenWebLink(const std::wstring& url) {
+        if (!IsWebUrl(url)) return;
+        // Diagnostics exercise dispatch without opening an external application.
+        INT_PTR result = 0;
+        if (linksTest) { ++webOpenAttempts; result = 33; }
+        else if (benchmarkReport.empty()) result = reinterpret_cast<INT_PTR>(ShellExecuteW(window, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+        status = result > 32 ? L"Enlace enviado al navegador." : L"No se pudo abrir el navegador para este enlace.";
+        Redraw();
+    }
     void BackFromLink() {
         ++linkEpoch;
         if (linkHistory.empty() || !pages) return;
@@ -1195,7 +1211,8 @@ public:
                 ScrollTo(layout.Top(target.page) + static_cast<std::int64_t>(target.y * layout.Height(target.page)) - DocumentLayout::Gap);
                 ScrollHorizontal(static_cast<int>(layout.Left(target.page, ViewWidth()) + target.x * layout.Width(target.page) - DocumentLayout::Gap));
                 PageStatus();
-            } else if (result->linkTarget.hit) { status = L"Este enlace no tiene un destino interno compatible."; Redraw(); }
+            } else if (!result->linkTarget.webUrl.empty()) OpenWebLink(result->linkTarget.webUrl);
+            else if (result->linkTarget.hit) { status = L"Este enlace no es compatible. Se admiten destinos internos y direcciones HTTP/HTTPS."; Redraw(); }
             CheckLinks(Result::LinkFollowed, result->linkTarget);
             break;
         case Result::Image:
