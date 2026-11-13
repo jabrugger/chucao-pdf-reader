@@ -1,12 +1,14 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <commdlg.h>
+#include <commctrl.h>
 #include <shellapi.h>
 #include <fpdfview.h>
 #include <fpdf_text.h>
 #include <fpdf_progressive.h>
 #include "document-layout.h"
 #include "text-geometry.h"
+#include "document-outline.h"
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
@@ -26,7 +28,7 @@
 namespace {
 constexpr UINT Ready = WM_APP + 1;
 constexpr int BarHeight = 58;
-enum { Open = 100, Previous, Next, Smaller, Larger, Fit, Find, Print, Query, FindNext, FindPrevious, Copy };
+enum { Open = 100, Previous, Next, Smaller, Larger, Fit, Find, Print, Query, FindNext, FindPrevious, Copy, Outline };
 
 TextBox PageBox(FPDF_PAGE page, double left, double right, double bottom, double top) {
     int x1 = 0, y1 = 0, x2 = 0, y2 = 0;
@@ -64,7 +66,8 @@ std::wstring Text(HWND window) {
     return value;
 }
 struct Result {
-    enum Kind { Image, Opened, Password, Failure, Search, Printed, Geometry, Copied } kind = Failure;
+    enum Kind { Image, Opened, Password, Failure, Search, Printed, Geometry, Copied, OutlineReady } kind = Failure;
+    DocumentOutline outline;
     unsigned long long document = 0, revision = 0, viewVersion = 0;
     int page = 0, pages = 0, width = 0, height = 0, match = -1;
     double milliseconds = 0;
@@ -144,6 +147,14 @@ public:
                 if (result->pages <= 0) { result->kind = Result::Failure; result->message = L"El PDF no contiene páginas."; }
             }
             Send(std::move(result));
+        });
+    }
+    void LoadOutline(unsigned long long document) {
+        Queue([this, document] {
+            if (!pdf_ || document != document_ || document != wantedDocument_ || cancelled_) return;
+            auto result = std::make_unique<Result>(); result->kind = Result::OutlineReady;
+            result->outline = ReadOutline(pdf_, [this, document] { return cancelled_ || document != wantedDocument_; });
+            if (!cancelled_ && document == wantedDocument_) Send(std::move(result));
         });
     }
     unsigned long long Render(std::vector<int> requested, int viewport, double zoom, unsigned long long document, unsigned long long viewVersion) {
@@ -356,9 +367,14 @@ bool PasswordDialog(HWND owner, std::wstring& password) {
     return state.accepted;
 }
 
+LRESULT CALLBACK OutlineProc(HWND, UINT, WPARAM, LPARAM);
+
 class Reader {
 public:
-    HWND window = nullptr, query = nullptr;
+    HWND window = nullptr, query = nullptr, outlineWindow = nullptr, outlineTree = nullptr, outlineLabel = nullptr;
+    DocumentOutline outline;
+    bool outlineLoaded = false, outlinePending = false, outlineTest = false;
+    int outlineChecks = 0;
     HFONT font = nullptr;
     std::unique_ptr<PdfWorker> worker;
     struct CachedPage { std::unique_ptr<Result> image; unsigned long long version = 0, used = 0; };
@@ -398,12 +414,87 @@ public:
     size_t navigationHits = 0;
     std::chrono::steady_clock::time_point started;
     double shellMs = 0, openedMs = 0;
+    void PopulateOutline() {
+        if (!outlineTree) return;
+        SendMessageW(outlineTree, WM_SETREDRAW, FALSE, 0);
+        TreeView_DeleteAllItems(outlineTree);
+        std::vector<HTREEITEM> items;
+        for (const auto& entry : outline.entries) {
+            auto label = entry.title + (entry.page >= 0 ? L"  ·  " + std::to_wstring(entry.page + 1) : L"  (sin destino interno)");
+            TVINSERTSTRUCTW item{};
+            item.hParent = entry.parent >= 0 ? items[entry.parent] : TVI_ROOT;
+            item.hInsertAfter = TVI_LAST; item.item.mask = TVIF_TEXT | TVIF_PARAM;
+            item.item.pszText = &label[0]; item.item.lParam = entry.page;
+            items.push_back(TreeView_InsertItem(outlineTree, &item));
+        }
+        for (size_t i = 0; i < items.size(); ++i) if (outline.entries[i].parent < 0) TreeView_Expand(outlineTree, items[i], TVE_EXPAND);
+        SendMessageW(outlineTree, WM_SETREDRAW, TRUE, 0); InvalidateRect(outlineTree, nullptr, TRUE);
+        const wchar_t* label = !outlineLoaded ? (outlinePending ? L"Cargando índice…" : L"Abrí un PDF para consultar su índice.") :
+            outline.entries.empty() ? L"Este documento no tiene índice." :
+            outline.limited ? L"Índice limitado. Enter o doble clic para ir." : L"Enter o doble clic para ir al capítulo.";
+        SetWindowTextW(outlineLabel, label);
+    }
+    void RequestOutline() {
+        if (pages && !outlineLoaded && !outlinePending) {
+            outlinePending = true; PopulateOutline(); worker->LoadOutline(document);
+        }
+    }
+    void ToggleOutline() {
+        if (outlineWindow && IsWindowVisible(outlineWindow)) { ShowWindow(outlineWindow, SW_HIDE); SetFocus(window); return; }
+        if (!outlineWindow) {
+            outlineWindow = CreateWindowExW(WS_EX_TOOLWINDOW, L"ChucaoOutline", L"Índice del documento", WS_OVERLAPPEDWINDOW,
+                CW_USEDEFAULT, CW_USEDEFAULT, 360, 550, window, nullptr, GetModuleHandleW(nullptr), this);
+            if (!outlineWindow) { status = L"No se pudo abrir el índice."; Redraw(); return; }
+            SendMessageW(outlineWindow, WM_SIZE, 0, 0);
+        }
+        RequestOutline(); PopulateOutline();
+        if (benchmarkReport.empty()) { ShowWindow(outlineWindow, SW_SHOW); SetFocus(outlineTree); }
+    }
+    void NavigateOutline() {
+        auto selectedItem = TreeView_GetSelection(outlineTree);
+        TVITEMW item{}; item.mask = TVIF_PARAM; item.hItem = selectedItem;
+        if (!selectedItem || !TreeView_GetItem(outlineTree, &item)) return;
+        int target = static_cast<int>(item.lParam);
+        if (target >= 0 && target < pages) { ClearSelection(); ChangePage(target); }
+        else { status = L"Esta entrada no tiene un destino dentro del documento."; Redraw(); }
+    }
+    void CheckOutline() {
+        if (outlineChecks == 2) {
+            if (!outline.entries.empty() || TreeView_GetCount(outlineTree) != 0 || Text(outlineLabel) != L"Este documento no tiene índice.") { BenchmarkResult(false); return; }
+            ++outlineChecks; BenchmarkResult(true); return;
+        }
+        if (outline.entries.size() != 5 || outline.entries[0].title != L"Capítulo café" || outline.entries[1].parent != 0 ||
+            outline.entries[1].page != 1 || outline.entries[2].page != -1 || outline.entries[3].page != -1 || outline.entries[4].page != -1 ||
+            TreeView_GetCount(outlineTree) != 5) { BenchmarkResult(false); return; }
+        auto root = TreeView_GetRoot(outlineTree), child = TreeView_GetChild(outlineTree, root);
+        TreeView_SelectItem(outlineTree, child);
+        SaveTestImage(benchmarkReport + L".outline.bmp", outlineWindow);
+        NMHDR activation{outlineTree, 0, NM_DBLCLK};
+        SendMessageW(outlineWindow, WM_NOTIFY, 0, reinterpret_cast<LPARAM>(&activation));
+        if (page != 1) { BenchmarkResult(false); return; }
+        TreeView_SelectItem(outlineTree, root);
+        NMTVKEYDOWN enter{}; enter.hdr.hwndFrom = outlineTree; enter.hdr.code = TVN_KEYDOWN; enter.wVKey = VK_RETURN;
+        SendMessageW(outlineWindow, WM_NOTIFY, 0, reinterpret_cast<LPARAM>(&enter));
+        if (page != 0) { BenchmarkResult(false); return; }
+        TreeView_SelectItem(outlineTree, child); NavigateOutline();
+        TreeView_SelectItem(outlineTree, TreeView_GetNextSibling(outlineTree, root)); NavigateOutline();
+        if (page != 1) { BenchmarkResult(false); return; }
+        ++outlineChecks;
+        if (outlineChecks == 1) {
+            Load(path); // Clear the old tree and reject late outline results on reopen.
+            if (TreeView_GetCount(outlineTree) != 0) { BenchmarkResult(false); return; }
+            auto stale = std::make_unique<Result>(); stale->kind = Result::OutlineReady; stale->document = document - 1;
+            Receive(std::move(stale)); RequestOutline();
+        } else {
+            Load(path.substr(0, path.find_last_of(L"\\/") + 1) + L"sample.pdf");
+        }
+    }
     void BenchmarkResult(bool success) {
         if (benchmarkReport.empty()) return;
         double readyMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         char data[768]{};
         Endpoint a, b; SelectionRange(a, b);
-        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d,\"navigation_steps\":%d,\"cache_hits\":%zu,\"cache_bytes\":%zu,\"text_checks\":%d,\"text_step\":%d,\"selection_first\":%d,\"selection_last\":%d}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages, navigationStep, navigationHits, cacheBytes, textChecks, textStep, a.character, b.character);
+        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d,\"navigation_steps\":%d,\"cache_hits\":%zu,\"cache_bytes\":%zu,\"outline_checks\":%d,\"text_checks\":%d,\"text_step\":%d,\"selection_first\":%d,\"selection_last\":%d}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages, navigationStep, navigationHits, cacheBytes, outlineChecks, textChecks, textStep, a.character, b.character);
         HANDLE output = CreateFileW(benchmarkReport.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (output != INVALID_HANDLE_VALUE) { DWORD written = 0; WriteFile(output, data, size, &written, nullptr); CloseHandle(output); }
         PostMessageW(window, WM_CLOSE, 0, 0);
@@ -679,6 +770,7 @@ public:
     void Load(const std::wstring& file, const std::wstring& password = L"", bool retry = false) {
         if (!worker) worker = std::make_unique<PdfWorker>(window);
         if (!retry) {
+            outline = {}; outlineLoaded = outlinePending = false; PopulateOutline();
             EndSelection(); ClearSelection(); textPages.clear(); pendingText.clear(); searchPage = -1; searchBoxes.clear();
             path = file; ++document; pages = 0; page = 0; scroll = 0; horizontal = 0; zoom = 0; searching = false;
             cache.clear(); cacheBytes = 0; layout.Reset(0); layout.Rebuild(ViewWidth(), zoom);
@@ -740,6 +832,7 @@ public:
         case FindNext: Search(); break;
         case FindPrevious: Search(true); break;
         case Copy: CopySelection(); break;
+        case Outline: ToggleOutline(); break;
         case Print: PrintFile(); break;
         }
     }
@@ -751,7 +844,13 @@ public:
         case Result::Opened:
             openedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
             pages = result->pages; layout.Reset(pages); layout.Rebuild(ViewWidth(), zoom); ScrollTo(0, false);
-            SetWindowTextW(window, (L"Chucao — " + path.substr(path.find_last_of(L"\\/") + 1)).c_str()); PageStatus(); Render(); break;
+            SetWindowTextW(window, (L"Chucao — " + path.substr(path.find_last_of(L"\\/") + 1)).c_str()); PageStatus(); Render();
+            if (outlineWindow && (IsWindowVisible(outlineWindow) || outlineTest)) RequestOutline();
+            break;
+        case Result::OutlineReady:
+            outlinePending = false; outlineLoaded = true; outline = std::move(result->outline); PopulateOutline();
+            if (outlineTest) CheckOutline();
+            break;
         case Result::Image:
             // A completed bitmap from the same zoom/width is useful even if the
             // scroll position has changed since it was queued.
@@ -765,6 +864,7 @@ public:
                 ScrollTo(scroll, false); TrimCache(); Render();
                 if (textTest) CheckText(Result::Image);
                 else if (navigationTest) { PostMessageW(window, WM_TIMER, 3, 0); }
+                else if (outlineTest) { if (!outlineWindow) ToggleOutline(); }
                 else BenchmarkResult(true);
             }
             break;
@@ -869,15 +969,28 @@ public:
         PAINTSTRUCT ps{}; HDC target = BeginPaint(window, &ps); RECT rc{}; GetClientRect(window, &rc);
         Draw(target, rc); EndPaint(window, &ps);
     }
-    void SaveTestImage(const std::wstring& filename) {
-        RECT rc{}; GetClientRect(window, &rc);
+    void SaveTestImage(const std::wstring& filename, HWND control = nullptr) {
+        RECT rc{}; GetClientRect(control ? control : window, &rc);
         BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
         info.bmiHeader.biWidth = rc.right; info.bmiHeader.biHeight = -rc.bottom;
         info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32; info.bmiHeader.biCompression = BI_RGB;
         void* bits = nullptr; HDC dc = CreateCompatibleDC(nullptr);
         HBITMAP bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
         if (!dc || !bitmap) { if (dc) DeleteDC(dc); if (bitmap) DeleteObject(bitmap); return; }
-        auto old = SelectObject(dc, bitmap); Draw(dc, rc); GdiFlush();
+        auto old = SelectObject(dc, bitmap);
+        if (control) {
+            FillRect(dc, &rc, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
+            for (HWND child = GetWindow(control, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
+                RECT bounds{}; GetWindowRect(child, &bounds);
+                MapWindowPoints(nullptr, control, reinterpret_cast<POINT*>(&bounds), 2);
+                int saved = SaveDC(dc); SetViewportOrgEx(dc, bounds.left, bounds.top, nullptr);
+                IntersectClipRect(dc, 0, 0, bounds.right - bounds.left, bounds.bottom - bounds.top);
+                SendMessageW(child, WM_PRINT, reinterpret_cast<WPARAM>(dc), PRF_CLIENT | PRF_NONCLIENT | PRF_ERASEBKGND);
+                RestoreDC(dc, saved);
+            }
+        }
+        else Draw(dc, rc);
+        GdiFlush();
         BITMAPFILEHEADER header{}; header.bfType = 0x4d42;
         header.bfOffBits = sizeof(header) + sizeof(BITMAPINFOHEADER);
         DWORD bytes = rc.right * rc.bottom * 4; header.bfSize = header.bfOffBits + bytes;
@@ -891,6 +1004,38 @@ public:
     }
 };
 
+LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
+    auto app = reinterpret_cast<Reader*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (message == WM_NCCREATE) {
+        app = static_cast<Reader*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);
+        SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(app));
+    }
+    if (!app) return DefWindowProcW(window, message, wp, lp);
+    switch (message) {
+    case WM_CREATE:
+        app->outlineTree = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEWW, L"Índice", WS_CHILD | WS_VISIBLE | WS_TABSTOP |
+            TVS_HASLINES | TVS_LINESATROOT | TVS_HASBUTTONS | TVS_SHOWSELALWAYS, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
+        app->outlineLabel = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 8, 0, 1, 1, window, nullptr, nullptr, nullptr);
+        SendMessageW(app->outlineTree, WM_SETFONT, reinterpret_cast<WPARAM>(app->font), TRUE);
+        SendMessageW(app->outlineLabel, WM_SETFONT, reinterpret_cast<WPARAM>(app->font), TRUE); return 0;
+    case WM_SIZE: {
+        RECT rc{}; GetClientRect(window, &rc);
+        MoveWindow(app->outlineTree, 0, 0, rc.right, std::max<LONG>(1, rc.bottom - 44), TRUE);
+        MoveWindow(app->outlineLabel, 8, std::max<LONG>(0, rc.bottom - 40), std::max<LONG>(1, rc.right - 16), 36, TRUE); return 0;
+    }
+    case WM_GETMINMAXINFO: reinterpret_cast<MINMAXINFO*>(lp)->ptMinTrackSize = {280, 240}; return 0;
+    case WM_NOTIFY: {
+        auto notification = reinterpret_cast<NMHDR*>(lp);
+        if (notification->hwndFrom == app->outlineTree && (notification->code == NM_DBLCLK ||
+            (notification->code == TVN_KEYDOWN && reinterpret_cast<NMTVKEYDOWN*>(lp)->wVKey == VK_RETURN))) app->NavigateOutline();
+        return 0;
+    }
+    case WM_CLOSE: ShowWindow(window, SW_HIDE); SetFocus(app->window); return 0;
+    case WM_DESTROY: app->outlineWindow = app->outlineTree = app->outlineLabel = nullptr; return 0;
+    }
+    return DefWindowProcW(window, message, wp, lp);
+}
+
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     auto app = reinterpret_cast<Reader*>(GetWindowLongPtrW(window, GWLP_USERDATA));
     if (message == WM_NCCREATE) {
@@ -902,7 +1047,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     case WM_CREATE: {
         app->font = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
         struct Control { const wchar_t* text; int id, width; };
-        Control buttons[] = {{L"Abrir", Open, 64}, {L"‹", Previous, 34}, {L"›", Next, 34}, {L"−", Smaller, 34}, {L"+", Larger, 34}, {L"Ancho", Fit, 64}, {L"Buscar", FindNext, 64}, {L"Imprimir", Print, 78}};
+        Control buttons[] = {{L"Abrir", Open, 64}, {L"‹", Previous, 34}, {L"›", Next, 34}, {L"−", Smaller, 34}, {L"+", Larger, 34}, {L"Ancho", Fit, 64}, {L"Índice", Outline, 64}, {L"Buscar", FindNext, 64}, {L"Imprimir", Print, 78}};
         int x = 14;
         for (const auto& button : buttons) {
             HWND control = CreateWindowW(L"BUTTON", button.text, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_FLAT, x, 14, button.width, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(button.id)), nullptr, nullptr);
@@ -980,6 +1125,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     case WM_PAINT: app->Paint(); return 0;
     case WM_DESTROY: {
         app->worker.reset();
+        if (app->outlineWindow) DestroyWindow(app->outlineWindow);
         MSG pending{}; while (PeekMessageW(&pending, window, Ready, Ready, PM_REMOVE)) delete reinterpret_cast<Result*>(pending.lParam);
         DeleteObject(app->font); PostQuitMessage(0); return 0;
     }
@@ -993,17 +1139,21 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     int argc = 0; LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     bool navigationTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-navigation";
     bool textTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-text";
-    bool benchmark = argv && argc == 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest);
+    bool outlineTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-outline";
+    bool benchmark = argv && argc == 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest);
     bool shellBenchmark = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-shell";
     SetProcessDPIAware();
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_TREEVIEW_CLASSES}; InitCommonControlsEx(&controls);
     WNDCLASSW wc{}; wc.hInstance = instance; wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.lpszClassName = L"ChucaoReader"; wc.lpfnWndProc = WindowProc; RegisterClassW(&wc);
     wc.lpszClassName = L"ChucaoPassword"; wc.lpfnWndProc = PasswordProc;
     wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1); RegisterClassW(&wc);
+    wc.lpszClassName = L"ChucaoOutline"; wc.lpfnWndProc = OutlineProc; RegisterClassW(&wc);
     Reader app;
     app.started = started;
     app.navigationTest = navigationTest;
     app.textTest = textTest;
+    app.outlineTest = outlineTest;
     if (benchmark) app.benchmarkReport = argv[3];
     if (shellBenchmark) app.benchmarkReport = argv[2];
     HWND window = CreateWindowW(L"ChucaoReader", L"Chucao PDF Reader", WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_HSCROLL | WS_CLIPCHILDREN,
@@ -1017,6 +1167,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     if (argv) LocalFree(argv);
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        if (app.outlineWindow && (msg.hwnd == app.outlineWindow || IsChild(app.outlineWindow, msg.hwnd))) {
+            if (msg.message == WM_KEYDOWN && (msg.wParam == VK_ESCAPE || (msg.wParam == 'B' && GetKeyState(VK_CONTROL) < 0))) {
+                SendMessageW(app.outlineWindow, WM_CLOSE, 0, 0); continue;
+            }
+            TranslateMessage(&msg); DispatchMessageW(&msg); continue;
+        }
         if (msg.message == WM_KEYDOWN) {
             bool ctrl = GetKeyState(VK_CONTROL) < 0, edit = GetFocus() == app.query;
             if (!edit && (msg.wParam == VK_NEXT || msg.wParam == VK_PRIOR || msg.wParam == VK_DOWN || msg.wParam == VK_UP || msg.wParam == VK_HOME || msg.wParam == VK_END)) {
@@ -1028,6 +1184,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
             int command = 0;
             if (!edit && msg.wParam == VK_ESCAPE) { app.EndSelection(); app.ClearSelection(); continue; }
             if (ctrl && msg.wParam == 'O') command = Open;
+            else if (ctrl && msg.wParam == 'B') command = Outline;
             else if (ctrl && msg.wParam == 'F') command = Find;
             else if (ctrl && msg.wParam == 'P') command = Print;
             else if (ctrl && !edit && msg.wParam == 'C') command = Copy;

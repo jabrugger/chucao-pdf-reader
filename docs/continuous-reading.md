@@ -42,7 +42,8 @@ se probó además con el libro de PHP de 410 páginas indicado por el usuario.
 
 Estas pruebas no evalúan sensación de fluidez en pantalla. Selección/copia y búsqueda
 se documentan en [text-reading.md](text-reading.md). Pendientes: validación manual,
-índice, enlaces y validación de impresión/contraseñas.
+enlaces y validación de impresión/contraseñas. El índice se documenta en
+[document-outline.md](document-outline.md).
 
 ## Desplazamiento horizontal
 
