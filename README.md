@@ -30,6 +30,11 @@ El motor y sus avisos de terceros se conservan en `deps/pdfium`; no se suben al 
 
 ## Uso del prototipo
 
+El lector recuerda la página, el zoom y la posición al cerrar o cambiar de PDF.
+El estado es local a cada PC y se guarda en
+`%LOCALAPPDATA%\ChucaoPDFReader\reading-state.dat`, sin contraseñas ni texto del
+documento. Ver [alcance y pruebas](docs/reading-state.md).
+
 - Enlaces internos: clic para ir al destino; Alt+Izquierda vuelve al punto anterior.
   El cursor cambia a una mano cuando se reconoce un enlace interno.
 
@@ -60,7 +65,7 @@ Las dimensiones de las páginas lejanas se estiman hasta visitarlas, para evitar
 recorrer el PDF completo al abrir. La geometría del texto se obtiene bajo demanda
 al seleccionar, con caché acotada. La copia respeta los permisos del PDF y usa
 Unicode en el portapapeles. El índice del PDF se carga al pedirlo y permite saltar
-a capítulos y subcapítulos. Todavía faltan enlaces web, pestañas, persistencia de posición
+a capítulos y subcapítulos. Todavía faltan enlaces web, pestañas
 y pulido visual/accesibilidad. Buscar o seleccionar en escaneos requiere
 una capa de texto ya existente. No se implementará OCR.
 
