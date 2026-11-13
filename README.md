@@ -39,6 +39,9 @@ documento. Ver [alcance y pruebas](docs/reading-state.md).
   El cursor cambia a una mano cuando se reconoce un enlace interno.
 
 - Abrir: Ctrl+O, arrastrar un PDF o pasar su ruta como argumento.
+- Recientes: menú **Abrir ▾** o Ctrl+Shift+O; muestra hasta diez documentos.
+  **Olvidar historial y posiciones…** elimina ambos del perfil local, previa
+  confirmación. No modifica los PDF. Ver [alcance y pruebas](docs/recent-files.md).
 - Página anterior/siguiente: botones y flechas izquierda/derecha.
 - Lectura continua: rueda, barra de desplazamiento, Page Up/Page Down y flechas arriba/abajo.
 - Home/End: principio/final del documento.

@@ -33,6 +33,8 @@ cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /
 if errorlevel 1 exit /b 1
 cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX tools\reading-state-test.cpp /Fo:build\reading-state-test.obj /Fe:build\reading-state-test.exe
 if errorlevel 1 exit /b 1
+cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX tools\recent-test.cpp /Fo:build\recent-test.obj /Fe:build\recent-test.exe
+if errorlevel 1 exit /b 1
 echo Compilacion completada: build\Chucao.exe
 exit /b 0
 

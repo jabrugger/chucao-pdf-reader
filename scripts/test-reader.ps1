@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath([IO.Path]::Combine($PSScriptRoot, '..'))
 & ([IO.Path]::Combine($PSScriptRoot, 'smoke-test.ps1'))
 & ([IO.Path]::Combine($PSScriptRoot, 'test-reading-state.ps1'))
+& ([IO.Path]::Combine($PSScriptRoot, 'test-recents.ps1'))
 $passwordFixtures = [IO.Path]::Combine($root, 'tests', 'fixtures', 'passwords')
 & ([IO.Path]::Combine($root, 'build', 'password-test.exe')) $passwordFixtures
 if ($LASTEXITCODE -ne 0) { throw 'Falló la validación de contraseñas del motor.' }
