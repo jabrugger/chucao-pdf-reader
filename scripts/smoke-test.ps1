@@ -37,6 +37,43 @@ $objects[5] = $objects[2].Replace('[0 0 612 792]', '[0 0 792 400]')
 $objects += $objects[2].Replace('[0 0 612 792]', '[0 0 612 200]')
 $objects += $objects[2].Replace('[0 0 612 792]', '[0 0 400 1600]')
 Write-PdfFixture ([IO.Path]::Combine($output, 'mixed-pages.pdf')) $objects
+$outlineObjects = @($objects)
+$outlineObjects[0] = '<< /Type /Catalog /Pages 2 0 R /Outlines 9 0 R /Dests << /inicio [3 0 R /Fit] >> >>'
+$outlineTitle = 'Cap' + [char]0xED + 'tulo caf' + [char]0xE9
+$titleHex = [BitConverter]::ToString([Text.Encoding]::BigEndianUnicode.GetBytes($outlineTitle)).Replace('-', '')
+$outlineObjects += @(
+    '<< /Type /Outlines /First 10 0 R /Last 14 0 R /Count 5 >>',
+    "<< /Title <FEFF$titleHex> /Parent 9 0 R /Next 12 0 R /First 11 0 R /Last 11 0 R /Count 1 /Dest /inicio >>",
+    '<< /Title (Subcapitulo) /Parent 10 0 R /A 15 0 R >>',
+    '<< /Title (Web) /Parent 9 0 R /Prev 10 0 R /Next 13 0 R /A << /S /URI /URI (https://example.invalid) >> >>',
+    '<< /Title (Destino invalido) /Parent 9 0 R /Prev 12 0 R /Next 14 0 R /Dest [999 /Fit] >>',
+    '<< /Title (Script) /Parent 9 0 R /Prev 13 0 R /A << /S /JavaScript /JS (app.alert\(1\)) >> >>',
+    '<< /S /GoTo /D [6 0 R /Fit] >>'
+)
+Write-PdfFixture ([IO.Path]::Combine($output, 'outline.pdf')) $outlineObjects
+$cyclic = @($outlineObjects)
+$cyclic[11] = $cyclic[11].Replace('/Next 13 0 R', '/Next 10 0 R')
+Write-PdfFixture ([IO.Path]::Combine($output, 'outline-cycle.pdf')) $cyclic
+$longTitle = @($outlineObjects)
+$longTitle[9] = $longTitle[9].Replace("<FEFF$titleHex>", '(' + ('A' * 2000) + ')')
+Write-PdfFixture ([IO.Path]::Combine($output, 'outline-long-title.pdf')) $longTitle
+$deep = @($objects)
+$deep[0] = '<< /Type /Catalog /Pages 2 0 R /Outlines 9 0 R >>'
+$deep += '<< /Type /Outlines /First 10 0 R /Last 10 0 R /Count 80 >>'
+for ($i = 0; $i -lt 80; $i++) {
+    $parent = if ($i -eq 0) { 9 } else { 9 + $i }
+    $child = if ($i -lt 79) { "/First $(11 + $i) 0 R /Last $(11 + $i) 0 R /Count 1" } else { '' }
+    $deep += "<< /Title (Level $i) /Parent $parent 0 R $child /Dest [3 0 R /Fit] >>"
+}
+Write-PdfFixture ([IO.Path]::Combine($output, 'outline-deep.pdf')) $deep
+$wide = @($objects)
+$wide[0] = '<< /Type /Catalog /Pages 2 0 R /Outlines 9 0 R >>'
+$wide += '<< /Type /Outlines /First 10 0 R /Last 4109 0 R /Count 4100 >>'
+for ($i = 0; $i -lt 4100; $i++) {
+    $next = if ($i -lt 4099) { "/Next $(11 + $i) 0 R" } else { '' }
+    $wide += "<< /Title (Entry $i) /Parent 9 0 R $next /Dest [3 0 R /Fit] >>"
+}
+Write-PdfFixture ([IO.Path]::Combine($output, 'outline-wide.pdf')) $wide
 $exe = [IO.Path]::Combine($root, 'build', 'pdf-smoke.exe')
 & $exe $fixture
 if ($LASTEXITCODE -ne 0) { throw 'Falló apertura/renderizado/búsqueda.' }

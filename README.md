@@ -35,6 +35,8 @@ El motor y sus avisos de terceros se conservan en `deps/pdfium`; no se suben al 
 - Zoom: botones +/−, Ctrl+rueda. Ajustar al ancho: Ctrl+0.
 - Desplazamiento horizontal: barra inferior, Shift+rueda o rueda horizontal.
   La búsqueda lleva también a las coincidencias fuera del ancho visible.
+- Índice: botón Índice o Ctrl+B. Expandir capítulos con las flechas; Enter o doble
+  clic lleva a la página. Escape cierra la ventana del índice.
 - Buscar: Ctrl+F, escribir y pulsar Enter; F3 avanza y Shift+F3 retrocede.
   La coincidencia aparece resaltada y la vista se desplaza hasta ella.
 - Seleccionar: arrastrar sobre el texto, incluso entre páginas. Ctrl+C copia;
@@ -51,7 +53,8 @@ la precarga de vecinas. La caché de imágenes está limitada a 96 MiB y cada re
 Las dimensiones de las páginas lejanas se estiman hasta visitarlas, para evitar
 recorrer el PDF completo al abrir. La geometría del texto se obtiene bajo demanda
 al seleccionar, con caché acotada. La copia respeta los permisos del PDF y usa
-Unicode en el portapapeles. Todavía faltan índice, pestañas, persistencia de posición
+Unicode en el portapapeles. El índice del PDF se carga al pedirlo y permite saltar
+a capítulos y subcapítulos. Todavía faltan enlaces, pestañas, persistencia de posición
 y pulido visual/accesibilidad. Buscar o seleccionar en escaneos requiere
 una capa de texto ya existente. No se implementará OCR.
 
