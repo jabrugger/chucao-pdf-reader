@@ -45,7 +45,8 @@ El motor y sus avisos de terceros se conservan en `deps/pdfium`; no se suben al 
 - Seleccionar: arrastrar sobre el texto, incluso entre páginas. Ctrl+C copia;
   Escape limpia la selección. Al arrastrar cerca de un borde la vista se desplaza.
 - Imprimir: Ctrl+P (diálogo de Windows, documento completo o rango de páginas).
-- Los documentos cifrados solicitan contraseña; no se guarda en disco ni en logs.
+- Los documentos cifrados solicitan contraseña y avisan si es incorrecta; no se
+  guarda en disco ni en logs. Los permisos de copia e impresión se comprueban al abrir.
 - El zoom conserva la página y la posición de lectura; la imagen anterior sirve de
   vista previa mientras llega el render a la nueva escala.
 
@@ -57,7 +58,7 @@ Las dimensiones de las páginas lejanas se estiman hasta visitarlas, para evitar
 recorrer el PDF completo al abrir. La geometría del texto se obtiene bajo demanda
 al seleccionar, con caché acotada. La copia respeta los permisos del PDF y usa
 Unicode en el portapapeles. El índice del PDF se carga al pedirlo y permite saltar
-a capítulos y subcapítulos. Todavía faltan enlaces, pestañas, persistencia de posición
+a capítulos y subcapítulos. Todavía faltan enlaces web, pestañas, persistencia de posición
 y pulido visual/accesibilidad. Buscar o seleccionar en escaneos requiere
 una capa de texto ya existente. No se implementará OCR.
 
@@ -104,7 +105,9 @@ powershell -ExecutionPolicy Bypass -File scripts/test-reader.ps1
 
 Genera un PDF sintético (sin datos personales) y verifica apertura,
 renderizado, búsqueda y error de archivo con el mismo motor del visor.
-La contraseña está implementada, pero su prueba con PDF cifrado está pendiente.
+Las pruebas de contraseñas incluyen archivos cifrados AES-256, AES-128 y RC4,
+Unicode, reintentos, cancelación y permisos; ver [passwords.md](docs/passwords.md).
+El diálogo visible todavía requiere comprobación manual de foco y teclado.
 La impresión física y el rendimiento sobre documentos reales requieren pruebas
 manuales; ver [plan de trabajo](docs/roadmap.md).
 

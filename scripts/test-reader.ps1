@@ -2,6 +2,16 @@ param([string]$Pdf)
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath([IO.Path]::Combine($PSScriptRoot, '..'))
 & ([IO.Path]::Combine($PSScriptRoot, 'smoke-test.ps1'))
+$passwordFixtures = [IO.Path]::Combine($root, 'tests', 'fixtures', 'passwords')
+& ([IO.Path]::Combine($root, 'build', 'password-test.exe')) $passwordFixtures
+if ($LASTEXITCODE -ne 0) { throw 'Falló la validación de contraseñas del motor.' }
+$passwordOutput = [IO.Path]::Combine($root, 'test-results', 'passwords')
+[IO.Directory]::CreateDirectory($passwordOutput) | Out-Null
+foreach ($name in @('aes256-ascii.pdf', 'aes256-unicode.pdf', 'aes128.pdf', 'rc4.pdf', 'restricted.pdf')) {
+    [IO.File]::Copy([IO.Path]::Combine($passwordFixtures, $name), [IO.Path]::Combine($passwordOutput, $name), $true)
+}
+[IO.File]::Copy([IO.Path]::Combine($root, 'test-results', 'sample.pdf'), [IO.Path]::Combine($passwordOutput, 'plain.pdf'), $true)
+& ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Pdf ([IO.Path]::Combine($passwordOutput, 'aes256-ascii.pdf')) -Runs 1 -Passwords
 & ([IO.Path]::Combine($root, 'build', 'layout-test.exe'))
 if ($LASTEXITCODE -ne 0) { throw 'Falló la geometría del documento.' }
 & ([IO.Path]::Combine($root, 'build', 'outline-test.exe')) ([IO.Path]::Combine($root, 'test-results'))

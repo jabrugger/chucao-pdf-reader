@@ -4,8 +4,9 @@ La lista consolidada y verificable de pendientes está en [TODO.md](TODO.md).
 
 1. **Base funcional (implementada)**: C++, PDFium, abrir, zoom,
    contraseña, búsqueda e impresión. Compilar y verificar el motor con fixtures
-   sintéticos. Git local y repo remoto privado creados. Contraseña e impresión
-   todavía requieren validación funcional adicional.
+   sintéticos. Git local y repo remoto privado creados. Contraseñas y permisos
+   cuentan con pruebas automatizadas; el diálogo visible y la impresión real
+   todavía requieren validación manual.
 2. **Experiencia de lectura (en curso)**: implementados desplazamiento continuo,
    caché acotada, precarga de páginas vecinas, cancelación de render progresivo y
    prioridad de página visible, selección/copia entre páginas y búsqueda con

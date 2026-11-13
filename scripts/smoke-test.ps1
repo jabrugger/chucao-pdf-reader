@@ -96,4 +96,4 @@ if ($LASTEXITCODE -ne 0) { throw 'Falló apertura/renderizado/búsqueda.' }
 & $exe ([IO.Path]::Combine($output, 'missing.pdf'))
 if ($LASTEXITCODE -ne 1) { throw 'Falló el manejo de archivo inexistente.' }
 Write-Host 'Pruebas de apertura, renderizado, búsqueda y archivo inexistente: OK.'
-Write-Host 'Contraseñas: ejecutar pdf-smoke con un fixture cifrado; pendiente si no hay generador disponible.'
+Write-Host 'Contraseñas y permisos: scripts/test-reader.ps1 incluye fixtures cifrados sintéticos.'
