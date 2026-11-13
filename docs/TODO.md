@@ -19,7 +19,8 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   o cambiar de PDF. Evidencia: [reading-state.md](reading-state.md).
 - [x] Incorporar archivos recientes, con apertura bajo demanda y opción para
   olvidar historial y posiciones. Evidencia: [recent-files.md](recent-files.md).
-- [ ] Permitir abrir enlaces web mediante una acción explícita del usuario.
+- [x] Permitir abrir enlaces HTTP/HTTPS con clic explícito en el navegador
+  predeterminado. Evidencia: [internal-links.md](internal-links.md).
 - [ ] Respetar posición y modo de ajuste de los marcadores del índice; actualmente
   saltan al inicio de la página conservando el zoom.
 - [ ] Completar los modos de destino de enlaces internos, incluidos Fit, FitH,
@@ -64,6 +65,10 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
 - [ ] Validar el índice con teclado y mouse, y revisar su aspecto a distintos DPI.
 - [ ] Probar enlaces internos de documentos reales, cursor, clic y regreso con
   Alt+Izquierda.
+- [x] Validar destinos web, UTF-8, protocolos no admitidos y descarte de resultados
+  atrasados, sin abrir un navegador durante las pruebas.
+- [ ] Validar manualmente clic en enlaces web reales, navegador predeterminado
+  y mensaje de error si Windows no puede abrirlo.
 - [ ] Abrir documentos consecutivamente con rapidez y comprobar que los resultados
   anteriores no sustituyan al documento actual.
 - [ ] Cambiar zoom y tamaño de ventana durante el renderizado.
@@ -74,6 +79,9 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
 
 ## Rendimiento
 
+- [ ] Mejorar la tolerancia del guardado de historial a la contención con E/S lenta:
+  en la regresión del 2026-11-13 una prueba de escritores simultáneos agotó la
+  espera de 500 ms; la repetición aislada pasó. No se modificó ese límite.
 - [ ] Medir arranque y tiempo hasta la primera página visible en pantalla,
   distinguiéndolos de la generación y recepción del bitmap.
 - [ ] Comparar Chucao, SumatraPDF y KillerPDF como aplicaciones completas con un
