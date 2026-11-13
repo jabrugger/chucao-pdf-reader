@@ -8,6 +8,9 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
 
 ## Funciones y diseño
 
+- [x] Incorporar el chucao aportado por el usuario como icono del EXE y las ventanas,
+  imagen de bienvenida y recurso gráfico del proyecto, conservando el original.
+
 - [ ] Diseñar y validar con el usuario la interfaz definitiva inspirada en MarkPad:
   barra compacta y paneles opcionales.
 - [ ] Incorporar temas claro y oscuro.
@@ -26,6 +29,8 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   - [x] Distinguir el primer pedido de contraseña del aviso de contraseña incorrecta.
 
 ## Validación de funciones implementadas
+
+- [ ] Revisar el icono en Explorer/barra de tareas y la bienvenida a distintos DPI.
 
 - [x] Validar automáticamente contraseñas correctas, vacías e incorrectas,
   reintentos, Unicode, cancelación y recuperación. Evidencia: [passwords.md](passwords.md).

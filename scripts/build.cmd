@@ -15,7 +15,9 @@ if /i "%VSCMD_ARG_TGT_ARCH%"=="x86" (
   exit /b 1
 )
 if not exist build mkdir build
-cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /I deps\pdfium\include src\main.cpp /Fo:build\main.obj /Fe:build\Chucao.exe /link /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /DELAYLOAD:pdfium.dll /LIBPATH:deps\pdfium\lib pdfium.dll.lib delayimp.lib user32.lib gdi32.lib msimg32.lib comdlg32.lib comctl32.lib shell32.lib ole32.lib
+rc /nologo /I src /I . /fo build\chucao.res src\chucao.rc
+if errorlevel 1 exit /b 1
+cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /I deps\pdfium\include src\main.cpp /Fo:build\main.obj /Fe:build\Chucao.exe /link build\chucao.res /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /DELAYLOAD:pdfium.dll /LIBPATH:deps\pdfium\lib pdfium.dll.lib delayimp.lib user32.lib gdi32.lib msimg32.lib comdlg32.lib comctl32.lib shell32.lib ole32.lib
 if errorlevel 1 exit /b 1
 copy /y deps\pdfium\bin\pdfium.dll build\pdfium.dll >nul
 if errorlevel 1 exit /b 1
