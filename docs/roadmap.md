@@ -1,5 +1,7 @@
 # Plan de trabajo
 
+La lista consolidada y verificable de pendientes está en [TODO.md](TODO.md).
+
 1. **Base funcional (implementada)**: C++, PDFium, abrir, zoom,
    contraseña, búsqueda e impresión. Compilar y verificar el motor con fixtures
    sintéticos. Git local y repo remoto privado creados. Contraseña e impresión
