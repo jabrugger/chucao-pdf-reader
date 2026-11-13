@@ -23,14 +23,23 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
 - [ ] Mejorar accesibilidad y navegación por teclado, incluidos foco y controles.
 - [ ] Adaptar la interfaz a distintos DPI por monitor.
 - [ ] Revisar y pulir los mensajes de error.
+  - [x] Distinguir el primer pedido de contraseña del aviso de contraseña incorrecta.
 
 ## Validación de funciones implementadas
 
-- [ ] Contraseñas: correcta, incorrecta, cancelación y caracteres especiales.
+- [x] Validar automáticamente contraseñas correctas, vacías e incorrectas,
+  reintentos, Unicode, cancelación y recuperación. Evidencia: [passwords.md](passwords.md).
+- [x] Validar automáticamente cifrado AES-256, AES-128 y RC4, búsqueda/renderizado
+  tras autenticación y permisos de lector/propietario.
+- [ ] Validar manualmente el ingreso de contraseña, foco, teclado/IME y cancelación
+  en la ventana visible, incluidos caracteres especiales.
 - [ ] Impresión física y virtual: rangos, orientación, tamaño, copias, cancelación
   y errores de impresora/spooler.
 - [ ] Seleccionar, copiar y pegar en otras aplicaciones, incluidos acentos y Unicode.
-- [ ] Comprobar documentos con restricciones de copia e impresión.
+- [x] Comprobar los controles de copia e impresión del lector con un PDF sintético
+  restringido, sin escribir al portapapeles ni iniciar trabajos de impresión.
+- [ ] Comprobar documentos reales con restricciones de copia e impresión y el
+  comportamiento al pegar/imprimir en otras aplicaciones o dispositivos.
 - [ ] Probar el arrastre físico de selección y el autoscroll entre páginas.
 - [ ] Probar desplazamiento horizontal con mouse, rueda y touchpad, incluido zoom alto.
 - [ ] Validar el índice con teclado y mouse, y revisar su aspecto a distintos DPI.
@@ -69,10 +78,12 @@ lectura por bloques permanece fuera del visor hasta que haya evidencia favorable
 
 ## Documentación
 
-- [ ] Revisar notas históricas y README para corregir referencias a funciones que
-  ya se implementaron y distinguir limitaciones actuales de observaciones anteriores.
-- [ ] Mantener esta lista al cerrar cada hito y dejar evidencia de las pruebas en
-  la documentación correspondiente.
+- [x] Corregir el README y distinguir el registro inicial de validación de las
+  comprobaciones actuales de contraseñas y enlaces internos.
+
+Mantener esta lista al cerrar cada hito y dejar evidencia de las pruebas en la
+documentación correspondiente. Una prueba automatizada no cierra por sí sola una
+validación manual.
 
 ## Ya implementado; no duplicar trabajo
 

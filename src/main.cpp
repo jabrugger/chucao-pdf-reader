@@ -52,6 +52,10 @@ std::string Utf8(const std::wstring& value) {
     if (size) WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), &result[0], size, nullptr, nullptr);
     return result;
 }
+template<class Char> struct EraseSecretOnExit {
+    std::basic_string<Char>& value;
+    ~EraseSecretOnExit() { if (!value.empty()) SecureZeroMemory(&value[0], value.size() * sizeof(Char)); value.clear(); }
+};
 std::wstring Text(HWND window) {
     std::wstring value(GetWindowTextLengthW(window) + 1, 0);
     GetWindowTextW(window, &value[0], static_cast<int>(value.size()));
@@ -69,6 +73,7 @@ struct Result {
     double scale = 1;
     double pageWidth = 0, pageHeight = 0;
     bool copyAllowed = false;
+    bool printAllowed = false;
     std::vector<TextBox> boxes;
     std::wstring text;
     std::wstring message;
@@ -123,22 +128,27 @@ public:
         { std::lock_guard<std::mutex> lock(mutex_); stopping_ = true; }
         wake_.notify_one(); thread_.join();
     }
-    void Load(std::wstring path, std::wstring password, unsigned long long document) {
+    void Load(std::wstring path, std::wstring password, unsigned long long document, bool suppliedPassword = false) {
         wantedDocument_ = document;
         ++searchRevision_;
         ++revision_;
-        Queue([this, path, password, document] {
+        Queue([this, path, password = std::move(password), document, suppliedPassword]() mutable {
+            EraseSecretOnExit<wchar_t> wipePassword{password};
             if (cancelled_ || document != wantedDocument_) return;
             if (pdf_) { FPDF_CloseDocument(pdf_); pdf_ = nullptr; }
             document_ = document; searchPage_ = searchIndex_ = -1; lastQuery_.clear();
-            pdf_ = FPDF_LoadDocument(Utf8(path).c_str(), Utf8(password).c_str());
+            auto encodedPassword = Utf8(password); EraseSecretOnExit<char> wipeEncoded{encodedPassword};
+            pdf_ = FPDF_LoadDocument(Utf8(path).c_str(), encodedPassword.c_str());
             auto result = std::make_unique<Result>();
             if (!pdf_) {
                 auto error = FPDF_GetLastError();
                 result->kind = error == FPDF_ERR_PASSWORD ? Result::Password : Result::Failure;
                 result->message = error == FPDF_ERR_FORMAT ? L"El archivo no es un PDF válido o está dañado." : L"No se pudo abrir el PDF.";
+                if (error == FPDF_ERR_PASSWORD) result->message = suppliedPassword ? L"La contraseña es incorrecta. Volvé a intentarlo." : L"Este documento está protegido. Ingresá la contraseña.";
             } else {
                 result->kind = Result::Opened; result->pages = FPDF_GetPageCount(pdf_);
+                auto permissions = FPDF_GetDocPermissions(pdf_);
+                result->copyAllowed = (permissions & 16) != 0; result->printAllowed = (permissions & 4) != 0;
                 if (result->pages <= 0) { result->kind = Result::Failure; result->message = L"El PDF no contiene páginas."; }
             }
             Send(std::move(result));
@@ -343,6 +353,11 @@ public:
 };
 
 struct PasswordState { HWND edit = nullptr; bool done = false, accepted = false; std::wstring value; };
+struct PasswordScript {
+    enum Action { Submit, Cancel, Escape, Close } action = Submit;
+    std::wstring value;
+    bool expectIncorrect = false, verified = false;
+};
 LRESULT CALLBACK PasswordProc(HWND window, UINT msg, WPARAM wp, LPARAM lp) {
     auto state = reinterpret_cast<PasswordState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
     if (msg == WM_NCCREATE) {
@@ -354,21 +369,35 @@ LRESULT CALLBACK PasswordProc(HWND window, UINT msg, WPARAM wp, LPARAM lp) {
         if (state->accepted) state->value = Text(state->edit);
         state->done = true; return 0;
     }
+    if (msg == WM_KEYDOWN && (wp == VK_RETURN || wp == VK_ESCAPE)) {
+        SendMessageW(window, WM_COMMAND, wp == VK_RETURN ? IDOK : IDCANCEL, 0); return 0;
+    }
     if (msg == WM_CLOSE) { state->done = true; return 0; }
     return DefWindowProcW(window, msg, wp, lp);
 }
-bool PasswordDialog(HWND owner, std::wstring& password) {
+bool PasswordDialog(HWND owner, std::wstring& password, const std::wstring& prompt, HFONT font, PasswordScript* script = nullptr) {
     PasswordState state;
     RECT bounds{}; GetWindowRect(owner, &bounds);
     HWND dialog = CreateWindowExW(WS_EX_DLGMODALFRAME, L"ChucaoPassword", L"Contraseña del PDF", WS_CAPTION | WS_SYSMENU | WS_POPUP,
-        bounds.left + 100, bounds.top + 120, 380, 160, owner, nullptr, GetModuleHandleW(nullptr), &state);
+        bounds.left + 100, bounds.top + 120, 410, 210, owner, nullptr, GetModuleHandleW(nullptr), &state);
     if (!dialog) return false;
-    CreateWindowW(L"STATIC", L"Ingresá la contraseña para abrir el documento:", WS_CHILD | WS_VISIBLE, 18, 14, 340, 22, dialog, nullptr, nullptr, nullptr);
-    state.edit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_PASSWORD | ES_AUTOHSCROLL, 18, 42, 330, 25, dialog, nullptr, nullptr, nullptr);
+    HWND label = CreateWindowW(L"STATIC", prompt.c_str(), WS_CHILD | WS_VISIBLE, 18, 14, 360, 42, dialog, nullptr, nullptr, nullptr);
+    state.edit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_PASSWORD | ES_AUTOHSCROLL, 18, 64, 360, 28, dialog, nullptr, nullptr, nullptr);
     SendMessageW(state.edit, EM_SETLIMITTEXT, 256, 0);
-    CreateWindowW(L"BUTTON", L"Abrir", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 168, 82, 85, 28, dialog, reinterpret_cast<HMENU>(IDOK), nullptr, nullptr);
-    CreateWindowW(L"BUTTON", L"Cancelar", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 263, 82, 85, 28, dialog, reinterpret_cast<HMENU>(IDCANCEL), nullptr, nullptr);
-    EnableWindow(owner, FALSE); ShowWindow(dialog, SW_SHOW); SetFocus(state.edit);
+    CreateWindowW(L"BUTTON", L"Abrir", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 198, 112, 85, 30, dialog, reinterpret_cast<HMENU>(IDOK), nullptr, nullptr);
+    CreateWindowW(L"BUTTON", L"Cancelar", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 293, 112, 85, 30, dialog, reinterpret_cast<HMENU>(IDCANCEL), nullptr, nullptr);
+    for (HWND child = GetWindow(dialog, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) SendMessageW(child, WM_SETFONT, reinterpret_cast<WPARAM>(font), FALSE);
+    bool wasEnabled = IsWindowEnabled(owner) != 0;
+    if (!script) { EnableWindow(owner, FALSE); ShowWindow(dialog, SW_SHOW); SetFocus(state.edit); }
+    else {
+        SetWindowTextW(state.edit, script->value.c_str());
+        script->verified = (GetWindowLongPtrW(state.edit, GWL_STYLE) & ES_PASSWORD) && Text(label) == prompt &&
+            ((prompt.find(L"incorrecta") != std::wstring::npos) == script->expectIncorrect);
+        if (script->action == PasswordScript::Submit) SendMessageW(dialog, WM_KEYDOWN, VK_RETURN, 0);
+        else if (script->action == PasswordScript::Escape) SendMessageW(dialog, WM_KEYDOWN, VK_ESCAPE, 0);
+        else if (script->action == PasswordScript::Close) SendMessageW(dialog, WM_CLOSE, 0, 0);
+        else SendMessageW(dialog, WM_COMMAND, IDCANCEL, 0);
+    }
     MSG message{};
     while (!state.done) {
         int status = GetMessageW(&message, nullptr, 0, 0);
@@ -378,7 +407,8 @@ bool PasswordDialog(HWND owner, std::wstring& password) {
         else if (!IsDialogMessageW(dialog, &message)) { TranslateMessage(&message); DispatchMessageW(&message); }
     }
     password = std::move(state.value);
-    SetWindowTextW(state.edit, L""); DestroyWindow(dialog); EnableWindow(owner, TRUE); SetActiveWindow(owner);
+    SetWindowTextW(state.edit, L""); DestroyWindow(dialog);
+    if (!script && IsWindow(owner)) { if (wasEnabled) EnableWindow(owner, TRUE); SetActiveWindow(owner); }
     return state.accepted;
 }
 
@@ -394,6 +424,9 @@ public:
     int linkChecks = 0, linkStep = 0;
     std::int64_t linkTestScroll = 0;
     int linkTestHorizontal = 0;
+    bool passwordTest = false, canCopy = false, canPrint = false;
+    int passwordStage = 0, passwordAttempts = 0, passwordChecks = 0;
+    std::wstring passwordTestRoot;
     HFONT font = nullptr;
     std::unique_ptr<PdfWorker> worker;
     struct CachedPage { std::unique_ptr<Result> image; unsigned long long version = 0, used = 0; };
@@ -518,10 +551,55 @@ public:
         double readyMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         char data[768]{};
         Endpoint a, b; SelectionRange(a, b);
-        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d,\"navigation_steps\":%d,\"cache_hits\":%zu,\"cache_bytes\":%zu,\"outline_checks\":%d,\"link_checks\":%d,\"text_checks\":%d,\"text_step\":%d,\"selection_first\":%d,\"selection_last\":%d}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages, navigationStep, navigationHits, cacheBytes, outlineChecks, linkChecks, textChecks, textStep, a.character, b.character);
+        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d,\"navigation_steps\":%d,\"cache_hits\":%zu,\"cache_bytes\":%zu,\"outline_checks\":%d,\"link_checks\":%d,\"password_checks\":%d,\"text_checks\":%d,\"text_step\":%d,\"selection_first\":%d,\"selection_last\":%d}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages, navigationStep, navigationHits, cacheBytes, outlineChecks, linkChecks, passwordChecks, textChecks, textStep, a.character, b.character);
         HANDLE output = CreateFileW(benchmarkReport.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (output != INVALID_HANDLE_VALUE) { DWORD written = 0; WriteFile(output, data, size, &written, nullptr); CloseHandle(output); }
         PostMessageW(window, WM_CLOSE, 0, 0);
+    }
+    void LoadPasswordCase(const wchar_t* name) {
+        passwordAttempts = 0; Load(passwordTestRoot + name);
+    }
+    void TestPasswordPrompt(const std::wstring& prompt) {
+        PasswordScript script;
+        script.expectIncorrect = passwordAttempts > 0;
+        if (passwordStage == 0) script.value = passwordAttempts == 0 ? L"" : passwordAttempts == 1 ? L"wrong" : L"Chucao-test";
+        else if (passwordStage == 1) script.value = passwordAttempts == 0 ? L"wrong" : L"Chucao-café-漢字";
+        else if (passwordStage == 2) script.action = PasswordScript::Cancel;
+        else if (passwordStage == 4) { script.value = L"wrong"; if (passwordAttempts) script.action = PasswordScript::Escape; }
+        else if (passwordStage == 6) script.action = PasswordScript::Close;
+        else if (passwordStage == 8) script.value = L"reader";
+        else { BenchmarkResult(false); return; }
+        if (passwordAttempts >= 3) { BenchmarkResult(false); return; }
+        std::wstring password;
+        bool enabled = IsWindowEnabled(window) != 0;
+        bool accepted = PasswordDialog(window, password, prompt, font, &script);
+        EraseSecretOnExit<wchar_t> wipe{password};
+        ++passwordAttempts;
+        if (!script.verified || (IsWindowEnabled(window) != 0) != enabled || accepted != (script.action == PasswordScript::Submit)) { BenchmarkResult(false); return; }
+        ++passwordChecks;
+        if (accepted) {
+            if (password != script.value) { BenchmarkResult(false); return; }
+            Load(path, password, true);
+        } else {
+            status = L"Apertura cancelada."; Redraw();
+            if (pages != 0 || !cache.empty() || !password.empty()) { BenchmarkResult(false); return; }
+            ++passwordChecks; ++passwordStage; LoadPasswordCase(L"plain.pdf");
+        }
+    }
+    void CheckPasswordImage() {
+        if (pages != 2) { BenchmarkResult(false); return; }
+        if ((passwordStage == 0 && passwordAttempts != 3) || (passwordStage == 1 && passwordAttempts != 2) ||
+            ((passwordStage == 3 || passwordStage == 5 || passwordStage == 7) && passwordAttempts != 0)) { BenchmarkResult(false); return; }
+        ++passwordChecks;
+        if (passwordStage == 0) { passwordStage = 1; LoadPasswordCase(L"aes256-unicode.pdf"); }
+        else if (passwordStage == 1) { passwordStage = 2; LoadPasswordCase(L"aes256-ascii.pdf"); }
+        else if (passwordStage == 3) { passwordStage = 4; LoadPasswordCase(L"aes256-ascii.pdf"); }
+        else if (passwordStage == 5) { passwordStage = 6; LoadPasswordCase(L"aes256-ascii.pdf"); }
+        else if (passwordStage == 7) { passwordStage = 8; LoadPasswordCase(L"restricted.pdf"); }
+        else if (passwordStage == 8) {
+            if (canCopy || canPrint) { BenchmarkResult(false); return; }
+            passwordStage = 9; worker->CopyText(0, 0, 0, 5, document, selectionRevision);
+        } else BenchmarkResult(false);
     }
     void CheckLinks(Result::Kind kind, const LinkTarget& target = {}) {
         if (!linksTest) return;
@@ -752,6 +830,7 @@ public:
     }
     void CopySelection() {
         if (!selected) return;
+        if (!canCopy) { status = L"El documento no permite copiar texto con esta contraseña."; Redraw(); return; }
         Endpoint first, last;
         if (!SelectionRange(first, last)) {
             if (!pendingText.empty()) { copyWhenReady = true; status = L"Preparando texto…"; }
@@ -866,12 +945,12 @@ public:
             pageLinks.clear(); pendingLinks.clear(); linkHistory.clear();
             outline = {}; outlineLoaded = outlinePending = false; PopulateOutline();
             EndSelection(); ClearSelection(); textPages.clear(); pendingText.clear(); searchPage = -1; searchBoxes.clear();
-            path = file; ++document; pages = 0; page = 0; scroll = 0; horizontal = 0; zoom = 0; searching = false;
+            path = file; ++document; pages = 0; canCopy = canPrint = false; page = 0; scroll = 0; horizontal = 0; zoom = 0; searching = false;
             cache.clear(); cacheBytes = 0; layout.Reset(0); layout.Rebuild(ViewWidth(), zoom);
             planned.clear(); renderWidth = 0; renderZoom = -1; ++viewVersion;
             ScrollHorizontal(0);
         }
-        status = L"Abriendo documento…"; Redraw(); worker->Load(path, password, document);
+        status = L"Abriendo documento…"; Redraw(); worker->Load(path, password, document, retry);
     }
     void ChooseFile() {
         wchar_t filename[32768]{};
@@ -892,6 +971,7 @@ public:
     }
     void PrintFile() {
         if (!pages || printing) return;
+        if (!canPrint) { status = L"El documento no permite imprimir con esta contraseña."; Redraw(); return; }
         PRINTDLGW pd{}; pd.lStructSize = sizeof(pd); pd.hwndOwner = window;
         pd.Flags = PD_RETURNDC | PD_NOSELECTION | PD_USEDEVMODECOPIESANDCOLLATE;
         pd.nMinPage = 1; pd.nMaxPage = static_cast<WORD>(std::min(pages, 65535));
@@ -937,6 +1017,7 @@ public:
         if (result->kind == Result::Failure && result->revision && result->revision != revision) return;
         switch (result->kind) {
         case Result::Opened:
+            canCopy = result->copyAllowed; canPrint = result->printAllowed;
             openedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
             pages = result->pages; layout.Reset(pages); layout.Rebuild(ViewWidth(), zoom); ScrollTo(0, false);
             SetWindowTextW(window, (L"Chucao — " + path.substr(path.find_last_of(L"\\/") + 1)).c_str()); PageStatus(); Render();
@@ -990,13 +1071,15 @@ public:
                 else if (navigationTest) { PostMessageW(window, WM_TIMER, 3, 0); }
                 else if (outlineTest) { if (!outlineWindow) ToggleOutline(); }
                 else if (linksTest) CheckLinks(Result::Image);
+                else if (passwordTest) CheckPasswordImage();
                 else BenchmarkResult(true);
             }
             break;
         case Result::Password: {
+            if (passwordTest) { TestPasswordPrompt(result->message); break; }
             if (!benchmarkReport.empty()) { BenchmarkResult(false); break; }
             std::wstring password;
-            if (PasswordDialog(window, password)) Load(path, password, true);
+            if (PasswordDialog(window, password, result->message, font)) Load(path, password, true);
             else { status = L"Apertura cancelada."; Redraw(); }
             if (!password.empty()) SecureZeroMemory(&password[0], password.size() * sizeof(wchar_t));
             break;
@@ -1034,11 +1117,25 @@ public:
         }
         case Result::Copied:
             if (result->revision != selectionRevision) break;
+            if (passwordTest && passwordStage == 9) {
+                if (!result->text.empty() || result->message != L"El documento no permite copiar texto con esta contraseña.") { BenchmarkResult(false); break; }
+                ++passwordChecks;
+                PrintFile();
+                if (printing || status != L"El documento no permite imprimir con esta contraseña.") { BenchmarkResult(false); break; }
+                ++passwordChecks; passwordStage = 10; worker->PrintDocument(nullptr, 0, 0, document); break;
+            }
             if (textTest) { if (!result->message.empty()) BenchmarkResult(false); else CheckText(Result::Copied, result->text); break; }
             if (!result->message.empty()) { status = result->message; Redraw(); }
             else SetClipboardText(result->text);
             break;
-        case Result::Failure: case Result::Printed: status = result->message; Redraw(); if (result->kind == Result::Failure) BenchmarkResult(false); break;
+        case Result::Printed:
+            status = result->message; Redraw();
+            if (passwordTest && passwordStage == 10) {
+                if (result->message != L"El documento no permite imprimir con esta contraseña.") BenchmarkResult(false);
+                else { ++passwordChecks; passwordStage = 11; BenchmarkResult(true); }
+            }
+            break;
+        case Result::Failure: status = result->message; Redraw(); BenchmarkResult(false); break;
         }
     }
     void Draw(HDC target, RECT rc) {
@@ -1269,7 +1366,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool textTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-text";
     bool outlineTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-outline";
     bool linksTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-links";
-    bool benchmark = argv && argc == 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest);
+    bool passwordTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-passwords";
+    bool benchmark = argv && argc == 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest);
     bool shellBenchmark = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-shell";
     SetProcessDPIAware();
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_TREEVIEW_CLASSES}; InitCommonControlsEx(&controls);
@@ -1284,6 +1382,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.textTest = textTest;
     app.outlineTest = outlineTest;
     app.linksTest = linksTest;
+    app.passwordTest = passwordTest;
+    if (passwordTest) { std::wstring file = argv[2]; app.passwordTestRoot = file.substr(0, file.find_last_of(L"\\/") + 1); }
     if (benchmark) app.benchmarkReport = argv[3];
     if (shellBenchmark) app.benchmarkReport = argv[2];
     HWND window = CreateWindowW(L"ChucaoReader", L"Chucao PDF Reader", WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_HSCROLL | WS_CLIPCHILDREN,

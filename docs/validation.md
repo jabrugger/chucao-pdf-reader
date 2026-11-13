@@ -1,5 +1,8 @@
 # Verificación inicial — 2026-11-12
 
+Registro histórico del primer prototipo. Para el estado actual consultar [TODO.md](TODO.md);
+las pruebas posteriores de contraseñas y permisos están en [passwords.md](passwords.md).
+
 - Compilación Release x64 con MSVC 19.16 (Visual Studio 2017): correcta, /W4.
 - PDFium chromium/8152: descarga fijada y SHA-256 comprobado.
 - Fixture generado localmente: PDF de dos páginas con texto Helvetica.
