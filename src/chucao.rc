@@ -1,0 +1,3 @@
+#include "resource.h"
+IDI_CHUCAO ICON "assets/branding/chucao.ico"
+IDB_CHUCAO_HOME BITMAP "assets/branding/chucao-home.bmp"

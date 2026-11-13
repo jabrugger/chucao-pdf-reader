@@ -1,5 +1,7 @@
 # Chucao PDF Reader
 
+<img src="assets/branding/chucao-icon-256.png" width="128" alt="Chucao con anteojos y un documento">
+
 Lector de PDF para Windows, rápido y con una interfaz limpia. Solo lectura: no se
 prevén edición, anotaciones, OCR ni herramientas para modificar documentos.
 
@@ -117,3 +119,6 @@ Repositorio privado durante el desarrollo. No se ha elegido todavía una licenci
 para el código propio. No se incorpora código de SumatraPDF, KillerPDF o MarkPad.
 Antes de distribuir: revisar los avisos de PDFium y de sus dependencias y establecer
 el proceso de actualización del motor. No hay telemetría ni conexión de red en el visor.
+
+La imagen elegida por el usuario está en [assets/branding](assets/branding/README.md).
+El icono y la bienvenida se incluyen en el EXE; no requieren imágenes externas al ejecutarlo.

@@ -10,6 +10,7 @@
 #include "text-geometry.h"
 #include "document-outline.h"
 #include "document-links.h"
+#include "resource.h"
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
@@ -428,6 +429,8 @@ public:
     int passwordStage = 0, passwordAttempts = 0, passwordChecks = 0;
     std::wstring passwordTestRoot;
     HFONT font = nullptr;
+    HFONT welcomeFont = nullptr;
+    HBITMAP welcomeImage = nullptr;
     std::unique_ptr<PdfWorker> worker;
     struct CachedPage { std::unique_ptr<Result> image; unsigned long long version = 0, used = 0; };
     std::map<int, CachedPage> cache;
@@ -1178,8 +1181,27 @@ public:
             }
             SelectClipRgn(dc, nullptr);
         } else if (!pages) {
-            RECT empty{24, BarHeight, rc.right - 24, rc.bottom - 40};
-            DrawTextW(dc, L"Chucao\n\nTu documento, sin distracciones.\n\nAbrir PDF · Ctrl+O", -1, &empty, DT_CENTER | DT_VCENTER | DT_WORDBREAK);
+            RECT empty{0, BarHeight, rc.right, rc.bottom - 26};
+            FillRect(dc, &empty, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
+            if (!welcomeImage) welcomeImage = static_cast<HBITMAP>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDB_CHUCAO_HOME), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION));
+            int available = std::max<LONG>(1, empty.bottom - empty.top);
+            int size = std::min(224, std::max(100, available - 130));
+            int top = empty.top + std::max(8, (available - size - 108) / 2);
+            if (welcomeImage) {
+                HDC picture = CreateCompatibleDC(dc); auto oldPicture = SelectObject(picture, welcomeImage);
+                BITMAP bitmap{}; GetObjectW(welcomeImage, sizeof(bitmap), &bitmap);
+                SetStretchBltMode(dc, HALFTONE); SetBrushOrgEx(dc, 0, 0, nullptr);
+                StretchBlt(dc, (rc.right - size) / 2, top, size, size, picture, 0, 0, bitmap.bmWidth, bitmap.bmHeight, SRCCOPY);
+                SelectObject(picture, oldPicture); DeleteDC(picture);
+            }
+            RECT title{24, top + size + 8, rc.right - 24, top + size + 42};
+            SelectObject(dc, welcomeFont); SetTextColor(dc, RGB(22, 34, 49));
+            DrawTextW(dc, L"Chucao", -1, &title, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            SelectObject(dc, font); SetTextColor(dc, RGB(86, 97, 112));
+            RECT tagline{24, title.bottom + 2, rc.right - 24, title.bottom + 28};
+            DrawTextW(dc, L"Tu documento, sin distracciones.", -1, &tagline, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            RECT action{24, tagline.bottom + 12, rc.right - 24, tagline.bottom + 38};
+            DrawTextW(dc, L"Abrir PDF · Ctrl+O", -1, &action, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         }
         RECT footer{16, rc.bottom - 24, rc.right - 16, rc.bottom};
         FillRect(dc, &footer, background = CreateSolidBrush(RGB(238, 240, 243))); DeleteObject(background);
@@ -1268,6 +1290,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     switch (message) {
     case WM_CREATE: {
         app->font = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+        app->welcomeFont = CreateFontW(-28, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+        SendMessageW(window, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_CHUCAO), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_SHARED)));
         struct Control { const wchar_t* text; int id, width; };
         Control buttons[] = {{L"Abrir", Open, 64}, {L"‹", Previous, 34}, {L"›", Next, 34}, {L"−", Smaller, 34}, {L"+", Larger, 34}, {L"Ancho", Fit, 64}, {L"Índice", Outline, 64}, {L"Buscar", FindNext, 64}, {L"Imprimir", Print, 78}};
         int x = 14;
@@ -1352,7 +1376,9 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->worker.reset();
         if (app->outlineWindow) DestroyWindow(app->outlineWindow);
         MSG pending{}; while (PeekMessageW(&pending, window, Ready, Ready, PM_REMOVE)) delete reinterpret_cast<Result*>(pending.lParam);
-        DeleteObject(app->font); PostQuitMessage(0); return 0;
+        DeleteObject(app->font); DeleteObject(app->welcomeFont);
+        if (app->welcomeImage) DeleteObject(app->welcomeImage);
+        PostQuitMessage(0); return 0;
     }
     }
     return DefWindowProcW(window, message, wp, lp);
@@ -1368,10 +1394,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool linksTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-links";
     bool passwordTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-passwords";
     bool benchmark = argv && argc == 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest);
-    bool shellBenchmark = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-shell";
+    bool previewHome = argv && argc == 3 && std::wstring(argv[1]) == L"--preview-home";
+    bool shellBenchmark = argv && argc == 3 && (std::wstring(argv[1]) == L"--benchmark-shell" || previewHome);
     SetProcessDPIAware();
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_TREEVIEW_CLASSES}; InitCommonControlsEx(&controls);
     WNDCLASSW wc{}; wc.hInstance = instance; wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wc.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(IDI_CHUCAO));
     wc.lpszClassName = L"ChucaoReader"; wc.lpfnWndProc = WindowProc; RegisterClassW(&wc);
     wc.lpszClassName = L"ChucaoPassword"; wc.lpfnWndProc = PasswordProc;
     wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1); RegisterClassW(&wc);
@@ -1391,7 +1419,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     if (!window) return 1;
     if (!benchmark && !shellBenchmark) { ShowWindow(window, show); UpdateWindow(window); }
     app.shellMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-    if (shellBenchmark) app.BenchmarkResult(true);
+    if (shellBenchmark) { if (previewHome) app.SaveTestImage(app.benchmarkReport + L".home.bmp"); app.BenchmarkResult(true); }
     else if (benchmark) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
     else if (argv && argc > 1) app.Load(argv[1]);
     if (argv) LocalFree(argv);
