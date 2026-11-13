@@ -15,7 +15,8 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   barra compacta y paneles opcionales.
 - [ ] Incorporar temas claro y oscuro.
 - [ ] Incorporar pestañas para varios documentos.
-- [ ] Recordar página, zoom y posición de lectura por documento.
+- [x] Recordar página, zoom y posición vertical/horizontal por documento, al cerrar
+  o cambiar de PDF. Evidencia: [reading-state.md](reading-state.md).
 - [ ] Incorporar archivos recientes.
 - [ ] Permitir abrir enlaces web mediante una acción explícita del usuario.
 - [ ] Respetar posición y modo de ajuste de los marcadores del índice; actualmente
@@ -29,6 +30,13 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   - [x] Distinguir el primer pedido de contraseña del aviso de contraseña incorrecta.
 
 ## Validación de funciones implementadas
+
+- [x] Comprobar la recuperación de posición entre procesos, rutas Unicode, dos
+  documentos distintos y PDF protegido, sin guardar la contraseña.
+- [x] Comprobar límites, perfiles dañados, fallo de escritura y escritores
+  simultáneos para el estado de lectura.
+- [ ] Validar manualmente cerrar/reabrir documentos reales en distintas ventanas
+  y tamaños de pantalla, incluidos archivos remotos y protegidos.
 
 - [ ] Revisar el icono en Explorer/barra de tareas y la bienvenida a distintos DPI.
 

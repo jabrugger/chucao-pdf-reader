@@ -3,6 +3,7 @@
 #include <commdlg.h>
 #include <commctrl.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <fpdfview.h>
 #include <fpdf_text.h>
 #include <fpdf_progressive.h>
@@ -11,6 +12,7 @@
 #include "document-outline.h"
 #include "document-links.h"
 #include "resource.h"
+#include "reading-state.h"
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
@@ -431,6 +433,13 @@ public:
     HFONT font = nullptr;
     HFONT welcomeFont = nullptr;
     HBITMAP welcomeImage = nullptr;
+    bool readingStateEnabled = true, readingStateWrites = true, stateConfigured = false, viewReady = false;
+    std::wstring readingStateFile;
+    std::optional<ReadingState> pendingReadingState;
+    int readingStateTest = 0, readingStateStep = 0, readingStateChecks = 0;
+    bool readingStateFound = false;
+    int stateAuthenticationAttempts = 0;
+    bool savedOnClose = false;
     std::unique_ptr<PdfWorker> worker;
     struct CachedPage { std::unique_ptr<Result> image; unsigned long long version = 0, used = 0; };
     std::map<int, CachedPage> cache;
@@ -554,7 +563,7 @@ public:
         double readyMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         char data[768]{};
         Endpoint a, b; SelectionRange(a, b);
-        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d,\"navigation_steps\":%d,\"cache_hits\":%zu,\"cache_bytes\":%zu,\"outline_checks\":%d,\"link_checks\":%d,\"password_checks\":%d,\"text_checks\":%d,\"text_step\":%d,\"selection_first\":%d,\"selection_last\":%d}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages, navigationStep, navigationHits, cacheBytes, outlineChecks, linkChecks, passwordChecks, textChecks, textStep, a.character, b.character);
+        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d,\"navigation_steps\":%d,\"cache_hits\":%zu,\"cache_bytes\":%zu,\"outline_checks\":%d,\"link_checks\":%d,\"password_checks\":%d,\"state_checks\":%d,\"text_checks\":%d,\"text_step\":%d,\"selection_first\":%d,\"selection_last\":%d}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages, navigationStep, navigationHits, cacheBytes, outlineChecks, linkChecks, passwordChecks, readingStateChecks, textChecks, textStep, a.character, b.character);
         HANDLE output = CreateFileW(benchmarkReport.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (output != INVALID_HANDLE_VALUE) { DWORD written = 0; WriteFile(output, data, size, &written, nullptr); CloseHandle(output); }
         PostMessageW(window, WM_CLOSE, 0, 0);
@@ -756,6 +765,53 @@ public:
     }
 
     void Redraw() { InvalidateRect(window, nullptr, FALSE); }
+    void CheckReadingState() {
+        if (!readingStateTest || !pages || pendingReadingState) return;
+        if (readingStateTest == 1 && readingStateStep == 0) {
+            readingStateStep = 1;
+            ReadingState desired{path, pages, pages - 1, 3, .35, .65, 0};
+            ApplyReadingState(desired); Render(); PostMessageW(window, WM_TIMER, 6, 0); return;
+        }
+        auto image = cache.find(layout.PageAt(scroll));
+        if (image == cache.end() || image->second.version != viewVersion) return;
+        auto current = CurrentReadingState();
+        if (current.page != pages - 1 || current.zoom != 3 || std::abs(current.vertical - .35) > .005 || std::abs(current.horizontal - .65) > .005) { BenchmarkResult(false); return; }
+        ++readingStateChecks;
+        if (readingStateTest == 1) {
+            if (!SaveReadingState() || !ReadingStateStore(readingStateFile).Find(path, pages)) { BenchmarkResult(false); return; }
+        } else if (!readingStateFound) { BenchmarkResult(false); return; }
+        ++readingStateChecks; readingStateStep = 2; BenchmarkResult(true);
+    }
+    bool ConfigureReadingState() {
+        if (!readingStateEnabled) return false;
+        if (stateConfigured) return !readingStateFile.empty();
+        stateConfigured = true;
+        if (!readingStateFile.empty()) return true;
+        PWSTR folder = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &folder))) {
+            readingStateFile = std::wstring(folder) + L"\\ChucaoPDFReader\\reading-state.dat"; CoTaskMemFree(folder);
+        }
+        return !readingStateFile.empty();
+    }
+    ReadingState CurrentReadingState() const {
+        ReadingState state; state.path = path; state.pages = pages;
+        state.page = layout.PageAt(scroll); state.zoom = zoom;
+        auto offset = scroll - layout.Top(state.page); int height = layout.Height(state.page);
+        state.vertical = std::max(0.0, std::min(1.0, offset / static_cast<double>(height)));
+        state.gap = offset < 0 ? static_cast<int>(offset) : offset > height ? static_cast<int>(offset - height) : 0;
+        state.horizontal = std::max(0.0, std::min(1.0, (ViewWidth() / 2.0 - layout.Left(state.page, ViewWidth(), horizontal)) / layout.Width(state.page)));
+        return state;
+    }
+    bool SaveReadingState() {
+        if (!readingStateEnabled || !readingStateWrites || !pages || !viewReady || pendingReadingState || !cache.count(layout.PageAt(scroll)) || !ConfigureReadingState()) return false;
+        return ReadingStateStore(readingStateFile).Update(CurrentReadingState());
+    }
+    void ApplyReadingState(const ReadingState& state) {
+        zoom = state.zoom; layout.Rebuild(ViewWidth(), zoom);
+        ScrollTo(layout.Top(state.page) + static_cast<std::int64_t>(state.vertical * layout.Height(state.page)) + state.gap, false);
+        ScrollHorizontal(static_cast<int>(layout.Left(state.page, ViewWidth()) + state.horizontal * layout.Width(state.page) - ViewWidth() / 2.0));
+        PageStatus();
+    }
     bool PointOnPage(int x, int y, TextPoint& point, bool clamp = false) {
         if (!pages || (!clamp && (y < BarHeight || y >= BarHeight + ViewHeight()))) return false;
         auto documentY = scroll + y - BarHeight;
@@ -811,6 +867,7 @@ public:
         PageStatus();
     }
     void BeginSelection(int x, int y) {
+        pendingReadingState.reset();
         TextPoint point;
         if (!PointOnPage(x, y, point)) { ClearSelection(); SetFocus(window); return; }
         ClearSelection(); selectionStart = selectionEnd = point; dragStart = {x, y}; dragging = true;
@@ -945,6 +1002,7 @@ public:
     void Load(const std::wstring& file, const std::wstring& password = L"", bool retry = false) {
         if (!worker) worker = std::make_unique<PdfWorker>(window);
         if (!retry) {
+            SaveReadingState(); viewReady = false; pendingReadingState.reset();
             pageLinks.clear(); pendingLinks.clear(); linkHistory.clear();
             outline = {}; outlineLoaded = outlinePending = false; PopulateOutline();
             EndSelection(); ClearSelection(); textPages.clear(); pendingText.clear(); searchPage = -1; searchBoxes.clear();
@@ -991,6 +1049,7 @@ public:
         if (pd.hDevNames) GlobalFree(pd.hDevNames);
     }
     void Command(int id) {
+        pendingReadingState.reset();
         ++linkEpoch;
         switch (id) {
         case Open: ChooseFile(); break;
@@ -1022,7 +1081,11 @@ public:
         case Result::Opened:
             canCopy = result->copyAllowed; canPrint = result->printAllowed;
             openedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-            pages = result->pages; layout.Reset(pages); layout.Rebuild(ViewWidth(), zoom); ScrollTo(0, false);
+            pages = result->pages; layout.Reset(pages);
+            if (ConfigureReadingState()) pendingReadingState = ReadingStateStore(readingStateFile).Find(path, pages);
+            readingStateFound = pendingReadingState.has_value();
+            if (pendingReadingState) ApplyReadingState(*pendingReadingState);
+            else { layout.Rebuild(ViewWidth(), zoom); ScrollTo(0, false); }
             SetWindowTextW(window, (L"Chucao — " + path.substr(path.find_last_of(L"\\/") + 1)).c_str()); PageStatus(); Render();
             if (outlineWindow && (IsWindowVisible(outlineWindow) || outlineTest)) RequestOutline();
             break;
@@ -1065,20 +1128,33 @@ public:
             if (result->viewVersion != viewVersion) return;
             {
                 int index = result->page;
-                layout.Learn(index, result->pageWidth, result->pageHeight); Reflow();
+                layout.Learn(index, result->pageWidth, result->pageHeight);
+                if (pendingReadingState) {
+                    ApplyReadingState(*pendingReadingState);
+                    if (index == pendingReadingState->page) pendingReadingState.reset();
+                } else Reflow();
                 auto& entry = cache[index];
                 if (entry.image) cacheBytes -= entry.image->pixels.size();
                 cacheBytes += result->pixels.size(); entry = {std::move(result), viewVersion, ++useClock};
+                if (!pendingReadingState) viewReady = true;
                 ScrollTo(scroll, false); TrimCache(); Render();
                 if (textTest) CheckText(Result::Image);
                 else if (navigationTest) { PostMessageW(window, WM_TIMER, 3, 0); }
                 else if (outlineTest) { if (!outlineWindow) ToggleOutline(); }
                 else if (linksTest) CheckLinks(Result::Image);
                 else if (passwordTest) CheckPasswordImage();
+                else if (readingStateTest) CheckReadingState();
                 else BenchmarkResult(true);
             }
             break;
         case Result::Password: {
+            if (readingStateTest) {
+                if (++stateAuthenticationAttempts > 1) { BenchmarkResult(false); break; }
+                PasswordScript script; script.value = L"Chucao-test";
+                std::wstring password; EraseSecretOnExit<wchar_t> wipe{password};
+                if (!PasswordDialog(window, password, result->message, font, &script) || !script.verified) { BenchmarkResult(false); break; }
+                ++readingStateChecks; Load(path, password, true); break;
+            }
             if (passwordTest) { TestPasswordPrompt(result->message); break; }
             if (!benchmarkReport.empty()) { BenchmarkResult(false); break; }
             std::wstring password;
@@ -1334,18 +1410,21 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
             if (pointer.x < 20) { app->ScrollHorizontal(app->horizontal - 28); app->MoveSelection(pointer.x, pointer.y); }
             else if (pointer.x > app->ViewWidth() - 20) { app->ScrollHorizontal(app->horizontal + 28); app->MoveSelection(pointer.x, pointer.y); }
         }
+        else if (wp == 6) app->CheckReadingState();
         else if (wp == 3) app->CheckNavigation();
         else if (wp == 2) { KillTimer(window, 2); app->BenchmarkResult(false); }
         else { KillTimer(window, 1); app->Render(); }
         return 0;
     case WM_GETMINMAXINFO: reinterpret_cast<MINMAXINFO*>(lp)->ptMinTrackSize = {820, 400}; return 0;
     case WM_MOUSEWHEEL:
+        app->pendingReadingState.reset();
         ++app->linkEpoch;
         if (GetKeyState(VK_CONTROL) < 0) app->Command(GET_WHEEL_DELTA_WPARAM(wp) > 0 ? Larger : Smaller);
         else if (GetKeyState(VK_SHIFT) < 0) app->ScrollHorizontal(app->horizontal - GET_WHEEL_DELTA_WPARAM(wp));
         else app->ScrollTo(app->scroll - GET_WHEEL_DELTA_WPARAM(wp)); return 0;
-    case WM_MOUSEHWHEEL: ++app->linkEpoch; app->ScrollHorizontal(app->horizontal + GET_WHEEL_DELTA_WPARAM(wp)); return 0;
+    case WM_MOUSEHWHEEL: app->pendingReadingState.reset(); ++app->linkEpoch; app->ScrollHorizontal(app->horizontal + GET_WHEEL_DELTA_WPARAM(wp)); return 0;
     case WM_HSCROLL: {
+        app->pendingReadingState.reset();
         ++app->linkEpoch;
         SCROLLINFO info{sizeof(info), SIF_ALL}; GetScrollInfo(window, SB_HORZ, &info);
         int value = app->horizontal;
@@ -1358,6 +1437,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->ScrollHorizontal(value); return 0;
     }
     case WM_VSCROLL: {
+        app->pendingReadingState.reset();
         ++app->linkEpoch;
         SCROLLINFO info{sizeof(info), SIF_ALL}; GetScrollInfo(window, SB_VERT, &info);
         std::int64_t value = app->scroll;
@@ -1371,8 +1451,12 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->ScrollTo(value); return 0;
     }
     case WM_ERASEBKGND: return 1;
+    case WM_CLOSE:
+        app->SaveReadingState(); app->savedOnClose = true; DestroyWindow(window); return 0;
+    case WM_ENDSESSION: if (wp) app->SaveReadingState(); return 0;
     case WM_PAINT: app->Paint(); return 0;
     case WM_DESTROY: {
+        if (!app->savedOnClose) app->SaveReadingState();
         app->worker.reset();
         if (app->outlineWindow) DestroyWindow(app->outlineWindow);
         MSG pending{}; while (PeekMessageW(&pending, window, Ready, Ready, PM_REMOVE)) delete reinterpret_cast<Result*>(pending.lParam);
@@ -1393,7 +1477,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool outlineTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-outline";
     bool linksTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-links";
     bool passwordTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-passwords";
-    bool benchmark = argv && argc == 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest);
+    int stateTest = argv && argc == 5 ? (std::wstring(argv[1]) == L"--benchmark-state-write" ? 1 : std::wstring(argv[1]) == L"--benchmark-state-read" ? 2 : 0) : 0;
+    bool benchmark = stateTest || (argv && argc == 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
     bool previewHome = argv && argc == 3 && std::wstring(argv[1]) == L"--preview-home";
     bool shellBenchmark = argv && argc == 3 && (std::wstring(argv[1]) == L"--benchmark-shell" || previewHome);
     SetProcessDPIAware();
@@ -1411,6 +1496,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.outlineTest = outlineTest;
     app.linksTest = linksTest;
     app.passwordTest = passwordTest;
+    app.readingStateEnabled = !benchmark && !shellBenchmark;
+    if (stateTest) {
+        app.readingStateTest = stateTest; app.readingStateFile = argv[4];
+        app.readingStateEnabled = true; app.readingStateWrites = stateTest == 1;
+    }
     if (passwordTest) { std::wstring file = argv[2]; app.passwordTestRoot = file.substr(0, file.find_last_of(L"\\/") + 1); }
     if (benchmark) app.benchmarkReport = argv[3];
     if (shellBenchmark) app.benchmarkReport = argv[2];
@@ -1435,6 +1525,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
             bool ctrl = GetKeyState(VK_CONTROL) < 0, edit = GetFocus() == app.query;
             if (!edit && GetKeyState(VK_MENU) < 0 && msg.wParam == VK_LEFT) { app.BackFromLink(); continue; }
             if (!edit && (msg.wParam == VK_NEXT || msg.wParam == VK_PRIOR || msg.wParam == VK_DOWN || msg.wParam == VK_UP || msg.wParam == VK_HOME || msg.wParam == VK_END)) {
+                app.pendingReadingState.reset();
                 ++app.linkEpoch;
                 if (msg.wParam == VK_HOME) app.ScrollTo(0);
                 else if (msg.wParam == VK_END) app.ScrollTo(app.MaxScroll());
