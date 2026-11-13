@@ -28,6 +28,22 @@ $pdf += "trailer`n<< /Size $size /Root 1 0 R >>`nstartxref`n$xref`n%%EOF`n"
 [IO.File]::WriteAllBytes($destination, $ascii.GetBytes($pdf))
 }
 Write-PdfFixture $fixture $objects
+$linkObjects = @($objects)
+$linkObjects[0] = '<< /Type /Catalog /Pages 2 0 R /Dests << /capitulo [6 0 R /XYZ 150 500 null] >> >>'
+$linkObjects[2] = $linkObjects[2].Replace('/MediaBox', '/Annots [7 0 R 8 0 R 9 0 R 10 0 R 11 0 R 12 0 R 13 0 R] /MediaBox')
+$linkObjects += @(
+    '<< /Type /Annot /Subtype /Link /Rect [72 736 160 764] /Border [0 0 0] /Dest [6 0 R /XYZ 150 500 null] >>',
+    '<< /Type /Annot /Subtype /Link /Rect [72 700 160 732] /Border [0 0 0] /A << /S /GoTo /D /capitulo >> >>',
+    '<< /Type /Annot /Subtype /Link /Rect [72 640 160 670] /A << /S /URI /URI (https://example.invalid) >> >>',
+    '<< /Type /Annot /Subtype /Link /Rect [72 600 160 630] /A << /S /JavaScript /JS (app.alert\(1\)) >> >>',
+    '<< /Type /Annot /Subtype /Link /Rect [72 560 160 590] /A << /S /Launch /F (never-run.exe) >> >>',
+    '<< /Type /Annot /Subtype /Link /Rect [72 520 160 550] /Dest [999 /Fit] >>',
+    '<< /Type /Annot /Subtype /Link /Rect [72 480 160 510] /Dest [6 0 R /Fit] /A << /S /URI /URI (https://example.invalid) >> >>'
+)
+Write-PdfFixture ([IO.Path]::Combine($output, 'links.pdf')) $linkObjects
+$rotatedLinks = @($linkObjects)
+foreach ($index in @(2, 5)) { $rotatedLinks[$index] = $rotatedLinks[$index].Replace('/MediaBox', '/Rotate 90 /CropBox [18 18 594 774] /MediaBox') }
+Write-PdfFixture ([IO.Path]::Combine($output, 'rotated-links.pdf')) $rotatedLinks
 $rotated = @($objects)
 $rotated[2] = $rotated[2].Replace('/MediaBox', '/Rotate 90 /CropBox [18 18 594 774] /MediaBox')
 $rotated[5] = $rotated[5].Replace('/MediaBox', '/Rotate 90 /CropBox [18 18 594 774] /MediaBox')

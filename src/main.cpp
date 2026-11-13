@@ -9,6 +9,7 @@
 #include "document-layout.h"
 #include "text-geometry.h"
 #include "document-outline.h"
+#include "document-links.h"
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
@@ -29,14 +30,6 @@ namespace {
 constexpr UINT Ready = WM_APP + 1;
 constexpr int BarHeight = 58;
 enum { Open = 100, Previous, Next, Smaller, Larger, Fit, Find, Print, Query, FindNext, FindPrevious, Copy, Outline };
-
-TextBox PageBox(FPDF_PAGE page, double left, double right, double bottom, double top) {
-    int x1 = 0, y1 = 0, x2 = 0, y2 = 0;
-    if (!FPDF_PageToDevice(page, 0, 0, 100000, 100000, 0, left, bottom, &x1, &y1) ||
-        !FPDF_PageToDevice(page, 0, 0, 100000, 100000, 0, right, top, &x2, &y2)) return {};
-    auto unit = [](int value) { return std::max(0.0, std::min(1.0, value / 100000.0)); };
-    return {unit(std::min(x1, x2)), unit(std::min(y1, y2)), unit(std::max(x1, x2)), unit(std::max(y1, y2))};
-}
 
 void Highlight(HDC dc, int x, int y, int width, int height, const std::vector<TextBox>& boxes, COLORREF color) {
     if (boxes.empty()) return;
@@ -66,8 +59,10 @@ std::wstring Text(HWND window) {
     return value;
 }
 struct Result {
-    enum Kind { Image, Opened, Password, Failure, Search, Printed, Geometry, Copied, OutlineReady } kind = Failure;
+    enum Kind { Image, Opened, Password, Failure, Search, Printed, Geometry, Copied, OutlineReady, LinksReady, LinkFollowed } kind = Failure;
     DocumentOutline outline;
+    std::vector<PageLink> links;
+    LinkTarget linkTarget;
     unsigned long long document = 0, revision = 0, viewVersion = 0;
     int page = 0, pages = 0, width = 0, height = 0, match = -1;
     double milliseconds = 0;
@@ -154,6 +149,26 @@ public:
             if (!pdf_ || document != document_ || document != wantedDocument_ || cancelled_) return;
             auto result = std::make_unique<Result>(); result->kind = Result::OutlineReady;
             result->outline = ReadOutline(pdf_, [this, document] { return cancelled_ || document != wantedDocument_; });
+            if (!cancelled_ && document == wantedDocument_) Send(std::move(result));
+        });
+    }
+    void LoadLinks(int page, unsigned long long document) {
+        Queue([this, page, document] {
+            if (!pdf_ || document != document_ || document != wantedDocument_ || cancelled_) return;
+            auto result = std::make_unique<Result>(); result->kind = Result::LinksReady; result->page = page;
+            auto pdfPage = FPDF_LoadPage(pdf_, page);
+            if (pdfPage) {
+                result->links = ReadPageLinks(pdf_, pdfPage, [this, document] { return cancelled_ || document != wantedDocument_; });
+                FPDF_ClosePage(pdfPage);
+            }
+            if (!cancelled_ && document == wantedDocument_) Send(std::move(result));
+        });
+    }
+    void FollowLink(int page, double x, double y, unsigned long long document, unsigned long long selection) {
+        Queue([this, page, x, y, document, selection] {
+            if (!pdf_ || document != document_ || document != wantedDocument_ || cancelled_) return;
+            auto result = std::make_unique<Result>(); result->kind = Result::LinkFollowed; result->revision = selection;
+            result->linkTarget = ResolvePageLink(pdf_, page, x, y);
             if (!cancelled_ && document == wantedDocument_) Send(std::move(result));
         });
     }
@@ -375,6 +390,10 @@ public:
     DocumentOutline outline;
     bool outlineLoaded = false, outlinePending = false, outlineTest = false;
     int outlineChecks = 0;
+    bool linksTest = false;
+    int linkChecks = 0, linkStep = 0;
+    std::int64_t linkTestScroll = 0;
+    int linkTestHorizontal = 0;
     HFONT font = nullptr;
     std::unique_ptr<PdfWorker> worker;
     struct CachedPage { std::unique_ptr<Result> image; unsigned long long version = 0, used = 0; };
@@ -396,6 +415,11 @@ public:
     struct Endpoint { int page = 0, character = -1; };
     std::map<int, std::vector<TextBox>> textPages;
     std::set<int> pendingText;
+    std::map<int, std::vector<PageLink>> pageLinks;
+    std::set<int> pendingLinks;
+    struct ReadingPosition { int page; double fraction, horizontal; double zoom; };
+    std::vector<ReadingPosition> linkHistory;
+    unsigned long long linkEpoch = 0;
     TextPoint selectionStart, selectionEnd;
     POINT dragStart{};
     bool dragging = false, selected = false, copyWhenReady = false;
@@ -494,10 +518,49 @@ public:
         double readyMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         char data[768]{};
         Endpoint a, b; SelectionRange(a, b);
-        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d,\"navigation_steps\":%d,\"cache_hits\":%zu,\"cache_bytes\":%zu,\"outline_checks\":%d,\"text_checks\":%d,\"text_step\":%d,\"selection_first\":%d,\"selection_last\":%d}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages, navigationStep, navigationHits, cacheBytes, outlineChecks, textChecks, textStep, a.character, b.character);
+        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d,\"navigation_steps\":%d,\"cache_hits\":%zu,\"cache_bytes\":%zu,\"outline_checks\":%d,\"link_checks\":%d,\"text_checks\":%d,\"text_step\":%d,\"selection_first\":%d,\"selection_last\":%d}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages, navigationStep, navigationHits, cacheBytes, outlineChecks, linkChecks, textChecks, textStep, a.character, b.character);
         HANDLE output = CreateFileW(benchmarkReport.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (output != INVALID_HANDLE_VALUE) { DWORD written = 0; WriteFile(output, data, size, &written, nullptr); CloseHandle(output); }
         PostMessageW(window, WM_CLOSE, 0, 0);
+    }
+    void CheckLinks(Result::Kind kind, const LinkTarget& target = {}) {
+        if (!linksTest) return;
+        if (kind == Result::Image && (linkStep == 0 || linkStep == 5)) {
+            linkStep = linkStep == 0 ? 1 : 6;
+            pendingLinks.insert(0); worker->LoadLinks(0, document);
+        } else if (kind == Result::LinksReady && linkStep == 1) {
+            if (pageLinks[0].size() != 2) { BenchmarkResult(false); return; }
+            auto box = pageLinks[0][0].box; TextPoint point{0, (box.left + box.right) / 2, (box.top + box.bottom) / 2};
+            if (!LinkAt(point)) { BenchmarkResult(false); return; }
+            zoom = 3; Reflow(); Render();
+            ScrollHorizontal(static_cast<int>(layout.Left(0, ViewWidth()) + point.x * layout.Width(0) - ViewWidth() / 2.0));
+            int sx = layout.Left(0, ViewWidth(), horizontal) + static_cast<int>(point.x * layout.Width(0));
+            int sy = BarHeight + static_cast<int>(layout.Top(0) - scroll + point.y * layout.Height(0)); TextPoint hit;
+            if (!PointOnPage(sx, sy, hit) || !LinkAt(hit)) { BenchmarkResult(false); return; }
+            point = hit; linkTestHorizontal = horizontal;
+            linkTestScroll = scroll; linkStep = 2; ActivateLink(point);
+        } else if (kind == Result::LinkFollowed && linkStep == 2) {
+            if (target.page != 1 || page != 1 || linkHistory.size() != 1 || scroll <= layout.Top(1)) { BenchmarkResult(false); return; }
+            BackFromLink();
+            if (page != 0 || scroll != linkTestScroll || std::abs(horizontal - linkTestHorizontal) > 1 || zoom != 3 || !linkHistory.empty()) { BenchmarkResult(false); return; }
+            ++linkChecks;
+            auto stale = std::make_unique<Result>(); stale->kind = Result::LinkFollowed; stale->document = document - 1; stale->linkTarget = target;
+            Receive(std::move(stale));
+            if (page != 0) { BenchmarkResult(false); return; }
+            ++linkChecks;
+            auto superseded = std::make_unique<Result>(); superseded->kind = Result::LinkFollowed;
+            superseded->document = document; superseded->revision = linkEpoch - 1; superseded->linkTarget = target;
+            Receive(std::move(superseded));
+            if (page != 0) { BenchmarkResult(false); return; }
+            ++linkChecks; linkStep = 4; ActivateLink({0, 100.0 / 612, 1.0 - 650.0 / 792});
+        } else if (kind == Result::LinkFollowed && linkStep == 4) {
+            if (!target.hit || target.page >= 0 || page != 0 || !linkHistory.empty()) { BenchmarkResult(false); return; }
+            ++linkChecks; linkStep = 5; Load(path);
+            if (!pageLinks.empty()) { BenchmarkResult(false); return; }
+        } else if (kind == Result::LinksReady && linkStep == 6) {
+            if (pageLinks[0].size() != 2 || !linkHistory.empty()) { BenchmarkResult(false); return; }
+            ++linkChecks; linkStep = 7; BenchmarkResult(true);
+        }
     }
     void CheckText(Result::Kind kind, const std::wstring& value = L"") {
         // The diagnostic consumes copy results internally, never touches the clipboard.
@@ -643,20 +706,50 @@ public:
         if (first.page > last.page || (first.page == last.page && first.character > last.character)) std::swap(first, last);
         return true;
     }
-    void ClearSelection() { selected = false; copyWhenReady = false; ++selectionRevision; Redraw(); }
+    void ClearSelection() { selected = false; copyWhenReady = false; ++selectionRevision; ++linkEpoch; Redraw(); }
+    bool LinkAt(const TextPoint& point) const {
+        auto found = pageLinks.find(point.page); if (found == pageLinks.end()) return false;
+        for (const auto& link : found->second) if (point.x >= link.box.left && point.x <= link.box.right && point.y >= link.box.top && point.y <= link.box.bottom) return true;
+        return false;
+    }
+    void HoverLinks(int x, int y) {
+        if (dragging) return;
+        TextPoint point;
+        if (PointOnPage(x, y, point) && !pageLinks.count(point.page) && !pendingLinks.count(point.page) && pendingLinks.size() < 2) {
+            pendingLinks.insert(point.page); worker->LoadLinks(point.page, document);
+        }
+    }
+    void ActivateLink(const TextPoint& point) { worker->FollowLink(point.page, point.x, point.y, document, linkEpoch); }
+    void BackFromLink() {
+        ++linkEpoch;
+        if (linkHistory.empty() || !pages) return;
+        auto previous = linkHistory.back(); linkHistory.pop_back();
+        ClearSelection(); zoom = previous.zoom; Reflow();
+        ScrollTo(layout.Top(previous.page) + static_cast<std::int64_t>(previous.fraction * layout.Height(previous.page)));
+        ScrollHorizontal(static_cast<int>(layout.Left(previous.page, ViewWidth()) + previous.horizontal * layout.Width(previous.page) - ViewWidth() / 2.0));
+        PageStatus();
+    }
     void BeginSelection(int x, int y) {
         TextPoint point;
         if (!PointOnPage(x, y, point)) { ClearSelection(); SetFocus(window); return; }
         ClearSelection(); selectionStart = selectionEnd = point; dragStart = {x, y}; dragging = true;
-        SetFocus(window); SetCapture(window); SetTimer(window, 4, 35, nullptr); NeedText(point.page);
+        SetFocus(window); SetCapture(window); SetTimer(window, 4, 35, nullptr);
+        if (!LinkAt(point)) NeedText(point.page);
     }
     void MoveSelection(int x, int y) {
         if (!dragging) return;
         TextPoint point; if (!PointOnPage(x, y, point, true)) return;
         if (std::abs(x - dragStart.x) + std::abs(y - dragStart.y) >= 3 || point.page != selectionStart.page) selected = true;
-        selectionEnd = point; copyWhenReady = false; ++selectionRevision; SelectionText(); Redraw();
+        selectionEnd = point; copyWhenReady = false; ++selectionRevision;
+        if (selected) SelectionText(); Redraw();
     }
     void EndSelection() { dragging = false; KillTimer(window, 4); if (GetCapture() == window) ReleaseCapture(); }
+    void FinishSelection(int x, int y) {
+        if (!dragging) return;
+        MoveSelection(x, y); bool clicked = !selected; TextPoint point;
+        bool onPage = PointOnPage(x, y, point); EndSelection();
+        if (clicked && onPage) ActivateLink(point);
+    }
     void CopySelection() {
         if (!selected) return;
         Endpoint first, last;
@@ -770,6 +863,7 @@ public:
     void Load(const std::wstring& file, const std::wstring& password = L"", bool retry = false) {
         if (!worker) worker = std::make_unique<PdfWorker>(window);
         if (!retry) {
+            pageLinks.clear(); pendingLinks.clear(); linkHistory.clear();
             outline = {}; outlineLoaded = outlinePending = false; PopulateOutline();
             EndSelection(); ClearSelection(); textPages.clear(); pendingText.clear(); searchPage = -1; searchBoxes.clear();
             path = file; ++document; pages = 0; page = 0; scroll = 0; horizontal = 0; zoom = 0; searching = false;
@@ -814,6 +908,7 @@ public:
         if (pd.hDevNames) GlobalFree(pd.hDevNames);
     }
     void Command(int id) {
+        ++linkEpoch;
         switch (id) {
         case Open: ChooseFile(); break;
         case Previous: ChangePage(page - 1); break;
@@ -851,6 +946,35 @@ public:
             outlinePending = false; outlineLoaded = true; outline = std::move(result->outline); PopulateOutline();
             if (outlineTest) CheckOutline();
             break;
+        case Result::LinksReady: {
+            pendingLinks.erase(result->page); pageLinks[result->page] = std::move(result->links);
+            if (pageLinks.size() > 16) {
+                auto victim = pageLinks.begin();
+                for (auto i = pageLinks.begin(); i != pageLinks.end(); ++i) if (std::abs(i->first - page) > std::abs(victim->first - page)) victim = i;
+                pageLinks.erase(victim);
+            }
+            POINT screen{}; GetCursorPos(&screen); POINT pointer = screen; ScreenToClient(window, &pointer); TextPoint point;
+            // Update only our cursor, without activating or moving any window.
+            if (!dragging && WindowFromPoint(screen) == window && PointOnPage(pointer.x, pointer.y, point))
+                SetCursor(LoadCursor(nullptr, LinkAt(point) ? IDC_HAND : IDC_IBEAM));
+            CheckLinks(Result::LinksReady);
+            break;
+        }
+        case Result::LinkFollowed:
+            if (result->revision != linkEpoch || selected || dragging) break;
+            if (result->linkTarget.page >= 0) {
+                int anchor = layout.PageAt(scroll);
+                if (linkHistory.size() == 64) linkHistory.erase(linkHistory.begin());
+                linkHistory.push_back({anchor, (scroll - layout.Top(anchor)) / static_cast<double>(layout.Height(anchor)),
+                    (ViewWidth() / 2.0 - layout.Left(anchor, ViewWidth(), horizontal)) / layout.Width(anchor), zoom});
+                auto target = result->linkTarget;
+                ClearSelection(); layout.Learn(target.page, target.width, target.height); Reflow();
+                ScrollTo(layout.Top(target.page) + static_cast<std::int64_t>(target.y * layout.Height(target.page)) - DocumentLayout::Gap);
+                ScrollHorizontal(static_cast<int>(layout.Left(target.page, ViewWidth()) + target.x * layout.Width(target.page) - DocumentLayout::Gap));
+                PageStatus();
+            } else if (result->linkTarget.hit) { status = L"Este enlace no tiene un destino interno compatible."; Redraw(); }
+            CheckLinks(Result::LinkFollowed, result->linkTarget);
+            break;
         case Result::Image:
             // A completed bitmap from the same zoom/width is useful even if the
             // scroll position has changed since it was queued.
@@ -865,6 +989,7 @@ public:
                 if (textTest) CheckText(Result::Image);
                 else if (navigationTest) { PostMessageW(window, WM_TIMER, 3, 0); }
                 else if (outlineTest) { if (!outlineWindow) ToggleOutline(); }
+                else if (linksTest) CheckLinks(Result::Image);
                 else BenchmarkResult(true);
             }
             break;
@@ -1064,13 +1189,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         } else app->Command(LOWORD(wp));
         return 0;
     case WM_LBUTTONDOWN: app->BeginSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
-    case WM_MOUSEMOVE: app->MoveSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
-    case WM_LBUTTONUP: app->MoveSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); app->EndSelection(); return 0;
+    case WM_MOUSEMOVE: app->MoveSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); app->HoverLinks(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
+    case WM_LBUTTONUP: app->FinishSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
     case WM_CAPTURECHANGED: app->EndSelection(); return 0;
     case WM_SETCURSOR:
         if (reinterpret_cast<HWND>(wp) == window && LOWORD(lp) == HTCLIENT && app->pages) {
             POINT mouse{}; GetCursorPos(&mouse); ScreenToClient(window, &mouse); Reader::TextPoint point;
-            if (app->PointOnPage(mouse.x, mouse.y, point)) { SetCursor(LoadCursor(nullptr, IDC_IBEAM)); return TRUE; }
+            if (app->PointOnPage(mouse.x, mouse.y, point)) { SetCursor(LoadCursor(nullptr, app->LinkAt(point) ? IDC_HAND : IDC_IBEAM)); return TRUE; }
         }
         break;
     case WM_DROPFILES: {
@@ -1094,11 +1219,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_GETMINMAXINFO: reinterpret_cast<MINMAXINFO*>(lp)->ptMinTrackSize = {820, 400}; return 0;
     case WM_MOUSEWHEEL:
+        ++app->linkEpoch;
         if (GetKeyState(VK_CONTROL) < 0) app->Command(GET_WHEEL_DELTA_WPARAM(wp) > 0 ? Larger : Smaller);
         else if (GetKeyState(VK_SHIFT) < 0) app->ScrollHorizontal(app->horizontal - GET_WHEEL_DELTA_WPARAM(wp));
         else app->ScrollTo(app->scroll - GET_WHEEL_DELTA_WPARAM(wp)); return 0;
-    case WM_MOUSEHWHEEL: app->ScrollHorizontal(app->horizontal + GET_WHEEL_DELTA_WPARAM(wp)); return 0;
+    case WM_MOUSEHWHEEL: ++app->linkEpoch; app->ScrollHorizontal(app->horizontal + GET_WHEEL_DELTA_WPARAM(wp)); return 0;
     case WM_HSCROLL: {
+        ++app->linkEpoch;
         SCROLLINFO info{sizeof(info), SIF_ALL}; GetScrollInfo(window, SB_HORZ, &info);
         int value = app->horizontal;
         switch (LOWORD(wp)) {
@@ -1110,6 +1237,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->ScrollHorizontal(value); return 0;
     }
     case WM_VSCROLL: {
+        ++app->linkEpoch;
         SCROLLINFO info{sizeof(info), SIF_ALL}; GetScrollInfo(window, SB_VERT, &info);
         std::int64_t value = app->scroll;
         switch (LOWORD(wp)) {
@@ -1140,7 +1268,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool navigationTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-navigation";
     bool textTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-text";
     bool outlineTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-outline";
-    bool benchmark = argv && argc == 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest);
+    bool linksTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-links";
+    bool benchmark = argv && argc == 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest);
     bool shellBenchmark = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-shell";
     SetProcessDPIAware();
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_TREEVIEW_CLASSES}; InitCommonControlsEx(&controls);
@@ -1154,6 +1283,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.navigationTest = navigationTest;
     app.textTest = textTest;
     app.outlineTest = outlineTest;
+    app.linksTest = linksTest;
     if (benchmark) app.benchmarkReport = argv[3];
     if (shellBenchmark) app.benchmarkReport = argv[2];
     HWND window = CreateWindowW(L"ChucaoReader", L"Chucao PDF Reader", WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_HSCROLL | WS_CLIPCHILDREN,
@@ -1175,7 +1305,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         }
         if (msg.message == WM_KEYDOWN) {
             bool ctrl = GetKeyState(VK_CONTROL) < 0, edit = GetFocus() == app.query;
+            if (!edit && GetKeyState(VK_MENU) < 0 && msg.wParam == VK_LEFT) { app.BackFromLink(); continue; }
             if (!edit && (msg.wParam == VK_NEXT || msg.wParam == VK_PRIOR || msg.wParam == VK_DOWN || msg.wParam == VK_UP || msg.wParam == VK_HOME || msg.wParam == VK_END)) {
+                ++app.linkEpoch;
                 if (msg.wParam == VK_HOME) app.ScrollTo(0);
                 else if (msg.wParam == VK_END) app.ScrollTo(app.MaxScroll());
                 else app.ScrollTo(app.scroll + (msg.wParam == VK_UP ? -40 : msg.wParam == VK_DOWN ? 40 : msg.wParam == VK_PRIOR ? -app.ViewHeight() + 40 : app.ViewHeight() - 40));

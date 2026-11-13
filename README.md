@@ -28,6 +28,9 @@ El motor y sus avisos de terceros se conservan en `deps/pdfium`; no se suben al 
 
 ## Uso del prototipo
 
+- Enlaces internos: clic para ir al destino; Alt+Izquierda vuelve al punto anterior.
+  El cursor cambia a una mano cuando se reconoce un enlace interno.
+
 - Abrir: Ctrl+O, arrastrar un PDF o pasar su ruta como argumento.
 - Página anterior/siguiente: botones y flechas izquierda/derecha.
 - Lectura continua: rueda, barra de desplazamiento, Page Up/Page Down y flechas arriba/abajo.
@@ -84,6 +87,10 @@ en `tools/killer-benchmark` usa la biblioteca de una instalación existente, sin
 incorporarla a Chucao. Ver [mediciones](docs/performance.md).
 
 ## Verificación
+
+Las pruebas incluyen enlaces directos y nombrados, posiciones XYZ, rotación y
+recorte, y regreso desde un enlace con zoom alto y desplazamiento horizontal.
+Los enlaces externos y las acciones de scripts/archivos no se ejecutan.
 
 `-Navigation` y `-Text` miden toda la secuencia de prueba, no solo la apertura.
 Las pruebas de texto no modifican el portapapeles: verifican internamente el

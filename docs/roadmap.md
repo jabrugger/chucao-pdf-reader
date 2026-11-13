@@ -8,7 +8,8 @@
    caché acotada, precarga de páginas vecinas, cancelación de render progresivo y
    prioridad de página visible, selección/copia entre páginas y búsqueda con
    resaltado y salto preciso, y desplazamiento horizontal con zoom alto.
-   Índice jerárquico bajo demanda con navegación a páginas. Pendientes enlaces.
+   Índice jerárquico bajo demanda con navegación a páginas. Enlaces internos con
+   destinos directos/nombrados y regreso al punto de lectura. Pendientes enlaces web.
 3. **Interfaz**: propuesta visual inspirada en MarkPad, toolbar compacta, panel
    opcional, pestañas, claro/oscuro, DPI por monitor y navegación por teclado.
    Validar con el usuario antes de convertir la propuesta en diseño definitivo.
