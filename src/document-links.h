@@ -3,12 +3,11 @@
 #include <functional>
 #include "pdf-coordinates.h"
 #include "web-links.h"
+#include "pdf-destinations.h"
 
 struct PageLink { TextBox box; int target = -1; };
-struct LinkTarget {
+struct LinkTarget : DestinationLocation {
     bool hit = false;
-    int page = -1;
-    double width = 0, height = 0, x = 0, y = 0;
     std::wstring webUrl;
 };
 inline std::wstring WebLinkUrl(FPDF_DOCUMENT pdf, FPDF_LINK link) {
@@ -48,21 +47,8 @@ inline LinkTarget ResolvePageLink(FPDF_DOCUMENT pdf, int source, double x, doubl
     result.hit = link != nullptr;
     if (link) result.webUrl = WebLinkUrl(pdf, link);
     auto destination = link ? InternalLinkDestination(pdf, link) : nullptr;
-    int target = destination ? FPDFDest_GetDestPageIndex(pdf, destination) : -1;
-    FPDF_BOOL hasX = false, hasY = false, hasZoom = false; FS_FLOAT dx = 0, dy = 0, zoom = 0;
-    if (destination) FPDFDest_GetLocationInPage(destination, &hasX, &hasY, &hasZoom, &dx, &dy, &zoom);
+    auto target = ReadDestination(pdf, destination);
     FPDF_ClosePage(page);
-    if (target < 0 || target >= FPDF_GetPageCount(pdf)) return result;
-    auto targetPage = FPDF_LoadPage(pdf, target); if (!targetPage) return result;
-    result.width = FPDF_GetPageWidth(targetPage); result.height = FPDF_GetPageHeight(targetPage);
-    if (result.width > 0 && result.height > 0 && std::isfinite(result.width) && std::isfinite(result.height)) {
-        result.page = target;
-        double defaultX = 0, defaultY = 0; int outX = 0, outY = 0;
-        if ((hasX || hasY) && FPDF_DeviceToPage(targetPage, 0, 0, 100000, 100000, 0, 0, 0, &defaultX, &defaultY) &&
-            FPDF_PageToDevice(targetPage, 0, 0, 100000, 100000, 0, hasX && std::isfinite(dx) ? dx : defaultX, hasY && std::isfinite(dy) ? dy : defaultY, &outX, &outY)) {
-            result.x = std::max(0.0, std::min(1.0, outX / 100000.0));
-            result.y = std::max(0.0, std::min(1.0, outY / 100000.0));
-        }
-    }
-    FPDF_ClosePage(targetPage); return result;
+    static_cast<DestinationLocation&>(result) = ResolveDestination(pdf, target);
+    return result;
 }

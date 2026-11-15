@@ -70,9 +70,17 @@ $outlineObjects += @(
     '<< /Title (Web) /Parent 9 0 R /Prev 10 0 R /Next 13 0 R /A << /S /URI /URI (https://example.invalid) >> >>',
     '<< /Title (Destino invalido) /Parent 9 0 R /Prev 12 0 R /Next 14 0 R /Dest [999 /Fit] >>',
     '<< /Title (Script) /Parent 9 0 R /Prev 13 0 R /A << /S /JavaScript /JS (app.alert\(1\)) >> >>',
-    '<< /S /GoTo /D [6 0 R /Fit] >>'
+    '<< /S /GoTo /D [6 0 R /XYZ 150 200 null] >>'
 )
 Write-PdfFixture ([IO.Path]::Combine($output, 'outline.pdf')) $outlineObjects
+$rotatedOutline = @($outlineObjects)
+foreach ($index in @(2, 5, 6, 7)) { $rotatedOutline[$index] = $rotatedOutline[$index].Replace('/MediaBox', '/Rotate 90 /CropBox [18 18 380 380] /MediaBox') }
+Write-PdfFixture ([IO.Path]::Combine($output, 'rotated-outline.pdf')) $rotatedOutline
+foreach ($variant in @('null 200', '150 null')) {
+    $nullableOutline = @($outlineObjects)
+    $nullableOutline[14] = $nullableOutline[14].Replace('150 200', $variant)
+    Write-PdfFixture ([IO.Path]::Combine($output, ('outline-' + $variant.Replace(' ', '-') + '.pdf'))) $nullableOutline
+}
 $cyclic = @($outlineObjects)
 $cyclic[11] = $cyclic[11].Replace('/Next 13 0 R', '/Next 10 0 R')
 Write-PdfFixture ([IO.Path]::Combine($output, 'outline-cycle.pdf')) $cyclic
