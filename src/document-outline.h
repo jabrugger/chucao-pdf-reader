@@ -6,8 +6,9 @@
 #include <string>
 #include <vector>
 #include <utility>
+#include "pdf-destinations.h"
 
-struct OutlineEntry { std::wstring title; int parent = -1, page = -1; };
+struct OutlineEntry { std::wstring title; int parent = -1, page = -1; PdfDestination destination; };
 struct DocumentOutline { std::vector<OutlineEntry> entries; bool limited = false; };
 
 // Called only by the PDFium worker. No page loading or external actions.
@@ -16,7 +17,6 @@ inline DocumentOutline ReadOutline(FPDF_DOCUMENT pdf, const std::function<bool()
     struct Pending { FPDF_BOOKMARK bookmark; int parent, depth; };
     std::vector<Pending> pending{{FPDFBookmark_GetFirstChild(pdf, nullptr), -1, 0}};
     std::set<FPDF_BOOKMARK> visited;
-    const int pages = FPDF_GetPageCount(pdf);
     while (!pending.empty() && !cancelled()) {
         auto item = pending.back(); pending.pop_back();
         if (!item.bookmark) continue;
@@ -36,10 +36,10 @@ inline DocumentOutline ReadOutline(FPDF_DOCUMENT pdf, const std::function<bool()
         if (action) {
             if (FPDFAction_GetType(action) == PDFACTION_GOTO) destination = FPDFAction_GetDest(pdf, action);
         } else destination = FPDFBookmark_GetDest(pdf, item.bookmark);
-        int page = destination ? FPDFDest_GetDestPageIndex(pdf, destination) : -1;
-        if (page < 0 || page >= pages) page = -1;
+        auto target = ReadDestination(pdf, destination);
+        int page = target.page;
         int index = static_cast<int>(result.entries.size());
-        result.entries.push_back({std::move(title), item.parent, page});
+        result.entries.push_back({std::move(title), item.parent, page, target});
         pending.push_back({FPDFBookmark_GetNextSibling(pdf, item.bookmark), item.parent, item.depth});
         auto child = FPDFBookmark_GetFirstChild(pdf, item.bookmark);
         if (child && item.depth < 63) pending.push_back({child, index, item.depth + 1});

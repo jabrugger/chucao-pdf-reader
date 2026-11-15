@@ -11,7 +11,8 @@ La lista consolidada y verificable de pendientes está en [TODO.md](TODO.md).
    caché acotada, precarga de páginas vecinas, cancelación de render progresivo y
    prioridad de página visible, selección/copia entre páginas y búsqueda con
    resaltado y salto preciso, y desplazamiento horizontal con zoom alto.
-   Índice jerárquico bajo demanda con navegación a páginas. Enlaces internos con
+   Índice jerárquico bajo demanda con navegación a coordenadas XYZ y regreso.
+   Enlaces internos con
    destinos directos/nombrados y regreso al punto de lectura. Persistencia local de
    página, zoom y posición por documento. Enlaces web HTTP/HTTPS por clic explícito.
 3. **Interfaz**: propuesta visual inspirada en MarkPad, toolbar compacta, panel

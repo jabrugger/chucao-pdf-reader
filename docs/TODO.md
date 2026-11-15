@@ -1,6 +1,6 @@
 # Pendientes de Chucao PDF Reader
 
-Actualizado: 2026-11-13.
+Actualizado: 2026-11-15.
 
 Lista consolidada de trabajo pendiente. Las casillas se marcan cuando el resultado
 está implementado y verificado; las validaciones manuales se registran por separado.
@@ -21,8 +21,9 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   olvidar historial y posiciones. Evidencia: [recent-files.md](recent-files.md).
 - [x] Permitir abrir enlaces HTTP/HTTPS con clic explícito en el navegador
   predeterminado. Evidencia: [internal-links.md](internal-links.md).
-- [ ] Respetar posición y modo de ajuste de los marcadores del índice; actualmente
-  saltan al inicio de la página conservando el zoom.
+- [x] Respetar las coordenadas XYZ de los marcadores del índice, conservando el
+  zoom y permitiendo regresar con Alt+Izquierda. Evidencia: [outline-navigation.md](outline-navigation.md).
+- [ ] Respetar los modos de ajuste y el zoom indicado por los marcadores del índice.
 - [ ] Completar los modos de destino de enlaces internos, incluidos Fit, FitH,
   FitV y el zoom indicado por el PDF. Actualmente se aplica la posición XYZ y se
   conserva el zoom actual; los otros modos van al inicio de la página.
@@ -63,6 +64,8 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
 - [ ] Probar el arrastre físico de selección y el autoscroll entre páginas.
 - [ ] Probar desplazamiento horizontal con mouse, rueda y touchpad, incluido zoom alto.
 - [ ] Validar el índice con teclado y mouse, y revisar su aspecto a distintos DPI.
+- [x] Validar automáticamente saltos del índice a coordenadas XYZ, coordenadas
+  omitidas, rotación/recorte, regreso y descarte de resultados atrasados.
 - [ ] Probar enlaces internos de documentos reales, cursor, clic y regreso con
   Alt+Izquierda.
 - [x] Validar destinos web, UTF-8, protocolos no admitidos y descarte de resultados

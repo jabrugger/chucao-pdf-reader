@@ -68,7 +68,7 @@ std::wstring Text(HWND window) {
     return value;
 }
 struct Result {
-    enum Kind { Image, Opened, Password, Failure, Search, Printed, Geometry, Copied, OutlineReady, LinksReady, LinkFollowed } kind = Failure;
+    enum Kind { Image, Opened, Password, Failure, Search, Printed, Geometry, Copied, OutlineReady, LinksReady, LinkFollowed, OutlineFollowed } kind = Failure;
     DocumentOutline outline;
     std::vector<PageLink> links;
     LinkTarget linkTarget;
@@ -185,6 +185,15 @@ public:
             if (!pdf_ || document != document_ || document != wantedDocument_ || cancelled_) return;
             auto result = std::make_unique<Result>(); result->kind = Result::LinkFollowed; result->revision = selection;
             result->linkTarget = ResolvePageLink(pdf_, page, x, y);
+            if (!cancelled_ && document == wantedDocument_) Send(std::move(result));
+        });
+    }
+    void FollowDestination(PdfDestination destination, unsigned long long document, unsigned long long interaction) {
+        Queue([this, destination, document, interaction] {
+            if (!pdf_ || document != document_ || document != wantedDocument_ || cancelled_) return;
+            auto result = std::make_unique<Result>(); result->kind = Result::OutlineFollowed; result->revision = interaction;
+            static_cast<DestinationLocation&>(result->linkTarget) = ResolveDestination(pdf_, destination);
+            result->linkTarget.hit = true;
             if (!cancelled_ && document == wantedDocument_) Send(std::move(result));
         });
     }
@@ -425,7 +434,7 @@ public:
     HWND window = nullptr, query = nullptr, outlineWindow = nullptr, outlineTree = nullptr, outlineLabel = nullptr;
     DocumentOutline outline;
     bool outlineLoaded = false, outlinePending = false, outlineTest = false;
-    int outlineChecks = 0;
+    int outlineChecks = 0, outlineStep = 0;
     bool linksTest = false;
     int linkChecks = 0, linkStep = 0;
     int webOpenAttempts = 0;
@@ -502,7 +511,7 @@ public:
             TVINSERTSTRUCTW item{};
             item.hParent = entry.parent >= 0 ? items[entry.parent] : TVI_ROOT;
             item.hInsertAfter = TVI_LAST; item.item.mask = TVIF_TEXT | TVIF_PARAM;
-            item.item.pszText = &label[0]; item.item.lParam = entry.page;
+            item.item.pszText = &label[0]; item.item.lParam = static_cast<LPARAM>(items.size());
             items.push_back(TreeView_InsertItem(outlineTree, &item));
         }
         for (size_t i = 0; i < items.size(); ++i) if (outline.entries[i].parent < 0) TreeView_Expand(outlineTree, items[i], TVE_EXPAND);
@@ -532,8 +541,12 @@ public:
         auto selectedItem = TreeView_GetSelection(outlineTree);
         TVITEMW item{}; item.mask = TVIF_PARAM; item.hItem = selectedItem;
         if (!selectedItem || !TreeView_GetItem(outlineTree, &item)) return;
-        int target = static_cast<int>(item.lParam);
-        if (target >= 0 && target < pages) { ClearSelection(); ChangePage(target); }
+        ++linkEpoch;
+        int index = static_cast<int>(item.lParam);
+        if (index >= 0 && index < static_cast<int>(outline.entries.size()) && outline.entries[index].page >= 0) {
+            pendingReadingState.reset(); ClearSelection();
+            worker->FollowDestination(outline.entries[index].destination, document, linkEpoch);
+        }
         else { status = L"Esta entrada no tiene un destino dentro del documento."; Redraw(); }
     }
     void CheckOutline() {
@@ -547,17 +560,36 @@ public:
         auto root = TreeView_GetRoot(outlineTree), child = TreeView_GetChild(outlineTree, root);
         TreeView_SelectItem(outlineTree, child);
         SaveTestImage(benchmarkReport + L".outline.bmp", outlineWindow);
+        zoom = 3; Reflow(); Render();
         NMHDR activation{outlineTree, 0, NM_DBLCLK};
+        outlineStep = 1;
         SendMessageW(outlineWindow, WM_NOTIFY, 0, reinterpret_cast<LPARAM>(&activation));
-        if (page != 1) { BenchmarkResult(false); return; }
-        TreeView_SelectItem(outlineTree, root);
-        NMTVKEYDOWN enter{}; enter.hdr.hwndFrom = outlineTree; enter.hdr.code = TVN_KEYDOWN; enter.wVKey = VK_RETURN;
-        SendMessageW(outlineWindow, WM_NOTIFY, 0, reinterpret_cast<LPARAM>(&enter));
+    }
+    void CheckOutlineNavigation(const LinkTarget& target) {
+        if (!outlineTest) return;
+        auto root = TreeView_GetRoot(outlineTree);
+        if (outlineStep == 1) {
+            if (page != 1 || target.page != 1 || target.y <= 0 || scroll <= layout.Top(1) || zoom != 3) { BenchmarkResult(false); return; }
+            ++outlineChecks;
+            auto stale = std::make_unique<Result>(); stale->kind = Result::OutlineFollowed;
+            stale->document = document - 1; stale->linkTarget.page = 0; Receive(std::move(stale));
+            auto superseded = std::make_unique<Result>(); superseded->kind = Result::OutlineFollowed;
+            superseded->document = document; superseded->revision = linkEpoch - 1; superseded->linkTarget.page = 0; Receive(std::move(superseded));
+            if (page != 1) { BenchmarkResult(false); return; }
+            outlineStep = 2;
+            TreeView_SelectItem(outlineTree, root);
+            NMTVKEYDOWN enter{}; enter.hdr.hwndFrom = outlineTree; enter.hdr.code = TVN_KEYDOWN; enter.wVKey = VK_RETURN;
+            SendMessageW(outlineWindow, WM_NOTIFY, 0, reinterpret_cast<LPARAM>(&enter));
+            return;
+        }
         if (page != 0) { BenchmarkResult(false); return; }
-        TreeView_SelectItem(outlineTree, child); NavigateOutline();
+        BackFromLink();
+        if (page != 1 || zoom != 3 || scroll <= layout.Top(1)) { BenchmarkResult(false); return; }
+        BackFromLink();
+        if (page != 0 || !linkHistory.empty()) { BenchmarkResult(false); return; }
         TreeView_SelectItem(outlineTree, TreeView_GetNextSibling(outlineTree, root)); NavigateOutline();
-        if (page != 1) { BenchmarkResult(false); return; }
-        ++outlineChecks;
+        if (page != 0) { BenchmarkResult(false); return; }
+        outlineStep = 0;
         if (outlineChecks == 1) {
             Load(path); // Clear the old tree and reject late outline results on reopen.
             if (TreeView_GetCount(outlineTree) != 0) { BenchmarkResult(false); return; }
@@ -1199,6 +1231,7 @@ public:
             CheckLinks(Result::LinksReady);
             break;
         }
+        case Result::OutlineFollowed:
         case Result::LinkFollowed:
             if (result->revision != linkEpoch || selected || dragging) break;
             if (result->linkTarget.page >= 0) {
@@ -1212,8 +1245,13 @@ public:
                 ScrollHorizontal(static_cast<int>(layout.Left(target.page, ViewWidth()) + target.x * layout.Width(target.page) - DocumentLayout::Gap));
                 PageStatus();
             } else if (!result->linkTarget.webUrl.empty()) OpenWebLink(result->linkTarget.webUrl);
-            else if (result->linkTarget.hit) { status = L"Este enlace no es compatible. Se admiten destinos internos y direcciones HTTP/HTTPS."; Redraw(); }
-            CheckLinks(Result::LinkFollowed, result->linkTarget);
+            else if (result->linkTarget.hit) {
+                status = result->kind == Result::OutlineFollowed ? L"No se pudo acceder al destino de esta entrada del índice." :
+                    L"Este enlace no es compatible. Se admiten destinos internos y direcciones HTTP/HTTPS.";
+                Redraw();
+            }
+            if (result->kind == Result::OutlineFollowed) CheckOutlineNavigation(result->linkTarget);
+            else CheckLinks(Result::LinkFollowed, result->linkTarget);
             break;
         case Result::Image:
             // A completed bitmap from the same zoom/width is useful even if the
