@@ -7,7 +7,8 @@ param(
     [switch]$Text,
     [switch]$Outline,
     [switch]$Links,
-    [switch]$Passwords
+    [switch]$Passwords,
+    [switch]$Destinations
 )
 $ErrorActionPreference = 'Stop'
 if ($Runs -lt 1 -or $Runs -gt 20) { throw 'Runs debe estar entre 1 y 20.' }
@@ -18,7 +19,7 @@ $exe = [IO.Path]::Combine($root, 'build', $Executable)
 for ($i = 1; $i -le $Runs; $i++) {
     $report = [IO.Path]::Combine($output, "open-$([Guid]::NewGuid().ToString('N')).json")
     $clock = [Diagnostics.Stopwatch]::StartNew()
-    $arguments = if ($ShellOnly) { @('--benchmark-shell', ('"' + $report + '"')) } else { @($(if ($Passwords) { '--benchmark-passwords' } elseif ($Links) { '--benchmark-links' } elseif ($Outline) { '--benchmark-outline' } elseif ($Text) { '--benchmark-text' } elseif ($Navigation) { '--benchmark-navigation' } else { '--benchmark-open' }), ('"' + $Pdf + '"'), ('"' + $report + '"')) }
+    $arguments = if ($ShellOnly) { @('--benchmark-shell', ('"' + $report + '"')) } else { @($(if ($Destinations) { '--benchmark-destinations' } elseif ($Passwords) { '--benchmark-passwords' } elseif ($Links) { '--benchmark-links' } elseif ($Outline) { '--benchmark-outline' } elseif ($Text) { '--benchmark-text' } elseif ($Navigation) { '--benchmark-navigation' } else { '--benchmark-open' }), ('"' + $Pdf + '"'), ('"' + $report + '"')) }
     $process = Start-Process -FilePath $exe -ArgumentList $arguments -WindowStyle Hidden -PassThru
     if (!$process.WaitForExit(35000)) {
         # Only terminate the diagnostic child created by this script.

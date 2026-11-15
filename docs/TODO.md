@@ -21,12 +21,12 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   olvidar historial y posiciones. Evidencia: [recent-files.md](recent-files.md).
 - [x] Permitir abrir enlaces HTTP/HTTPS con clic explícito en el navegador
   predeterminado. Evidencia: [internal-links.md](internal-links.md).
-- [x] Respetar las coordenadas XYZ de los marcadores del índice, conservando el
-  zoom y permitiendo regresar con Alt+Izquierda. Evidencia: [outline-navigation.md](outline-navigation.md).
-- [ ] Respetar los modos de ajuste y el zoom indicado por los marcadores del índice.
-- [ ] Completar los modos de destino de enlaces internos, incluidos Fit, FitH,
-  FitV y el zoom indicado por el PDF. Actualmente se aplica la posición XYZ y se
-  conserva el zoom actual; los otros modos van al inicio de la página.
+- [x] Respetar coordenadas XYZ y regreso desde los marcadores del índice.
+  Evidencia: [outline-navigation.md](outline-navigation.md).
+- [x] Aplicar Fit, FitH, FitV y zoom XYZ en marcadores y enlaces internos, con
+  límites de zoom y regreso a la vista anterior.
+- [ ] Completar FitR, FitB, FitBH y FitBV; conservar la posición anterior cuando
+  FitH/FitV omiten su coordenada (la API numérica usada no distingue null de cero).
 - [ ] Mejorar accesibilidad y navegación por teclado, incluidos foco y controles.
 - [ ] Adaptar la interfaz a distintos DPI por monitor.
 - [ ] Revisar y pulir los mensajes de error.
@@ -66,6 +66,9 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
 - [ ] Validar el índice con teclado y mouse, y revisar su aspecto a distintos DPI.
 - [x] Validar automáticamente saltos del índice a coordenadas XYZ, coordenadas
   omitidas, rotación/recorte, regreso y descarte de resultados atrasados.
+- [x] Validar ajuste de página/ancho/alto, zoom XYZ explícito o cero y límites,
+  con páginas normales y rotadas/recortadas.
+- [ ] Validar manualmente ajustes y zoom de enlaces/marcadores de PDF reales.
 - [ ] Probar enlaces internos de documentos reales, cursor, clic y regreso con
   Alt+Izquierda.
 - [x] Validar destinos web, UTF-8, protocolos no admitidos y descarte de resultados

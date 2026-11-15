@@ -24,6 +24,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Fallaron los enlaces internos.' }
 & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Pdf ([IO.Path]::Combine($root, 'test-results', 'rotated-links.pdf')) -Runs 1 -Links
 & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Pdf ([IO.Path]::Combine($root, 'test-results', 'outline.pdf')) -Runs 1 -Outline
 & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Pdf ([IO.Path]::Combine($root, 'test-results', 'rotated-outline.pdf')) -Runs 1 -Outline
+foreach ($mode in @('Fit', 'FitH-200', 'FitV-150', 'XYZ-150-200-2', 'XYZ-150-200-0')) {
+    & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Pdf ([IO.Path]::Combine($root, 'test-results', ('destination-' + $mode + '.pdf'))) -Runs 1 -Destinations
+    & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Pdf ([IO.Path]::Combine($root, 'test-results', ('rotated-destination-' + $mode + '.pdf'))) -Runs 1 -Destinations
+}
 foreach ($name in @('sample.pdf', 'mixed-pages.pdf')) {
     & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Pdf ([IO.Path]::Combine($root, 'test-results', $name)) -Runs 1 -Navigation
 }

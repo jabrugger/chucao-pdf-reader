@@ -1,8 +1,9 @@
 # Navegación desde el índice — 2026-11-15
 
 Enter o doble clic en una entrada del índice lleva a su destino dentro del PDF.
-Los destinos XYZ respetan sus coordenadas, incluidas rotación y CropBox, y conservan
-el zoom del lector. Alt+Izquierda vuelve al punto anterior con su zoom y posición
+Los destinos XYZ respetan sus coordenadas, incluidas rotación y CropBox, y aplican
+su zoom cuando es positivo; cero o null conserva el zoom del lector.
+Alt+Izquierda vuelve al punto anterior con su zoom y posición
 horizontal. El historial es compartido con los enlaces internos y conserva hasta
 64 posiciones. Las entradas sin destino interno no producen un salto ni abren
 aplicaciones externas.
@@ -20,9 +21,29 @@ de sus límites se acotan. El resultado se descarta si pertenece a otro document
 o si una interacción de navegación posterior lo dejó obsoleto. El salto no bloquea
 la interfaz mientras se carga la página destino.
 
-Los destinos Fit/FitH/FitV y otros modos de ajuste siguen llevando al inicio de la
-página con el zoom actual. Tampoco se aplica todavía el zoom especificado en XYZ.
-Esas mejoras siguen abiertas en [TODO.md](TODO.md).
+## Modos de ajuste
+
+La misma aplicación de destinos se usa para marcadores y enlaces internos:
+
+| Destino | Resultado |
+| --- | --- |
+| XYZ | Posición indicada y zoom positivo; cero/null conserva el zoom |
+| Fit | Página completa, con margen de 24 píxeles por lado |
+| FitH | Ancho de la página y coordenada superior indicada |
+| FitV | Alto de la página y coordenada izquierda indicada |
+
+Los ajustes se calculan para el área de lectura al activar el destino. El zoom se
+limita al intervalo del lector, 25–400%; las páginas extremas pueden no caber
+completas cuando se alcanza un límite. El presupuesto de renderizado sigue vigente.
+Fit centra horizontalmente la página y la sitúa al inicio de la vista continua.
+Alt+Izquierda recupera el zoom y la posición anteriores al salto.
+
+FitR y los modos de caja de contenido FitB/FitBH/FitBV siguen pendientes y conservan
+el zoom actual. También queda pendiente conservar la posición previa si FitH/FitV
+usan una coordenada null: la API numérica empleada no distingue ese valor de cero
+(ver [implementación de PDFium](https://pdfium.googlesource.com/pdfium/+/refs/heads/main/core/fpdfdoc/cpdf_dest.cpp)).
+Por ahora se interpreta como cero. No se aplica el mismo tratamiento a XYZ, donde
+la API sí informa qué campos se omitieron.
 
 ## Verificación
 
@@ -36,6 +57,10 @@ Esas mejoras siguen abiertas en [TODO.md](TODO.md).
   atrasados y reapertura con limpieza del árbol. Tres comprobaciones por ejecución.
 - Las pruebas de enlaces internos/web verifican que el helper compartido conserve
   su comportamiento anterior. Todo se ejecuta con ventanas ocultas y PDF sintéticos.
+- `benchmark-open.ps1 -Destinations`: cinco variantes (Fit, FitH, FitV, XYZ con
+  zoom 200% y XYZ con zoom cero), repetidas con rotación y CropBox. Comprueba las
+  dimensiones resultantes, el zoom, regreso, entrada inactiva y reapertura.
+  `outline-test.exe` verifica además los cálculos con un área conocida y los límites.
 
 Pendiente manual: clic y teclado en la ventana visible, marcadores de documentos
 reales, percepción de la posición de llegada y escalado a distintos DPI.

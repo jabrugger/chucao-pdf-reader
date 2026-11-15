@@ -31,6 +31,23 @@ int wmain(int argc, wchar_t** argv) {
         int checks = 0;
         auto cancelled = ReadOutline(pdf, [&] { return ++checks > 2; });
         Check(cancelled.entries.size() == 2, "cancel traversal");
+        for (const auto* name : {L"destination-Fit.pdf", L"destination-FitH-200.pdf", L"destination-FitV-150.pdf", L"destination-XYZ-150-200-2.pdf", L"destination-XYZ-150-200-0.pdf"}) {
+            outline = read(name);
+            auto target = ResolveDestination(pdf, outline.entries[1].destination);
+            double scale = DestinationZoom(target, 1048, 848, 3);
+            if (target.view == PDFDEST_VIEW_FIT) Check(std::abs(scale - 1000.0 / 792) < 1e-6, "fit whole page");
+            else if (target.view == PDFDEST_VIEW_FITH) Check(std::abs(scale - 1000.0 / 792) < 1e-6 && target.y == .5, "fit width at top coordinate");
+            else if (target.view == PDFDEST_VIEW_FITV) Check(scale == 2 && target.x > 0, "fit height at left coordinate");
+            else Check(scale == (target.zoom > 0 ? 2 : 3), "explicit XYZ zoom and zero preserves current zoom");
+        }
+        DestinationLocation bounded; bounded.page = 0; bounded.width = 100; bounded.height = 200;
+        bounded.view = PDFDEST_VIEW_XYZ; bounded.zoom = 100;
+        Check(DestinationZoom(bounded, 1000, 800, 0) == 4, "zoom upper bound");
+        bounded.zoom = .01; Check(DestinationZoom(bounded, 1000, 800, 3) == .25, "zoom lower bound");
+        bounded.view = PDFDEST_VIEW_FIT;
+        Check(DestinationZoom(bounded, 10, 10, 3) == .25, "tiny viewport stays bounded");
+        bounded.view = PDFDEST_VIEW_FITR;
+        Check(DestinationZoom(bounded, 1000, 800, 0) == 0, "unsupported mode preserves fit-width zoom");
         for (const auto* name : {L"outline.pdf", L"rotated-outline.pdf"}) {
             outline = read(name);
             auto target = ResolveDestination(pdf, outline.entries[1].destination);
