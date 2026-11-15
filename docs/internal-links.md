@@ -1,7 +1,9 @@
 # Enlaces internos y web — 2026-11-13
 
 Clic en un enlace interno lleva a la página y, para destinos XYZ, a la posición
-indicada. Se conserva el zoom actual. Alt+Izquierda vuelve al punto de lectura
+indicada. Un zoom XYZ positivo se aplica dentro de los límites del lector;
+cero/null conserva el zoom. Fit, FitH y FitV ajustan página, ancho y alto.
+Alt+Izquierda vuelve al punto de lectura
 anterior, incluyendo zoom y desplazamiento horizontal. El historial guarda hasta
 64 posiciones y se limpia al abrir otro documento.
 
@@ -61,7 +63,6 @@ agregan botones ni paneles a la interfaz para esta función.
   No se abre un navegador, no se imprimen documentos ni se modifica el portapapeles.
 
 Pendiente de comprobación manual: sensación del cursor y del clic físico, regreso
-con teclado y enlaces de documentos reales. Los modos Fit/FitH/FitV y otros distintos
-de XYZ llevan por ahora al inicio de la página conservando el zoom; no se aplica el
-factor de zoom del destino. También faltan la prueba manual del clic web y del
+con teclado y enlaces de documentos reales. FitR y FitB/FitBH/FitBV siguen pendientes;
+ver [ajustes y límites](outline-navigation.md). También faltan la prueba manual del clic web y del
 navegador predeterminado, incluida la respuesta ante un fallo de apertura.

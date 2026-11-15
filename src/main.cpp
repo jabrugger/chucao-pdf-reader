@@ -435,6 +435,8 @@ public:
     DocumentOutline outline;
     bool outlineLoaded = false, outlinePending = false, outlineTest = false;
     int outlineChecks = 0, outlineStep = 0;
+    bool destinationsTest = false;
+    double testedDestinationZoom = 3;
     bool linksTest = false;
     int linkChecks = 0, linkStep = 0;
     int webOpenAttempts = 0;
@@ -569,7 +571,18 @@ public:
         if (!outlineTest) return;
         auto root = TreeView_GetRoot(outlineTree);
         if (outlineStep == 1) {
-            if (page != 1 || target.page != 1 || target.y <= 0 || scroll <= layout.Top(1) || zoom != 3) { BenchmarkResult(false); return; }
+            bool positioned = destinationsTest || (target.y > 0 && scroll > layout.Top(1) && zoom == 3);
+            if (destinationsTest) {
+                int w = layout.Width(1), h = layout.Height(1);
+                if (target.view == PDFDEST_VIEW_FIT) positioned = w <= ViewWidth() - 47 && h <= ViewHeight() - 47 &&
+                    (std::abs(w - (ViewWidth() - 48)) <= 1 || std::abs(h - (ViewHeight() - 48)) <= 1);
+                else if (target.view == PDFDEST_VIEW_FITH) positioned = std::abs(w - (ViewWidth() - 48)) <= 1;
+                else if (target.view == PDFDEST_VIEW_FITV) positioned = std::abs(h - (ViewHeight() - 48)) <= 1;
+                else if (target.view == PDFDEST_VIEW_XYZ) positioned = zoom == (target.zoom > 0 ? target.zoom : 3);
+                else positioned = false;
+            }
+            if (page != 1 || target.page != 1 || !positioned) { BenchmarkResult(false); return; }
+            testedDestinationZoom = zoom;
             ++outlineChecks;
             auto stale = std::make_unique<Result>(); stale->kind = Result::OutlineFollowed;
             stale->document = document - 1; stale->linkTarget.page = 0; Receive(std::move(stale));
@@ -584,7 +597,7 @@ public:
         }
         if (page != 0) { BenchmarkResult(false); return; }
         BackFromLink();
-        if (page != 1 || zoom != 3 || scroll <= layout.Top(1)) { BenchmarkResult(false); return; }
+        if (page != 1 || zoom != testedDestinationZoom || (!destinationsTest && scroll <= layout.Top(1))) { BenchmarkResult(false); return; }
         BackFromLink();
         if (page != 0 || !linkHistory.empty()) { BenchmarkResult(false); return; }
         TreeView_SelectItem(outlineTree, TreeView_GetNextSibling(outlineTree, root)); NavigateOutline();
@@ -1240,9 +1253,11 @@ public:
                 linkHistory.push_back({anchor, (scroll - layout.Top(anchor)) / static_cast<double>(layout.Height(anchor)),
                     (ViewWidth() / 2.0 - layout.Left(anchor, ViewWidth(), horizontal)) / layout.Width(anchor), zoom});
                 auto target = result->linkTarget;
-                ClearSelection(); layout.Learn(target.page, target.width, target.height); Reflow();
+                ClearSelection(); layout.Learn(target.page, target.width, target.height);
+                zoom = DestinationZoom(target, ViewWidth(), ViewHeight(), zoom); Reflow();
                 ScrollTo(layout.Top(target.page) + static_cast<std::int64_t>(target.y * layout.Height(target.page)) - DocumentLayout::Gap);
-                ScrollHorizontal(static_cast<int>(layout.Left(target.page, ViewWidth()) + target.x * layout.Width(target.page) - DocumentLayout::Gap));
+                ScrollHorizontal(static_cast<int>(layout.Left(target.page, ViewWidth()) +
+                    (target.view == PDFDEST_VIEW_FIT ? layout.Width(target.page) / 2.0 - ViewWidth() / 2.0 : target.x * layout.Width(target.page) - DocumentLayout::Gap)));
                 PageStatus();
             } else if (!result->linkTarget.webUrl.empty()) OpenWebLink(result->linkTarget.webUrl);
             else if (result->linkTarget.hit) {
@@ -1617,7 +1632,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     int argc = 0; LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     bool navigationTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-navigation";
     bool textTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-text";
-    bool outlineTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-outline";
+    bool destinationsTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-destinations";
+    bool outlineTest = destinationsTest || (argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-outline");
     bool linksTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-links";
     bool passwordTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-passwords";
     int stateTest = argv && argc == 5 ? (std::wstring(argv[1]) == L"--benchmark-state-write" ? 1 : std::wstring(argv[1]) == L"--benchmark-state-read" ? 2 : 0) : 0;
@@ -1638,6 +1654,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.navigationTest = navigationTest;
     app.textTest = textTest;
     app.outlineTest = outlineTest;
+    app.destinationsTest = destinationsTest;
     app.linksTest = linksTest;
     app.passwordTest = passwordTest;
     app.readingStateEnabled = !benchmark && !shellBenchmark;

@@ -51,7 +51,7 @@ documento. Ver [alcance y pruebas](docs/reading-state.md).
 - Desplazamiento horizontal: barra inferior, Shift+rueda o rueda horizontal.
   La búsqueda lleva también a las coincidencias fuera del ancho visible.
 - Índice: botón Índice o Ctrl+B. Expandir capítulos con las flechas; Enter o doble
-  clic lleva al destino, incluidas coordenadas XYZ, conservando el zoom.
+  clic lleva al destino, con coordenadas y zoom XYZ o ajuste de página/ancho/alto.
   Alt+Izquierda vuelve al punto anterior; Escape cierra la ventana del índice.
 - Buscar: Ctrl+F, escribir y pulsar Enter; F3 avanza y Shift+F3 retrocede.
   La coincidencia aparece resaltada y la vista se desplaza hasta ella.
