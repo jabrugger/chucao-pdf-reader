@@ -63,6 +63,8 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   comportamiento al pegar/imprimir en otras aplicaciones o dispositivos.
 - [ ] Probar el arrastre físico de selección y el autoscroll entre páginas.
 - [ ] Probar desplazamiento horizontal con mouse, rueda y touchpad, incluido zoom alto.
+- [x] Corregir y verificar el arrastre de la barra vertical con mouse en ambas
+  direcciones. Evidencia y regresión: [scrollbar-input.md](scrollbar-input.md).
 - [ ] Validar el índice con teclado y mouse, y revisar su aspecto a distintos DPI.
 - [x] Validar automáticamente saltos del índice a coordenadas XYZ, coordenadas
   omitidas, rotación/recorte, regreso y descarte de resultados atrasados.

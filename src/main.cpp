@@ -775,6 +775,22 @@ public:
         if (cacheBytes > CacheLimit) { BenchmarkResult(false); return; }
         switch (navigationStep) {
         case 0:
+            // A native scrollbar can notify a capture change to this same HWND.
+            SetCapture(window);
+            SendMessageW(window, WM_CAPTURECHANGED, 0, reinterpret_cast<LPARAM>(window));
+            EndSelection();
+            if (GetCapture() != window) { BenchmarkResult(false); return; }
+            SendMessageW(window, WM_VSCROLL, SB_PAGEDOWN, 0);
+            if (scroll <= 0 || GetCapture() != window) { BenchmarkResult(false); return; }
+            dragging = true;
+            SendMessageW(window, WM_CAPTURECHANGED, 0, reinterpret_cast<LPARAM>(window));
+            if (!dragging || GetCapture() != window) { BenchmarkResult(false); return; }
+            ReleaseCapture();
+            if (dragging) { BenchmarkResult(false); return; }
+            SetCapture(window); dragging = true; EndSelection();
+            if (GetCapture() == window || dragging) { BenchmarkResult(false); return; }
+            SendMessageW(window, WM_VSCROLL, SB_TOP, 0);
+            if (scroll != 0) { BenchmarkResult(false); return; }
             navigationStep = 1;
             ScrollTo(layout.Top(std::min(1, pages - 1)) + layout.Height(std::min(1, pages - 1)) / 3);
             break;
@@ -1012,7 +1028,12 @@ public:
         selectionEnd = point; copyWhenReady = false; ++selectionRevision;
         if (selected) SelectionText(); Redraw();
     }
-    void EndSelection() { dragging = false; KillTimer(window, 4); if (GetCapture() == window) ReleaseCapture(); }
+    void EndSelection(bool release = true) {
+        // The same HWND also owns capture during native scrollbar tracking.
+        if (!dragging) return;
+        dragging = false; KillTimer(window, 4);
+        if (release && GetCapture() == window) ReleaseCapture();
+    }
     void FinishSelection(int x, int y) {
         if (!dragging) return;
         MoveSelection(x, y); bool clicked = !selected; TextPoint point;
@@ -1546,7 +1567,9 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     case WM_LBUTTONDOWN: app->BeginSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
     case WM_MOUSEMOVE: app->MoveSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); app->HoverLinks(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
     case WM_LBUTTONUP: app->FinishSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
-    case WM_CAPTURECHANGED: app->EndSelection(); return 0;
+    case WM_CAPTURECHANGED:
+        if (reinterpret_cast<HWND>(lp) != window) app->EndSelection(false);
+        return 0;
     case WM_SETCURSOR:
         if (reinterpret_cast<HWND>(wp) == window && LOWORD(lp) == HTCLIENT && app->pages) {
             POINT mouse{}; GetCursorPos(&mouse); ScreenToClient(window, &mouse); Reader::TextPoint point;
