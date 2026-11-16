@@ -1,6 +1,6 @@
 # Navegación desde el índice — 2026-11-15
 
-Enter o doble clic en una entrada del índice lleva a su destino dentro del PDF.
+Un clic o Enter en una entrada del índice lleva a su destino dentro del PDF.
 Los destinos XYZ respetan sus coordenadas, incluidas rotación y CropBox, y aplican
 su zoom cuando es positivo; cero o null conserva el zoom del lector.
 Alt+Izquierda vuelve al punto anterior con su zoom y posición
@@ -52,7 +52,7 @@ la API sí informa qué campos se omitieron.
   destinos inválidos. Conserva las pruebas de límites, ciclos, cancelación,
   títulos Unicode y acciones inactivas.
 - `benchmark-open.ps1 -Outline`, con `outline.pdf` y `rotated-outline.pdf`:
-  controles nativos del árbol, doble clic y Enter, navegación asincrónica a XYZ
+  controles nativos del árbol, activación de una entrada y Enter, navegación asincrónica a XYZ
   con zoom 300%, regreso por el historial, entradas inactivas, descarte de resultados
   atrasados y reapertura con limpieza del árbol. Tres comprobaciones por ejecución.
 - Las pruebas de enlaces internos/web verifican que el helper compartido conserve
@@ -62,5 +62,6 @@ la API sí informa qué campos se omitieron.
   dimensiones resultantes, el zoom, regreso, entrada inactiva y reapertura.
   `outline-test.exe` verifica además los cálculos con un área conocida y los límites.
 
-Pendiente manual: clic y teclado en la ventana visible, marcadores de documentos
-reales, percepción de la posición de llegada y escalado a distintos DPI.
+El clic único y los accesos del panel integrado se verificaron con un fixture en
+la ventana visible. Pendiente manual: marcadores de documentos reales, percepción
+de la posición de llegada y escalado a distintos DPI.

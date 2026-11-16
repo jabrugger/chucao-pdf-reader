@@ -13,6 +13,10 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
 
 - [ ] Diseñar y validar con el usuario la interfaz definitiva inspirada en MarkPad:
   barra compacta y paneles opcionales.
+- [x] Primera disposición de lectura con iconos vectoriales, ayudas de teclado,
+  búsqueda inferior ocultable e índice integrado, automático y plegable con vista
+  temporal desde el borde. Un clic navega por el índice. Evidencia:
+  [reader-interface.md](reader-interface.md). Pendiente de aprobación visual del usuario.
 - [ ] Incorporar temas claro y oscuro.
 - [ ] Incorporar pestañas para varios documentos.
 - [x] Recordar página, zoom y posición vertical/horizontal por documento, al cerrar

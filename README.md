@@ -50,10 +50,14 @@ documento. Ver [alcance y pruebas](docs/reading-state.md).
 - Zoom: botones +/−, Ctrl+rueda. Ajustar al ancho: Ctrl+0.
 - Desplazamiento horizontal: barra inferior, Shift+rueda o rueda horizontal.
   La búsqueda lleva también a las coincidencias fuera del ancho visible.
-- Índice: botón Índice o Ctrl+B. Expandir capítulos con las flechas; Enter o doble
-  clic lleva al destino, con coordenadas y zoom XYZ o ajuste de página/ancho/alto.
-  Alt+Izquierda vuelve al punto anterior; Escape cierra la ventana del índice.
-- Buscar: Ctrl+F, escribir y pulsar Enter; F3 avanza y Shift+F3 retrocede.
+- Índice integrado a la izquierda: se muestra al abrir si el PDF tiene marcadores.
+  El botón del índice o Ctrl+B lo pliega/despliega. Acercar el puntero al borde
+  izquierdo permite verlo temporalmente; la chincheta permite fijarlo abierto.
+  Un clic o Enter lleva al destino; las flechas expanden los capítulos.
+  Alt+Izquierda vuelve al punto anterior.
+- Buscar: Ctrl+F o el icono de lupa muestra la barra inferior. Busca al escribir;
+  Enter/F3 avanza y Mayús+Enter/Mayús+F3 retrocede. Escape o × oculta la barra,
+  conserva la consulta y devuelve el espacio al documento.
   La coincidencia aparece resaltada y la vista se desplaza hasta ella.
 - Seleccionar: arrastrar sobre el texto, incluso entre páginas. Ctrl+C copia;
   Escape limpia la selección. Al arrastrar cerca de un borde la vista se desplaza.

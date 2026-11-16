@@ -12,6 +12,7 @@
 #include "document-outline.h"
 #include "document-links.h"
 #include "resource.h"
+#include "ui-icons.h"
 #include "reading-state.h"
 #include "recent-files.h"
 #include <algorithm>
@@ -32,9 +33,11 @@
 
 namespace {
 constexpr UINT Ready = WM_APP + 1;
-constexpr int BarHeight = 58;
-enum { Open = 100, Previous, Next, Smaller, Larger, Fit, Find, Print, Query, FindNext, FindPrevious, Copy, Outline, OpenMenu, ForgetHistory };
+constexpr UINT ChromeHover = WM_APP + 2;
+constexpr int BarHeight = 52;
 constexpr int RecentBase = 4000;
+enum { Open = 100, Previous, Next, Smaller, Larger, Fit, Find, Print, Query, FindNext, FindPrevious, Copy, Outline, OpenMenu, ForgetHistory,
+    FindClose, OutlineClose, OutlinePin, OutlineRail };
 
 void Highlight(HDC dc, int x, int y, int width, int height, const std::vector<TextBox>& boxes, COLORREF color) {
     if (boxes.empty()) return;
@@ -428,10 +431,16 @@ bool PasswordDialog(HWND owner, std::wstring& password, const std::wstring& prom
 }
 
 LRESULT CALLBACK OutlineProc(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK IconButtonProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
 
 class Reader {
 public:
     HWND window = nullptr, query = nullptr, outlineWindow = nullptr, outlineTree = nullptr, outlineLabel = nullptr;
+    HWND tooltip = nullptr, findLabel = nullptr, findFeedback = nullptr;
+    bool searchVisible = false, outlinePinned = false, outlinePeek = false, outlineAutoShow = true, arranging = false;
+    bool interfaceTest = false;
+    int interfaceStep = 0;
+    int previousContentWidth = 0;
     DocumentOutline outline;
     bool outlineLoaded = false, outlinePending = false, outlineTest = false;
     int outlineChecks = 0, outlineStep = 0;
@@ -503,13 +512,132 @@ public:
     size_t navigationHits = 0;
     std::chrono::steady_clock::time_point started;
     double shellMs = 0, openedMs = 0;
+    int OutlineWidth() const { RECT rc{}; GetClientRect(window, &rc); return std::min(280, std::max(220, static_cast<int>(rc.right / 4))); }
+    int ViewLeft() const { return outlinePinned ? OutlineWidth() : outlineLoaded && !outline.entries.empty() ? 18 : 0; }
+    HWND IconButton(HWND parent, int id, const wchar_t* title) {
+        HWND button = CreateWindowW(L"BUTTON", title, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+            0, 0, 36, 36, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), nullptr, nullptr);
+        SetWindowSubclass(button, IconButtonProc, 1, 0);
+        TOOLINFOW tip{sizeof(tip)}; tip.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+        tip.hwnd = parent; tip.uId = reinterpret_cast<UINT_PTR>(button); tip.lpszText = const_cast<wchar_t*>(title);
+        SendMessageW(tooltip, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&tip));
+        return button;
+    }
+    void PaintButton(const DRAWITEMSTRUCT& item) {
+        UiIcon icon = UiIcon::Folder; bool active = false;
+        switch (item.CtlID) {
+        case Previous: case FindPrevious: case OutlineClose: icon = UiIcon::Previous; break;
+        case Next: case FindNext: case OutlineRail: icon = UiIcon::Next; break;
+        case Smaller: icon = UiIcon::Minus; break;
+        case Larger: icon = UiIcon::Plus; break;
+        case Fit: icon = UiIcon::Fit; break;
+        case Outline: icon = UiIcon::Outline; active = outlinePinned; break;
+        case Find: icon = UiIcon::Search; active = searchVisible; break;
+        case Print: icon = UiIcon::Printer; break;
+        case FindClose: icon = UiIcon::Close; break;
+        case OutlinePin: icon = UiIcon::Pin; active = outlinePinned; break;
+        }
+        POINT mouse{}; GetCursorPos(&mouse); RECT rect{}; GetWindowRect(item.hwndItem, &rect);
+        DrawUiIcon(item.hDC, item.rcItem, icon, active, PtInRect(&rect, mouse) != FALSE,
+            (item.itemState & ODS_SELECTED) != 0, (item.itemState & ODS_FOCUS) != 0);
+    }
+    void ArrangeChrome() {
+        if (arranging) return;
+        arranging = true;
+        RECT rc{}; GetClientRect(window, &rc);
+        int left = ViewLeft(), bottom = static_cast<int>(rc.bottom) - 26;
+        int panelBottom = outlinePinned ? bottom : BarHeight + ViewHeight();
+        MoveWindow(outlineWindow, 0, BarHeight, OutlineWidth(), std::max(1, panelBottom - BarHeight), TRUE);
+        ShowWindow(outlineWindow, outlinePinned || outlinePeek ? SW_SHOWNA : SW_HIDE);
+        HWND rail = GetDlgItem(window, OutlineRail);
+        MoveWindow(rail, 0, BarHeight, 18, ViewHeight(), TRUE);
+        ShowWindow(rail, !outlinePinned && outlineLoaded && !outline.entries.empty() && !outlinePeek ? SW_SHOWNA : SW_HIDE);
+        if (outlinePeek) SetWindowPos(outlineWindow, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        int y = bottom - 44, width = std::max(120, std::min(320, static_cast<int>(rc.right) - left - 320));
+        MoveWindow(findLabel, left + 14, y + 13, 52, 22, TRUE);
+        MoveWindow(query, left + 70, y + 9, width, 27, TRUE);
+        int x = left + 78 + width;
+        for (int id : {FindPrevious, FindNext, FindClose}) { MoveWindow(GetDlgItem(window, id), x, y + 4, 36, 36, TRUE); x += 36; }
+        MoveWindow(findFeedback, x + 8, y + 13, std::max(1, static_cast<int>(rc.right) - x - 16), 22, TRUE);
+        for (HWND control : {query, findLabel, findFeedback, GetDlgItem(window, FindPrevious), GetDlgItem(window, FindNext), GetDlgItem(window, FindClose)})
+            ShowWindow(control, searchVisible ? SW_SHOWNA : SW_HIDE);
+        Reflow(true, previousContentWidth); previousContentWidth = ViewWidth(); InvalidateRect(window, nullptr, TRUE);
+        InvalidateRect(GetDlgItem(window, Outline), nullptr, TRUE); InvalidateRect(GetDlgItem(window, Find), nullptr, TRUE);
+        arranging = false;
+    }
+    void ShowSearch(bool focus = true) {
+        if (!searchVisible) { searchVisible = true; ArrangeChrome(); Render(); }
+        if (focus) { SetFocus(query); SendMessageW(query, EM_SETSEL, 0, -1); }
+    }
+    void HideSearch() {
+        if (!searchVisible) return;
+        searchVisible = false; searching = false; searchPage = -1; searchBoxes.clear();
+        KillTimer(window, 9);
+        if (worker) worker->CancelSearch();
+        SetFocus(window); PageStatus(); ArrangeChrome(); Render();
+    }
+    void SetOutlinePinned(bool value) {
+        outlinePinned = value; outlinePeek = false; outlineAutoShow = false; KillTimer(window, 7);
+        ArrangeChrome(); Render();
+    }
+    void PeekOutline() {
+        if (outlinePinned || outlinePeek || dragging || GetCapture() == window || outline.entries.empty()) return;
+        outlinePeek = true; ArrangeChrome(); SetTimer(window, 7, 200, nullptr);
+    }
+    void CheckOutlinePeek() {
+        if (!outlinePeek) { KillTimer(window, 7); return; }
+        POINT point{}; GetCursorPos(&point); ScreenToClient(window, &point);
+        bool inside = point.x >= 0 && point.x < OutlineWidth() + 24 && point.y >= BarHeight && point.y < BarHeight + ViewHeight();
+        if (!inside && !IsChild(outlineWindow, GetFocus())) { outlinePeek = false; KillTimer(window, 7); ArrangeChrome(); }
+    }
+    void CheckInterface(bool searched = false) {
+        if (interfaceStep == 2) {
+            if (outlinePinned || outlinePeek || ViewLeft() != 0 || searchVisible || !outline.entries.empty()) { BenchmarkResult(false); return; }
+            SaveTestImage(benchmarkReport + L".without-index.bmp", window); BenchmarkResult(true); return;
+        }
+        if (interfaceStep == 0) {
+            if (!outlinePinned || outline.entries.empty() || GetParent(outlineWindow) != window ||
+                !(GetWindowLongPtrW(outlineWindow, GWL_STYLE) & WS_CHILD) || searchVisible ||
+                (GetWindowLongPtrW(query, GWL_STYLE) & WS_VISIBLE)) { BenchmarkResult(false); return; }
+            int pinnedWidth = ViewWidth(); double oldZoom = zoom;
+            zoom = 3; Reflow(); Render(); ScrollHorizontal(layout.MaxHorizontal(ViewWidth()) / 2);
+            int anchor = layout.PageAt(scroll);
+            double beforeCenter = (ViewWidth() / 2.0 - layout.Left(anchor, ViewWidth(), horizontal)) / layout.Width(anchor);
+            SetOutlinePinned(false);
+            double afterCenter = (ViewWidth() / 2.0 - layout.Left(anchor, ViewWidth(), horizontal)) / layout.Width(anchor);
+            if (std::abs(beforeCenter - afterCenter) > .003) { BenchmarkResult(false); return; }
+            int collapsedWidth = ViewWidth(); auto before = revision;
+            PeekOutline();
+            if (!outlinePeek || outlinePinned || ViewWidth() != collapsedWidth || revision != before || collapsedWidth <= pinnedWidth) { BenchmarkResult(false); return; }
+            SetOutlinePinned(true);
+            if (ViewWidth() != pinnedWidth) { BenchmarkResult(false); return; }
+            zoom = oldZoom; Reflow(); Render();
+            int height = ViewHeight(); ShowSearch(false);
+            if (!searchVisible || ViewHeight() != height - 44 || !(GetWindowLongPtrW(query, GWL_STYLE) & WS_VISIBLE)) { BenchmarkResult(false); return; }
+            interfaceStep = 1; SetWindowTextW(query, L"Chucao"); Search(); return;
+        }
+        if (interfaceStep == 1 && searched) {
+            if (searchBoxes.empty() || searchPage != 0) { BenchmarkResult(false); return; }
+            auto box = searchBoxes.front(); TextPoint hit;
+            int x = ViewLeft() + layout.Left(0, ViewWidth(), horizontal) + static_cast<int>((box.left + box.right) * .5 * layout.Width(0));
+            int y = BarHeight + static_cast<int>(layout.Top(0) - scroll + (box.top + box.bottom) * .5 * layout.Height(0));
+            if (!PointOnPage(x, y, hit) || hit.page != 0) { BenchmarkResult(false); return; }
+            SaveTestImage(benchmarkReport + L".interface.bmp", window);
+            HideSearch();
+            if (searchVisible || Text(query) != L"Chucao" || !searchBoxes.empty()) { BenchmarkResult(false); return; }
+            auto stale = std::make_unique<Result>(); stale->kind = Result::Search; stale->document = document;
+            stale->text = L"Chucao"; stale->match = 0; stale->boxes = {box}; Receive(std::move(stale));
+            if (!searchBoxes.empty()) { BenchmarkResult(false); return; }
+            interfaceStep = 2; Load(path.substr(0, path.find_last_of(L"\\/") + 1) + L"sample.pdf");
+        }
+    }
     void PopulateOutline() {
         if (!outlineTree) return;
         SendMessageW(outlineTree, WM_SETREDRAW, FALSE, 0);
         TreeView_DeleteAllItems(outlineTree);
         std::vector<HTREEITEM> items;
         for (const auto& entry : outline.entries) {
-            auto label = entry.title + (entry.page >= 0 ? L"  ·  " + std::to_wstring(entry.page + 1) : L"  (sin destino interno)");
+            auto label = entry.title + (entry.page >= 0 ? L"  ·  " + std::to_wstring(entry.page + 1) : L"");
             TVINSERTSTRUCTW item{};
             item.hParent = entry.parent >= 0 ? items[entry.parent] : TVI_ROOT;
             item.hInsertAfter = TVI_LAST; item.item.mask = TVIF_TEXT | TVIF_PARAM;
@@ -520,7 +648,7 @@ public:
         SendMessageW(outlineTree, WM_SETREDRAW, TRUE, 0); InvalidateRect(outlineTree, nullptr, TRUE);
         const wchar_t* label = !outlineLoaded ? (outlinePending ? L"Cargando índice…" : L"Abrí un PDF para consultar su índice.") :
             outline.entries.empty() ? L"Este documento no tiene índice." :
-            outline.limited ? L"Índice limitado. Enter o doble clic para ir." : L"Enter o doble clic para ir al capítulo.";
+            outline.limited ? L"Índice limitado. Clic o Enter para ir." : L"Clic o Enter para ir al capítulo.";
         SetWindowTextW(outlineLabel, label);
     }
     void RequestOutline() {
@@ -529,15 +657,8 @@ public:
         }
     }
     void ToggleOutline() {
-        if (outlineWindow && IsWindowVisible(outlineWindow)) { ShowWindow(outlineWindow, SW_HIDE); SetFocus(window); return; }
-        if (!outlineWindow) {
-            outlineWindow = CreateWindowExW(WS_EX_TOOLWINDOW, L"ChucaoOutline", L"Índice del documento", WS_OVERLAPPEDWINDOW,
-                CW_USEDEFAULT, CW_USEDEFAULT, 360, 550, window, nullptr, GetModuleHandleW(nullptr), this);
-            if (!outlineWindow) { status = L"No se pudo abrir el índice."; Redraw(); return; }
-            SendMessageW(outlineWindow, WM_SIZE, 0, 0);
-        }
-        RequestOutline(); PopulateOutline();
-        if (benchmarkReport.empty()) { ShowWindow(outlineWindow, SW_SHOW); SetFocus(outlineTree); }
+        RequestOutline(); SetOutlinePinned(!outlinePinned);
+        SetFocus(outlinePinned ? outlineTree : window);
     }
     void NavigateOutline() {
         auto selectedItem = TreeView_GetSelection(outlineTree);
@@ -546,10 +667,14 @@ public:
         ++linkEpoch;
         int index = static_cast<int>(item.lParam);
         if (index >= 0 && index < static_cast<int>(outline.entries.size()) && outline.entries[index].page >= 0) {
+            if (outlinePeek) SetOutlinePinned(true);
             pendingReadingState.reset(); ClearSelection();
             worker->FollowDestination(outline.entries[index].destination, document, linkEpoch);
         }
         else { status = L"Esta entrada no tiene un destino dentro del documento."; Redraw(); }
+    }
+    void ActivateOutlineItem(HTREEITEM item) {
+        if (item) { TreeView_SelectItem(outlineTree, item); NavigateOutline(); }
     }
     void CheckOutline() {
         if (outlineChecks == 2) {
@@ -563,9 +688,8 @@ public:
         TreeView_SelectItem(outlineTree, child);
         SaveTestImage(benchmarkReport + L".outline.bmp", outlineWindow);
         zoom = 3; Reflow(); Render();
-        NMHDR activation{outlineTree, 0, NM_DBLCLK};
         outlineStep = 1;
-        SendMessageW(outlineWindow, WM_NOTIFY, 0, reinterpret_cast<LPARAM>(&activation));
+        ActivateOutlineItem(child);
     }
     void CheckOutlineNavigation(const LinkTarget& target) {
         if (!outlineTest) return;
@@ -678,7 +802,7 @@ public:
             if (!LinkAt(point)) { BenchmarkResult(false); return; }
             zoom = 3; Reflow(); Render();
             ScrollHorizontal(static_cast<int>(layout.Left(0, ViewWidth()) + point.x * layout.Width(0) - ViewWidth() / 2.0));
-            int sx = layout.Left(0, ViewWidth(), horizontal) + static_cast<int>(point.x * layout.Width(0));
+        int sx = ViewLeft() + layout.Left(0, ViewWidth(), horizontal) + static_cast<int>(point.x * layout.Width(0));
             int sy = BarHeight + static_cast<int>(layout.Top(0) - scroll + point.y * layout.Height(0)); TextPoint hit;
             if (!PointOnPage(sx, sy, hit) || !LinkAt(hit)) { BenchmarkResult(false); return; }
             point = hit; linkTestHorizontal = horizontal;
@@ -733,7 +857,7 @@ public:
             selectionStart = {0, (a.left + a.right) / 2, (a.top + a.bottom) / 2};
             selectionEnd = {0, (b.left + b.right) / 2, (b.top + b.bottom) / 2};
             TextPoint hit;
-            int x = layout.Left(0, ViewWidth(), horizontal) + static_cast<int>(selectionStart.x * layout.Width(0));
+            int x = ViewLeft() + layout.Left(0, ViewWidth(), horizontal) + static_cast<int>(selectionStart.x * layout.Width(0));
             int y = BarHeight + static_cast<int>(layout.Top(0) - scroll + selectionStart.y * layout.Height(0));
             if (!PointOnPage(x, y, hit) || NearestCharacter(boxes, hit.x, hit.y, layout.Height(0) / static_cast<double>(layout.Width(0))) != first) { BenchmarkResult(false); return; }
             selected = true; ++selectionRevision; textStep = 3; CopySelection();
@@ -951,10 +1075,10 @@ public:
         PageStatus();
     }
     bool PointOnPage(int x, int y, TextPoint& point, bool clamp = false) {
-        if (!pages || (!clamp && (y < BarHeight || y >= BarHeight + ViewHeight()))) return false;
+        if (!pages || (!clamp && (x < ViewLeft() || x >= ViewLeft() + ViewWidth() || y < BarHeight || y >= BarHeight + ViewHeight()))) return false;
         auto documentY = scroll + y - BarHeight;
         int index = layout.PageAt(documentY);
-        int left = layout.Left(index, ViewWidth(), horizontal);
+        int left = ViewLeft() + layout.Left(index, ViewWidth(), horizontal);
         double px = (x - left) / static_cast<double>(layout.Width(index));
         double py = (documentY - layout.Top(index)) / static_cast<double>(layout.Height(index));
         if (!clamp && (px < 0 || px > 1 || py < 0 || py > 1)) return false;
@@ -1067,8 +1191,8 @@ public:
         }
         Redraw();
     }
-    int ViewHeight() const { RECT rc{}; GetClientRect(window, &rc); return std::max<int>(1, rc.bottom - BarHeight - 26); }
-    int ViewWidth() const { RECT rc{}; GetClientRect(window, &rc); return rc.right; }
+    int ViewHeight() const { RECT rc{}; GetClientRect(window, &rc); return std::max<int>(1, rc.bottom - BarHeight - 26 - (searchVisible ? 44 : 0)); }
+    int ViewWidth() const { RECT rc{}; GetClientRect(window, &rc); return std::max<int>(1, rc.right - ViewLeft()); }
     std::int64_t MaxScroll() const { return std::max<std::int64_t>(0, layout.Total() - ViewHeight()); }
     void ScrollHorizontal(int value) {
         horizontal = std::max(0, std::min(value, layout.MaxHorizontal(ViewWidth())));
@@ -1099,10 +1223,11 @@ public:
         if (request) Render();
         if (selected && worker) SelectionText();
     }
-    void Reflow(bool keepAnchor = true) {
+    void Reflow(bool keepAnchor = true, int oldWidth = 0) {
         int anchor = pages ? layout.PageAt(scroll) : 0;
         double fraction = pages && layout.Count() ? (scroll - layout.Top(anchor)) / static_cast<double>(layout.Height(anchor)) : 0;
-        double center = pages && layout.Count() ? (ViewWidth() / 2.0 - layout.Left(anchor, ViewWidth(), horizontal)) / layout.Width(anchor) : 0.5;
+        int beforeWidth = oldWidth > 0 ? oldWidth : ViewWidth();
+        double center = pages && layout.Count() ? (beforeWidth / 2.0 - layout.Left(anchor, beforeWidth, horizontal)) / layout.Width(anchor) : 0.5;
         layout.Rebuild(ViewWidth(), zoom);
         if (keepAnchor && pages) scroll = layout.Top(anchor) + static_cast<std::int64_t>(fraction * layout.Height(anchor));
         if (keepAnchor && pages) horizontal = static_cast<int>(layout.Left(anchor, ViewWidth()) + center * layout.Width(anchor) - ViewWidth() / 2.0);
@@ -1155,6 +1280,7 @@ public:
         if (!worker) worker = std::make_unique<PdfWorker>(window);
         if (!retry) {
             SaveReadingState(); viewReady = false; pendingReadingState.reset();
+            outlinePinned = outlinePeek = false; outlineAutoShow = true; KillTimer(window, 7);
             suppressCurrentState = false;
             pageLinks.clear(); pendingLinks.clear(); linkHistory.clear();
             outline = {}; outlineLoaded = outlinePending = false; PopulateOutline();
@@ -1163,6 +1289,7 @@ public:
             cache.clear(); cacheBytes = 0; layout.Reset(0); layout.Rebuild(ViewWidth(), zoom);
             planned.clear(); renderWidth = 0; renderZoom = -1; ++viewVersion;
             ScrollHorizontal(0);
+            ArrangeChrome();
         }
         status = L"Abriendo documento…"; Redraw(); worker->Load(path, password, document, retry);
     }
@@ -1179,9 +1306,11 @@ public:
         page = target; PageStatus(); ScrollTo(std::max<std::int64_t>(0, layout.Top(target) - DocumentLayout::Gap));
     }
     void Search(bool backwards = false) {
+        KillTimer(window, 9);
         if (!pages || searching) return;
         auto value = Text(query); if (value.empty()) { SetFocus(query); return; }
-        ClearSelection(); searching = true; status = L"Buscando…"; Redraw(); worker->Search(value, page, document, backwards);
+        ClearSelection(); searching = true; status = L"Buscando…"; SetWindowTextW(findFeedback, L"Buscando…");
+        Redraw(); worker->Search(value, page, document, backwards);
     }
     void PrintFile() {
         if (!pages || printing) return;
@@ -1223,11 +1352,17 @@ public:
             zoom = std::max(0.25, std::min(4.0, zoom * (id == Larger ? 1.2 : 1 / 1.2)));
             Reflow(); Render(); break;
         }
-        case Find: SetFocus(query); SendMessageW(query, EM_SETSEL, 0, -1); break;
-        case FindNext: Search(); break;
-        case FindPrevious: Search(true); break;
+        case Find: ShowSearch(); break;
+        case FindNext: ShowSearch(false); Search(); break;
+        case FindPrevious: ShowSearch(false); Search(true); break;
+        case FindClose: HideSearch(); break;
         case Copy: CopySelection(); break;
-        case Outline: ToggleOutline(); break;
+        case Outline: case OutlineRail: ToggleOutline(); break;
+        case OutlineClose: SetOutlinePinned(false); SetFocus(window); break;
+        case OutlinePin:
+            if (outlinePinned) { SetOutlinePinned(false); PeekOutline(); }
+            else SetOutlinePinned(true);
+            break;
         case Print: PrintFile(); break;
         }
     }
@@ -1245,11 +1380,14 @@ public:
             if (pendingReadingState) ApplyReadingState(*pendingReadingState);
             else { layout.Rebuild(ViewWidth(), zoom); ScrollTo(0, false); }
             SetWindowTextW(window, (L"Chucao — " + path.substr(path.find_last_of(L"\\/") + 1)).c_str()); PageStatus(); Render();
-            if (outlineWindow && (IsWindowVisible(outlineWindow) || outlineTest)) RequestOutline();
+            RequestOutline();
             break;
         case Result::OutlineReady:
             outlinePending = false; outlineLoaded = true; outline = std::move(result->outline); PopulateOutline();
-            if (outlineTest) CheckOutline();
+            if (outlineAutoShow) { outlinePinned = !outline.entries.empty(); outlinePeek = false; }
+            ArrangeChrome(); Render();
+            if (interfaceTest) CheckInterface();
+            else if (outlineTest) CheckOutline();
             break;
         case Result::LinksReady: {
             pendingLinks.erase(result->page); pageLinks[result->page] = std::move(result->links);
@@ -1307,6 +1445,7 @@ public:
                 ScrollTo(scroll, false); TrimCache(); Render();
                 if (textTest) CheckText(Result::Image);
                 else if (navigationTest) { PostMessageW(window, WM_TIMER, 3, 0); }
+                else if (interfaceTest) { /* Wait for the outline and search diagnostics. */ }
                 else if (outlineTest) { if (!outlineWindow) ToggleOutline(); }
                 else if (linksTest) CheckLinks(Result::Image);
                 else if (passwordTest) CheckPasswordImage();
@@ -1333,6 +1472,7 @@ public:
         }
         case Result::Search:
             searching = false;
+            if (!searchVisible && !textTest) break;
             if (result->text != Text(query)) break;
             searchBoxes.clear(); searchPage = -1;
             if (result->match >= 0) {
@@ -1342,8 +1482,10 @@ public:
                 ScrollTo(layout.Top(searchPage) + static_cast<std::int64_t>(top * layout.Height(searchPage)) - ViewHeight() / 3);
                 if (!searchBoxes.empty()) ScrollHorizontal(static_cast<int>(layout.Left(searchPage, ViewWidth()) + searchBoxes.front().left * layout.Width(searchPage) - ViewWidth() / 3.0));
                 status = L"Coincidencia en página " + std::to_wstring(result->page + 1) + L". F3: siguiente.";
-            } else status = L"No se encontró el texto.";
-            Redraw(); CheckText(Result::Search); break;
+                auto feedback = L"Página " + std::to_wstring(result->page + 1);
+                SetWindowTextW(findFeedback, feedback.c_str());
+            } else { status = L"No se encontró el texto."; SetWindowTextW(findFeedback, L"Sin resultados"); }
+            Redraw(); CheckText(Result::Search); if (interfaceTest) CheckInterface(true); break;
         case Result::Geometry: {
             pendingText.erase(result->page);
             textPages[result->page] = std::move(result->boxes);
@@ -1403,12 +1545,12 @@ public:
         RECT bar{0, 0, rc.right, BarHeight}; FillRect(dc, &bar, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
         SelectObject(dc, font); SetBkMode(dc, TRANSPARENT); SetTextColor(dc, RGB(72, 79, 92));
         if (pages) {
-            IntersectClipRect(dc, 0, BarHeight, rc.right, rc.bottom - 26);
+            IntersectClipRect(dc, ViewLeft(), BarHeight, rc.right, BarHeight + ViewHeight());
             int first = layout.PageAt(scroll), last = layout.PageAt(scroll + ViewHeight());
             SetStretchBltMode(dc, COLORONCOLOR); // Quick preview while a new zoom is rendered.
             for (int i = first; i <= last; ++i) {
                 int width = layout.Width(i), height = layout.Height(i);
-                int x = layout.Left(i, ViewWidth(), horizontal);
+                int x = ViewLeft() + layout.Left(i, ViewWidth(), horizontal);
                 int y = BarHeight + static_cast<int>(layout.Top(i) - scroll);
                 RECT sheet{x, y, x + width, y + height};
                 FillRect(dc, &sheet, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
@@ -1457,6 +1599,15 @@ public:
             RECT action{24, tagline.bottom + 12, rc.right - 24, tagline.bottom + 38};
             DrawTextW(dc, L"Abrir PDF · Ctrl+O", -1, &action, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         }
+        HPEN separator = CreatePen(PS_SOLID, 1, RGB(226, 231, 237)); auto oldPen = SelectObject(dc, separator);
+        MoveToEx(dc, 0, BarHeight - 1, nullptr); LineTo(dc, rc.right, BarHeight - 1);
+        SelectObject(dc, oldPen); DeleteObject(separator);
+        SetTextColor(dc, RGB(114, 127, 145)); RECT brand{rc.right - 130, 0, rc.right - 18, BarHeight};
+        DrawTextW(dc, L"CHUCAO", -1, &brand, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+        if (searchVisible) {
+            RECT findBar{ViewLeft(), BarHeight + ViewHeight(), rc.right, rc.bottom - 26};
+            FillRect(dc, &findBar, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
+        }
         RECT footer{16, rc.bottom - 24, rc.right - 16, rc.bottom};
         FillRect(dc, &footer, background = CreateSolidBrush(RGB(238, 240, 243))); DeleteObject(background);
         DrawTextW(dc, status.c_str(), -1, &footer, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
@@ -1479,14 +1630,7 @@ public:
         if (control) {
             if (control == window) Draw(dc, rc);
             else FillRect(dc, &rc, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
-            for (HWND child = GetWindow(control, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
-                RECT bounds{}; GetWindowRect(child, &bounds);
-                MapWindowPoints(nullptr, control, reinterpret_cast<POINT*>(&bounds), 2);
-                int saved = SaveDC(dc); SetViewportOrgEx(dc, bounds.left, bounds.top, nullptr);
-                IntersectClipRect(dc, 0, 0, bounds.right - bounds.left, bounds.bottom - bounds.top);
-                SendMessageW(child, WM_PRINT, reinterpret_cast<WPARAM>(dc), PRF_CLIENT | PRF_NONCLIENT | PRF_ERASEBKGND);
-                RestoreDC(dc, saved);
-            }
+            PaintUiChildren(dc, control);
         }
         else Draw(dc, rc);
         GdiFlush();
@@ -1510,29 +1654,61 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(app));
     }
     if (!app) return DefWindowProcW(window, message, wp, lp);
+    auto paint = [&](HDC dc) {
+        RECT rc{}; GetClientRect(window, &rc); FillRect(dc, &rc, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
+        SelectObject(dc, app->font); SetBkMode(dc, TRANSPARENT); SetTextColor(dc, RGB(57, 71, 90));
+        RECT title{16, 0, rc.right - 80, 40}; DrawTextW(dc, L"Contenido", -1, &title, DT_SINGLELINE | DT_VCENTER);
+    };
     switch (message) {
     case WM_CREATE:
-        app->outlineTree = CreateWindowExW(WS_EX_CLIENTEDGE, WC_TREEVIEWW, L"Índice", WS_CHILD | WS_VISIBLE | WS_TABSTOP |
+        app->IconButton(window, OutlinePin, L"Fijar el índice abierto");
+        app->IconButton(window, OutlineClose, L"Plegar el índice (Ctrl+B)");
+        app->outlineTree = CreateWindowExW(0, WC_TREEVIEWW, L"Índice del documento", WS_CHILD | WS_VISIBLE | WS_TABSTOP |
             TVS_HASLINES | TVS_LINESATROOT | TVS_HASBUTTONS | TVS_SHOWSELALWAYS, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
         app->outlineLabel = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 8, 0, 1, 1, window, nullptr, nullptr, nullptr);
+        TreeView_SetBkColor(app->outlineTree, RGB(255, 255, 255)); TreeView_SetTextColor(app->outlineTree, RGB(57, 71, 90));
+        TreeView_SetItemHeight(app->outlineTree, 28);
         SendMessageW(app->outlineTree, WM_SETFONT, reinterpret_cast<WPARAM>(app->font), TRUE);
         SendMessageW(app->outlineLabel, WM_SETFONT, reinterpret_cast<WPARAM>(app->font), TRUE); return 0;
     case WM_SIZE: {
         RECT rc{}; GetClientRect(window, &rc);
-        MoveWindow(app->outlineTree, 0, 0, rc.right, std::max<LONG>(1, rc.bottom - 44), TRUE);
+        MoveWindow(GetDlgItem(window, OutlinePin), rc.right - 80, 2, 36, 36, TRUE);
+        MoveWindow(GetDlgItem(window, OutlineClose), rc.right - 42, 2, 36, 36, TRUE);
+        MoveWindow(app->outlineTree, 8, 44, std::max<LONG>(1, rc.right - 16), std::max<LONG>(1, rc.bottom - 88), TRUE);
         MoveWindow(app->outlineLabel, 8, std::max<LONG>(0, rc.bottom - 40), std::max<LONG>(1, rc.right - 16), 36, TRUE); return 0;
     }
-    case WM_GETMINMAXINFO: reinterpret_cast<MINMAXINFO*>(lp)->ptMinTrackSize = {280, 240}; return 0;
+    case WM_COMMAND: app->Command(LOWORD(wp)); return 0;
+    case WM_DRAWITEM: app->PaintButton(*reinterpret_cast<DRAWITEMSTRUCT*>(lp)); return TRUE;
+    case WM_CTLCOLORSTATIC:
+        SetTextColor(reinterpret_cast<HDC>(wp), RGB(114, 127, 145)); SetBkColor(reinterpret_cast<HDC>(wp), RGB(255, 255, 255));
+        return reinterpret_cast<LRESULT>(GetStockObject(WHITE_BRUSH));
+    case WM_PAINT: { PAINTSTRUCT ps{}; HDC dc = BeginPaint(window, &ps); paint(dc); EndPaint(window, &ps); return 0; }
+    case WM_PRINTCLIENT: paint(reinterpret_cast<HDC>(wp)); return 0;
     case WM_NOTIFY: {
         auto notification = reinterpret_cast<NMHDR*>(lp);
-        if (notification->hwndFrom == app->outlineTree && (notification->code == NM_DBLCLK ||
-            (notification->code == TVN_KEYDOWN && reinterpret_cast<NMTVKEYDOWN*>(lp)->wVKey == VK_RETURN))) app->NavigateOutline();
+        if (notification->hwndFrom == app->outlineTree && notification->code == NM_CLICK) {
+            DWORD position = GetMessagePos(); TVHITTESTINFO hit{};
+            hit.pt = {GET_X_LPARAM(position), GET_Y_LPARAM(position)}; ScreenToClient(app->outlineTree, &hit.pt);
+            auto item = TreeView_HitTest(app->outlineTree, &hit);
+            if (hit.flags & (TVHT_ONITEMLABEL | TVHT_ONITEMICON)) app->ActivateOutlineItem(item);
+        }
+        if (notification->hwndFrom == app->outlineTree && notification->code == TVN_KEYDOWN &&
+            reinterpret_cast<NMTVKEYDOWN*>(lp)->wVKey == VK_RETURN) app->NavigateOutline();
         return 0;
     }
-    case WM_CLOSE: ShowWindow(window, SW_HIDE); SetFocus(app->window); return 0;
+    case WM_CLOSE: app->SetOutlinePinned(false); SetFocus(app->window); return 0;
     case WM_DESTROY: app->outlineWindow = app->outlineTree = app->outlineLabel = nullptr; return 0;
     }
     return DefWindowProcW(window, message, wp, lp);
+}
+
+LRESULT CALLBACK IconButtonProc(HWND window, UINT message, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR) {
+    if (message == WM_MOUSEMOVE) {
+        TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, window, 0}; TrackMouseEvent(&track); InvalidateRect(window, nullptr, FALSE);
+        if (GetDlgCtrlID(window) == OutlineRail) SendMessageW(GetParent(window), ChromeHover, 0, 0);
+    } else if (message == WM_MOUSELEAVE) InvalidateRect(window, nullptr, FALSE);
+    else if (message == WM_NCDESTROY) RemoveWindowSubclass(window, IconButtonProc, 1);
+    return DefSubclassProc(window, message, wp, lp);
 }
 
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
@@ -1547,25 +1723,49 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->font = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
         app->welcomeFont = CreateFontW(-28, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
         SendMessageW(window, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_CHUCAO), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_SHARED)));
-        struct Control { const wchar_t* text; int id, width; };
-        Control buttons[] = {{L"Abrir ▾", OpenMenu, 82}, {L"‹", Previous, 34}, {L"›", Next, 34}, {L"−", Smaller, 34}, {L"+", Larger, 34}, {L"Ancho", Fit, 64}, {L"Índice", Outline, 64}, {L"Buscar", FindNext, 64}, {L"Imprimir", Print, 78}};
-        int x = 14;
-        for (const auto& button : buttons) {
-            HWND control = CreateWindowW(L"BUTTON", button.text, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_FLAT, x, 14, button.width, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(button.id)), nullptr, nullptr);
-            SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(app->font), TRUE); x += button.width + 6;
-        }
-        app->query = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL, x + 8, 16, 220, 26, window, reinterpret_cast<HMENU>(Query), nullptr, nullptr);
+        app->tooltip = CreateWindowExW(0, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+            CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, window, nullptr, nullptr, nullptr);
+        SendMessageW(app->tooltip, TTM_SETMAXTIPWIDTH, 0, 320);
+        struct Control { const wchar_t* text; int id, x; };
+        Control buttons[] = {{L"Abrir PDF y recientes (Ctrl+O / Ctrl+Mayús+O)", OpenMenu, 12},
+            {L"Página anterior", Previous, 64}, {L"Página siguiente", Next, 104}, {L"Alejar", Smaller, 156},
+            {L"Acercar", Larger, 196}, {L"Ajustar al ancho (Ctrl+0)", Fit, 236}, {L"Mostrar u ocultar el índice (Ctrl+B)", Outline, 288},
+            {L"Buscar en el documento (Ctrl+F)", Find, 328}, {L"Imprimir (Ctrl+P)", Print, 380}};
+        for (const auto& button : buttons) MoveWindow(app->IconButton(window, button.id, button.text), button.x, 8, 36, 36, TRUE);
+        app->IconButton(window, OutlineRail, L"Desplegar el índice");
+        app->outlineWindow = CreateWindowExW(WS_EX_CONTROLPARENT, L"ChucaoOutline", L"Contenido del documento", WS_CHILD | WS_CLIPCHILDREN,
+            0, BarHeight, 260, 500, window, nullptr, GetModuleHandleW(nullptr), app);
+        app->query = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL, 0, 0, 220, 26, window, reinterpret_cast<HMENU>(Query), nullptr, nullptr);
+        SendMessageW(app->query, EM_SETCUEBANNER, FALSE, reinterpret_cast<LPARAM>(L"Buscar en el documento"));
+        app->findLabel = CreateWindowW(L"STATIC", L"Buscar", WS_CHILD, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
+        app->findFeedback = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
+        SendMessageW(app->findLabel, WM_SETFONT, reinterpret_cast<WPARAM>(app->font), TRUE);
+        SendMessageW(app->findFeedback, WM_SETFONT, reinterpret_cast<WPARAM>(app->font), TRUE);
+        app->IconButton(window, FindPrevious, L"Coincidencia anterior (Mayús+Enter)");
+        app->IconButton(window, FindNext, L"Coincidencia siguiente (Enter / F3)");
+        app->IconButton(window, FindClose, L"Cerrar búsqueda (Escape)");
         SendMessageW(app->query, WM_SETFONT, reinterpret_cast<WPARAM>(app->font), TRUE); SendMessageW(app->query, EM_SETLIMITTEXT, 256, 0);
-        DragAcceptFiles(window, TRUE); return 0;
+        app->ArrangeChrome(); DragAcceptFiles(window, TRUE); return 0;
     }
     case WM_COMMAND:
         if (LOWORD(wp) == Query && HIWORD(wp) == EN_CHANGE) {
             app->searching = false; app->searchPage = -1; app->searchBoxes.clear();
+            SetWindowTextW(app->findFeedback, L"");
+            KillTimer(window, 9);
+            if (app->searchVisible && app->pages && GetWindowTextLengthW(app->query)) SetTimer(window, 9, 220, nullptr);
             if (app->worker) app->worker->CancelSearch(); app->Redraw();
         } else app->Command(LOWORD(wp));
         return 0;
+    case WM_DRAWITEM: app->PaintButton(*reinterpret_cast<DRAWITEMSTRUCT*>(lp)); return TRUE;
+    case WM_CTLCOLORSTATIC:
+        SetTextColor(reinterpret_cast<HDC>(wp), RGB(95, 109, 128)); SetBkColor(reinterpret_cast<HDC>(wp), RGB(255, 255, 255));
+        return reinterpret_cast<LRESULT>(GetStockObject(WHITE_BRUSH));
+    case ChromeHover: app->PeekOutline(); return 0;
     case WM_LBUTTONDOWN: app->BeginSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
-    case WM_MOUSEMOVE: app->MoveSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); app->HoverLinks(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
+    case WM_MOUSEMOVE:
+        app->MoveSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); app->HoverLinks(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
+        if (GET_X_LPARAM(lp) < 18 && GET_Y_LPARAM(lp) >= BarHeight) app->PeekOutline();
+        return 0;
     case WM_LBUTTONUP: app->FinishSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
     case WM_CAPTURECHANGED:
         if (reinterpret_cast<HWND>(lp) != window) app->EndSelection(false);
@@ -1582,15 +1782,17 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         DragFinish(drop); return 0;
     }
     case Ready: app->Receive(std::unique_ptr<Result>(reinterpret_cast<Result*>(lp))); return 0;
-    case WM_SIZE: app->Reflow(); if (wp != SIZE_MINIMIZED) SetTimer(window, 1, 120, nullptr); return 0;
+    case WM_SIZE: app->ArrangeChrome(); if (wp != SIZE_MINIMIZED) SetTimer(window, 1, 120, nullptr); return 0;
     case WM_TIMER:
         if (wp == 4 && app->dragging) {
             POINT pointer{}; GetCursorPos(&pointer); ScreenToClient(window, &pointer);
             if (pointer.y < BarHeight + 20) { app->ScrollTo(app->scroll - 28); app->MoveSelection(pointer.x, pointer.y); }
             else if (pointer.y > BarHeight + app->ViewHeight() - 20) { app->ScrollTo(app->scroll + 28); app->MoveSelection(pointer.x, pointer.y); }
-            if (pointer.x < 20) { app->ScrollHorizontal(app->horizontal - 28); app->MoveSelection(pointer.x, pointer.y); }
-            else if (pointer.x > app->ViewWidth() - 20) { app->ScrollHorizontal(app->horizontal + 28); app->MoveSelection(pointer.x, pointer.y); }
+            if (pointer.x < app->ViewLeft() + 20) { app->ScrollHorizontal(app->horizontal - 28); app->MoveSelection(pointer.x, pointer.y); }
+            else if (pointer.x > app->ViewLeft() + app->ViewWidth() - 20) { app->ScrollHorizontal(app->horizontal + 28); app->MoveSelection(pointer.x, pointer.y); }
         }
+        else if (wp == 9) { KillTimer(window, 9); if (app->searchVisible) app->Search(); }
+        else if (wp == 7) app->CheckOutlinePeek();
         else if (wp == 6) app->CheckReadingState();
         else if (wp == 3) app->CheckNavigation();
         else if (wp == 2) { KillTimer(window, 2); app->BenchmarkResult(false); }
@@ -1661,7 +1863,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool passwordTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-passwords";
     int stateTest = argv && argc == 5 ? (std::wstring(argv[1]) == L"--benchmark-state-write" ? 1 : std::wstring(argv[1]) == L"--benchmark-state-read" ? 2 : 0) : 0;
     bool recentTest = argv && argc == 5 && std::wstring(argv[1]) == L"--benchmark-recents";
-    bool benchmark = recentTest || stateTest || (argv && argc == 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
+    bool interfaceTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-interface";
+    bool benchmark = interfaceTest || recentTest || stateTest || (argv && argc == 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
     bool previewHome = argv && argc == 3 && std::wstring(argv[1]) == L"--preview-home";
     bool shellBenchmark = argv && argc == 3 && (std::wstring(argv[1]) == L"--benchmark-shell" || previewHome);
     SetProcessDPIAware();
@@ -1675,6 +1878,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     Reader app;
     app.started = started;
     app.navigationTest = navigationTest;
+    app.interfaceTest = interfaceTest;
     app.textTest = textTest;
     app.outlineTest = outlineTest;
     app.destinationsTest = destinationsTest;
@@ -1700,11 +1904,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     if (argv) LocalFree(argv);
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE && app.searchVisible) { app.HideSearch(); continue; }
         if (app.outlineWindow && (msg.hwnd == app.outlineWindow || IsChild(app.outlineWindow, msg.hwnd))) {
+            if (msg.message == WM_KEYDOWN && msg.wParam == 'F' && GetKeyState(VK_CONTROL) < 0) { app.ShowSearch(); continue; }
+            if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN && GetFocus() == app.outlineTree) { app.NavigateOutline(); continue; }
             if (msg.message == WM_KEYDOWN && (msg.wParam == VK_ESCAPE || (msg.wParam == 'B' && GetKeyState(VK_CONTROL) < 0))) {
                 SendMessageW(app.outlineWindow, WM_CLOSE, 0, 0); continue;
             }
-            TranslateMessage(&msg); DispatchMessageW(&msg); continue;
+            if (!IsDialogMessageW(app.outlineWindow, &msg)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+            continue;
         }
         if (msg.message == WM_KEYDOWN) {
             bool ctrl = GetKeyState(VK_CONTROL) < 0, edit = GetFocus() == app.query;
@@ -1730,7 +1938,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
             else if (!edit && msg.wParam == VK_LEFT) command = Previous;
             if (command) { app.Command(command); continue; }
         }
-        TranslateMessage(&msg); DispatchMessageW(&msg);
+        if (!IsDialogMessageW(window, &msg)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
     }
     return static_cast<int>(msg.wParam);
 }
