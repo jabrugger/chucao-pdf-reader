@@ -1,3 +1,43 @@
 #include "resource.h"
+#include "app-info.h"
+#include <windows.h>
+#pragma code_page(65001)
 IDI_CHUCAO ICON "assets/branding/chucao.ico"
 IDB_CHUCAO_HOME BITMAP "assets/branding/chucao-home.bmp"
+
+IDD_ABOUT DIALOGEX 0, 0, 326, 130
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Acerca de Chucao"
+FONT 9, "Segoe UI"
+BEGIN
+    ICON IDI_CHUCAO, -1, 12, 14, 40, 40
+    LTEXT "Chucao PDF Reader", -1, 66, 12, 246, 14
+    LTEXT "", IDC_ABOUT_VERSION, 66, 30, 246, 12
+    LTEXT "", IDC_ABOUT_AUTHOR, 66, 48, 246, 12
+    LTEXT "", IDC_ABOUT_EMAIL, 66, 62, 246, 12
+    LTEXT "", IDC_ABOUT_RELEASE, 66, 80, 246, 12
+    CONTROL "<a href=""https://github.com/jabrugger/chucao-pdf-reader"">github.com/jabrugger/chucao-pdf-reader</a>", IDC_ABOUT_REPOSITORY, "SysLink", WS_TABSTOP, 66, 99, 246, 18
+END
+
+1 VERSIONINFO
+FILEVERSION CHUCAO_VERSION_NUMBERS
+PRODUCTVERSION CHUCAO_VERSION_NUMBERS
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "FileDescription", "Chucao PDF Reader"
+            VALUE "FileVersion", CHUCAO_VERSION_STRING
+            VALUE "ProductName", "Chucao PDF Reader"
+            VALUE "ProductVersion", CHUCAO_VERSION_STRING
+            VALUE "CompanyName", CHUCAO_AUTHOR
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

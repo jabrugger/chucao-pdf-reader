@@ -1,3 +1,4 @@
+param([string]$Executable = 'Chucao.exe')
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath([IO.Path]::Combine($PSScriptRoot, '..'))
 $folder = [IO.Path]::Combine($root, 'test-results', ('state-' + [Guid]::NewGuid().ToString('N')))
@@ -13,7 +14,7 @@ $protected = [IO.Path]::Combine($folder, 'protegido.pdf')
 [IO.File]::Copy($source, $fileB)
 [IO.File]::Copy([IO.Path]::Combine($root, 'tests', 'fixtures', 'passwords', 'aes256-ascii.pdf'), $protected)
 $state = [IO.Path]::Combine($folder, 'reading-state.dat')
-$exe = [IO.Path]::Combine($root, 'build', 'Chucao.exe')
+$exe = [IO.Path]::Combine($root, 'build', $Executable)
 $sequence = @(
     @{mode='write'; pdf=$fileA}, @{mode='read'; pdf=$fileA},
     @{mode='write'; pdf=$fileB}, @{mode='read'; pdf=$fileA}, @{mode='read'; pdf=$fileB},

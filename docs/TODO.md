@@ -19,6 +19,15 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   [reader-interface.md](reader-interface.md). Pendiente de aprobación visual del usuario.
 - [x] Ocultar el borde de foco de los iconos al usar el mouse y conservarlo
   para la navegación por teclado.
+- [x] Usar el icono del chucao en lugar del texto de marca de la esquina superior
+  derecha de la barra de lectura.
+- [x] Agregar Acerca de desde el pajarito o F1, con versión, autor/contacto,
+  fecha de release y acceso al repositorio de GitHub.
+- [x] Simplificar Acerca de: repositorio como enlace nativo, sin botones;
+  cierre con Escape o la X del diálogo.
+- [x] Primera pasada de pulido visual: barra agrupada, acción Abrir con etiqueta,
+  indicador de página y zoom, acento cálido, índice sin líneas y búsqueda plana.
+  Compilación y regresión aprobadas; pendiente la devolución visual del usuario.
 - [ ] Incorporar temas claro y oscuro.
 - [ ] Incorporar pestañas para varios documentos.
 - [x] Recordar página, zoom y posición vertical/horizontal por documento, al cerrar

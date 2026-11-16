@@ -3,6 +3,22 @@
 
 enum class UiIcon { Folder, Previous, Next, Minus, Plus, Fit, Outline, Search, Printer, Close, Pin };
 
+namespace UiColor {
+constexpr COLORREF Ink = RGB(39, 49, 63);
+constexpr COLORREF Muted = RGB(111, 121, 134);
+constexpr COLORREF Line = RGB(228, 232, 236);
+constexpr COLORREF Canvas = RGB(242, 244, 247);
+constexpr COLORREF Field = RGB(247, 248, 250);
+constexpr COLORREF Accent = RGB(176, 76, 26);
+}
+inline void UiRoundRect(HDC dc, RECT bounds, COLORREF fill, COLORREF border, int radius = 10) {
+    int saved = SaveDC(dc);
+    HBRUSH brush = CreateSolidBrush(fill); HPEN pen = CreatePen(PS_SOLID, 1, border);
+    SelectObject(dc, brush); SelectObject(dc, pen);
+    RoundRect(dc, bounds.left, bounds.top, bounds.right, bounds.bottom, radius, radius);
+    RestoreDC(dc, saved); DeleteObject(brush); DeleteObject(pen);
+}
+
 inline void PaintUiChildren(HDC dc, HWND parent) {
     for (HWND child = GetWindow(parent, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
         if (!(GetWindowLongPtrW(child, GWL_STYLE) & WS_VISIBLE)) continue;
@@ -19,11 +35,11 @@ inline void PaintUiChildren(HDC dc, HWND parent) {
 inline void DrawUiIcon(HDC dc, RECT bounds, UiIcon icon, bool active, bool hovered, bool pressed, bool focused) {
     int saved = SaveDC(dc);
     FillRect(dc, &bounds, reinterpret_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
-    COLORREF background = pressed ? RGB(218, 229, 242) : active ? RGB(229, 238, 250) : hovered ? RGB(238, 242, 247) : RGB(255, 255, 255);
+    COLORREF background = pressed ? RGB(247, 224, 204) : active ? RGB(255, 239, 224) : hovered ? RGB(241, 243, 246) : RGB(255, 255, 255);
     HBRUSH brush = CreateSolidBrush(background);
     SelectObject(dc, brush); SelectObject(dc, GetStockObject(NULL_PEN));
     RoundRect(dc, bounds.left + 2, bounds.top + 2, bounds.right - 2, bounds.bottom - 2, 8, 8);
-    HPEN pen = CreatePen(PS_SOLID, 2, active ? RGB(42, 96, 164) : RGB(66, 78, 94));
+    HPEN pen = CreatePen(PS_SOLID, 2, active ? UiColor::Accent : UiColor::Ink);
     SelectObject(dc, pen); SelectObject(dc, GetStockObject(NULL_BRUSH));
     int x = (bounds.left + bounds.right - 20) / 2, y = (bounds.top + bounds.bottom - 20) / 2;
     auto line = [&](int a, int b, int c, int d) { MoveToEx(dc, x + a, y + b, nullptr); LineTo(dc, x + c, y + d); };

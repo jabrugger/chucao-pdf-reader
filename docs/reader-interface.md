@@ -63,3 +63,76 @@ Compilación CMake Release x64 y diagnóstico `-Interface` aprobados. En esta en
 el EXE corregido está en `build/cmake/Release/Chucao.exe`: la instancia abierta
 impidió reemplazar `build/Chucao.exe`. Pendiente de comprobación del usuario con
 mouse y Tab en la ventana visible.
+
+## Marca gráfica de la barra — 2026-11-16
+
+El texto CHUCAO de la esquina superior derecha se reemplazó por el icono del
+pajarito elegido por el usuario, de 36 píxeles, integrado en los recursos del EXE.
+El icono compartido se carga una sola vez y no requiere archivos externos.
+Compilación CMake Release y diagnóstico de interfaz aprobados; se inspeccionó
+la captura fuera de pantalla. Ejecutable en `build/cmake/Release/Chucao.exe`.
+
+## Acerca de — 2026-11-16
+
+El pajarito es un botón accesible con ayuda contextual; clic, activación por teclado
+o F1 abre un diálogo nativo. Muestra versión 0.1.0, Jorge Andres Brugger,
+jbrugger@ideaworks.com.ar, fecha de release 16/11/2026 y el repositorio privado
+https://github.com/jabrugger/chucao-pdf-reader. Solo el enlace de GitHub abre el
+navegador; consultar Acerca de no hace conexiones de red ni carga PDFium.
+Escape y la X del diálogo regresan al lector.
+
+Los metadatos se mantienen en `src/app-info.h`; versión y autor también se incluyen
+en las propiedades del EXE de Windows. La fecha es explícita para cada entrega,
+no la fecha de compilación ni una declaración de publicación de una release en GitHub.
+Al versionar una nueva entrega se debe mantener también coherente la versión de CMake.
+`--preview-about INFORME` permite generar una captura del diálogo oculto sin abrir
+el navegador ni alterar el perfil real. Pendiente de prueba manual de F1, foco,
+cierre y apertura del repositorio en el navegador del usuario.
+Compilación CMake Release, vista previa del diálogo y diagnóstico `-Interface`
+aprobados. Se comprobó también FileVersion/ProductVersion y autor del EXE.
+
+Por preferencia del usuario se quitaron ambos botones y se compactó el diálogo.
+El repositorio es un enlace nativo SysLink, activable con mouse o teclado;
+Escape y la X cierran la ventana. Se habilitaron los controles comunes v6 de
+Windows para ese enlace. Recompilación, captura y diagnóstico de interfaz aprobados.
+
+## Pulido de lectura — 2026-11-16
+
+Se ordenó la barra en grupos de apertura, paneles, páginas, zoom e impresión,
+con separadores discretos, indicador de página/total y zoom visible. Abrir conserva
+un rótulo para facilitar su identificación; el acento naranja remite al chucao.
+Se unificaron tipografía, espaciados y colores. El índice usa el tema Explorer
+nativo, filas más amplias y sin líneas de jerarquía; muestra un resumen de secciones.
+La búsqueda es un campo plano con lupa y borde de foco, integrado con la barra
+inferior. El documento tiene una sombra sólida mínima sobre un fondo neutro.
+
+Se mantienen Win32/GDI y PDFium, sin framework visual, animaciones, efectos de
+desenfoque ni nuevos recursos gráficos de gran tamaño. UxTheme es una biblioteca
+del propio Windows; se usa para el aspecto del árbol. Solo se agrega una fuente
+reutilizable de énfasis, liberada al cerrar. Los presupuestos de renderizado y caché
+del PDF no cambian. Los indicadores son informativos, no campos de edición.
+
+Verificación: compilación CMake Release y suite completa sobre el ejecutable nuevo:
+
+```powershell
+scripts/test-reader.ps1 -Executable 'cmake\Release\Chucao.exe'
+```
+
+Los scripts de persistencia y recientes también reciben ese ejecutable; esto evita
+probar accidentalmente el EXE anterior cuando una instancia abierta impide sustituirlo.
+Se inspeccionaron las capturas con/sin índice y búsqueda. Sigue pendiente validar
+la apariencia e interacción con el usuario y a diferentes DPI.
+La compilación final también se copió a `build/Chucao.exe` al estar disponible el
+archivo; las dos ubicaciones contienen el mismo ejecutable actualizado.
+
+Comprobación orientativa en esta PC, tres ejecuciones antes y tres después por modo:
+
+| Mediana | Antes | Después |
+| --- | ---: | ---: |
+| Ventana vacía (`shell_ms`) | 56,3 ms | 46,5 ms |
+| Recepción del primer bitmap (`ready_ms`), PDF sintético | 389,0 ms | 299,1 ms |
+
+La muestra es pequeña, con cachés sin vaciar y variación de carga del sistema;
+no demuestra una mejora de velocidad ni mide la presentación física en pantalla.
+No se observó una regresión en esta comprobación. La ventana vacía sigue sin
+inicializar PDFium. Los informes e imágenes quedan en `test-results`, fuera de Git.

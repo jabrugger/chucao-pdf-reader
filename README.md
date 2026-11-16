@@ -30,6 +30,9 @@ El motor y sus avisos de terceros se conservan en `deps/pdfium`; no se suben al 
 
 ## Uso del prototipo
 
+El pajarito de la esquina superior derecha o F1 abre **Acerca de**, con versión,
+autor, contacto, fecha de release y un enlace al repositorio de GitHub.
+
 El lector recuerda la página, el zoom y la posición al cerrar o cambiar de PDF.
 El estado es local a cada PC y se guarda en
 `%LOCALAPPDATA%\ChucaoPDFReader\reading-state.dat`, sin contraseñas ni texto del

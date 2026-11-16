@@ -2,6 +2,7 @@
 #include <windowsx.h>
 #include <commdlg.h>
 #include <commctrl.h>
+#include <uxtheme.h>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <fpdfview.h>
@@ -12,6 +13,7 @@
 #include "document-outline.h"
 #include "document-links.h"
 #include "resource.h"
+#include "app-info.h"
 #include "ui-icons.h"
 #include "reading-state.h"
 #include "recent-files.h"
@@ -31,13 +33,46 @@
 #include <map>
 #include <set>
 
+#pragma comment(linker, "\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
+
 namespace {
 constexpr UINT Ready = WM_APP + 1;
 constexpr UINT ChromeHover = WM_APP + 2;
 constexpr int BarHeight = 52;
 constexpr int RecentBase = 4000;
 enum { Open = 100, Previous, Next, Smaller, Larger, Fit, Find, Print, Query, FindNext, FindPrevious, Copy, Outline, OpenMenu, ForgetHistory,
-    FindClose, OutlineClose, OutlinePin, OutlineRail };
+    FindClose, OutlineClose, OutlinePin, OutlineRail, About };
+
+INT_PTR CALLBACK AboutProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
+    if (message == WM_CTLCOLORDLG) return reinterpret_cast<INT_PTR>(GetStockObject(WHITE_BRUSH));
+    if (message == WM_CTLCOLORSTATIC) {
+        SetBkMode(reinterpret_cast<HDC>(wp), TRANSPARENT);
+        SetTextColor(reinterpret_cast<HDC>(wp), RGB(57, 71, 90));
+        return reinterpret_cast<INT_PTR>(GetStockObject(WHITE_BRUSH));
+    }
+    if (message == WM_INITDIALOG) {
+        SetDlgItemTextW(dialog, IDC_ABOUT_VERSION, L"Versión " CHUCAO_WIDE(CHUCAO_VERSION_STRING));
+        SetDlgItemTextW(dialog, IDC_ABOUT_AUTHOR, CHUCAO_WIDE(CHUCAO_AUTHOR));
+        SetDlgItemTextW(dialog, IDC_ABOUT_EMAIL, CHUCAO_WIDE(CHUCAO_EMAIL));
+        SetDlgItemTextW(dialog, IDC_ABOUT_RELEASE, L"Fecha de release: " CHUCAO_WIDE(CHUCAO_RELEASE_DATE));
+        RECT owner{}, bounds{}; GetWindowRect(GetParent(dialog), &owner); GetWindowRect(dialog, &bounds);
+        SetWindowPos(dialog, nullptr, owner.left + ((owner.right - owner.left) - (bounds.right - bounds.left)) / 2,
+            owner.top + ((owner.bottom - owner.top) - (bounds.bottom - bounds.top)) / 2, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+        return TRUE;
+    }
+    if (message == WM_COMMAND) {
+        if (LOWORD(wp) == IDOK || LOWORD(wp) == IDCANCEL) { EndDialog(dialog, LOWORD(wp)); return TRUE; }
+    }
+    if (message == WM_NOTIFY) {
+        auto notification = reinterpret_cast<NMHDR*>(lp);
+        if (notification->idFrom == IDC_ABOUT_REPOSITORY && (notification->code == NM_CLICK || notification->code == NM_RETURN)) {
+            if (reinterpret_cast<INT_PTR>(ShellExecuteW(dialog, L"open", CHUCAO_WIDE(CHUCAO_REPOSITORY), nullptr, nullptr, SW_SHOWNORMAL)) <= 32)
+                MessageBoxW(dialog, L"No se pudo abrir el navegador para visitar el repositorio.", L"Chucao", MB_OK | MB_ICONINFORMATION);
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
 
 void Highlight(HDC dc, int x, int y, int width, int height, const std::vector<TextBox>& boxes, COLORREF color) {
     if (boxes.empty()) return;
@@ -455,8 +490,10 @@ public:
     int passwordStage = 0, passwordAttempts = 0, passwordChecks = 0;
     std::wstring passwordTestRoot;
     HFONT font = nullptr;
+    HFONT strongFont = nullptr;
     HFONT welcomeFont = nullptr;
     HBITMAP welcomeImage = nullptr;
+    HICON brandIcon = nullptr;
     bool readingStateEnabled = true, readingStateWrites = true, stateConfigured = false, viewReady = false;
     std::wstring readingStateFile;
     std::optional<ReadingState> pendingReadingState;
@@ -524,6 +561,33 @@ public:
         return button;
     }
     void PaintButton(const DRAWITEMSTRUCT& item) {
+        if (item.CtlID == OpenMenu) {
+            POINT mouse{}; GetCursorPos(&mouse); RECT screen{}; GetWindowRect(item.hwndItem, &screen);
+            bool pressed = (item.itemState & ODS_SELECTED) != 0;
+            COLORREF color = pressed ? RGB(247, 224, 204) : PtInRect(&screen, mouse) ? RGB(255, 239, 224) : RGB(255, 247, 239);
+            FillRect(item.hDC, &item.rcItem, reinterpret_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
+            RECT box = item.rcItem; InflateRect(&box, -1, -1); UiRoundRect(item.hDC, box, color, color);
+            RECT icon{item.rcItem.left + 4, item.rcItem.top + 3, item.rcItem.left + 32, item.rcItem.bottom - 3};
+            // The folder glyph shares the same palette; the label makes the primary action discoverable.
+            int saved = SaveDC(item.hDC);
+            HPEN pen = CreatePen(PS_SOLID, 2, UiColor::Accent); SelectObject(item.hDC, pen); SelectObject(item.hDC, GetStockObject(NULL_BRUSH));
+            int x = icon.left + 4, y = icon.top + 5;
+            MoveToEx(item.hDC, x, y + 3, nullptr); LineTo(item.hDC, x + 6, y + 3); LineTo(item.hDC, x + 9, y + 6);
+            LineTo(item.hDC, x + 17, y + 6); LineTo(item.hDC, x + 15, y + 17); LineTo(item.hDC, x, y + 17); LineTo(item.hDC, x, y + 3);
+            MoveToEx(item.hDC, x, y + 8, nullptr); LineTo(item.hDC, x + 16, y + 8);
+            MoveToEx(item.hDC, box.right - 18, 16, nullptr); LineTo(item.hDC, box.right - 14, 20); LineTo(item.hDC, box.right - 10, 16);
+            SelectObject(item.hDC, strongFont); SetBkMode(item.hDC, TRANSPARENT); SetTextColor(item.hDC, UiColor::Accent);
+            RECT text{34, 0, box.right - 22, item.rcItem.bottom}; DrawTextW(item.hDC, L"Abrir", -1, &text, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
+            if ((item.itemState & (ODS_FOCUS | ODS_NOFOCUSRECT)) == ODS_FOCUS) DrawFocusRect(item.hDC, &box);
+            RestoreDC(item.hDC, saved); DeleteObject(pen); return;
+        }
+        if (item.CtlID == About) {
+            FillRect(item.hDC, &item.rcItem, reinterpret_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
+            if (!brandIcon) brandIcon = static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_CHUCAO), IMAGE_ICON, 32, 32, LR_SHARED));
+            if (brandIcon) DrawIconEx(item.hDC, item.rcItem.left + 2, item.rcItem.top + 2, brandIcon, 32, 32, 0, nullptr, DI_NORMAL);
+            if ((item.itemState & (ODS_FOCUS | ODS_NOFOCUSRECT)) == ODS_FOCUS) DrawFocusRect(item.hDC, &item.rcItem);
+            return;
+        }
         UiIcon icon = UiIcon::Folder; bool active = false;
         switch (item.CtlID) {
         case Previous: case FindPrevious: case OutlineClose: icon = UiIcon::Previous; break;
@@ -546,6 +610,7 @@ public:
         if (arranging) return;
         arranging = true;
         RECT rc{}; GetClientRect(window, &rc);
+        MoveWindow(GetDlgItem(window, About), rc.right - 54, 8, 36, 36, TRUE);
         int left = ViewLeft(), bottom = static_cast<int>(rc.bottom) - 26;
         int panelBottom = outlinePinned ? bottom : BarHeight + ViewHeight();
         MoveWindow(outlineWindow, 0, BarHeight, OutlineWidth(), std::max(1, panelBottom - BarHeight), TRUE);
@@ -555,13 +620,13 @@ public:
         ShowWindow(rail, !outlinePinned && outlineLoaded && !outline.entries.empty() && !outlinePeek ? SW_SHOWNA : SW_HIDE);
         if (outlinePeek) SetWindowPos(outlineWindow, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         int y = bottom - 44, width = std::max(120, std::min(320, static_cast<int>(rc.right) - left - 320));
-        MoveWindow(findLabel, left + 14, y + 13, 52, 22, TRUE);
-        MoveWindow(query, left + 70, y + 9, width, 27, TRUE);
+        MoveWindow(query, left + 50, y + 12, width, 22, TRUE);
         int x = left + 78 + width;
         for (int id : {FindPrevious, FindNext, FindClose}) { MoveWindow(GetDlgItem(window, id), x, y + 4, 36, 36, TRUE); x += 36; }
         MoveWindow(findFeedback, x + 8, y + 13, std::max(1, static_cast<int>(rc.right) - x - 16), 22, TRUE);
         for (HWND control : {query, findLabel, findFeedback, GetDlgItem(window, FindPrevious), GetDlgItem(window, FindNext), GetDlgItem(window, FindClose)})
             ShowWindow(control, searchVisible ? SW_SHOWNA : SW_HIDE);
+        ShowWindow(findLabel, SW_HIDE);
         Reflow(true, previousContentWidth); previousContentWidth = ViewWidth(); InvalidateRect(window, nullptr, TRUE);
         InvalidateRect(GetDlgItem(window, Outline), nullptr, TRUE); InvalidateRect(GetDlgItem(window, Find), nullptr, TRUE);
         arranging = false;
@@ -651,6 +716,10 @@ public:
             outline.entries.empty() ? L"Este documento no tiene índice." :
             outline.limited ? L"Índice limitado. Clic o Enter para ir." : L"Clic o Enter para ir al capítulo.";
         SetWindowTextW(outlineLabel, label);
+        if (outlineLoaded && !outline.entries.empty()) {
+            auto summary = std::to_wstring(outline.entries.size()) + (outline.entries.size() == 1 ? L" sección" : L" secciones") + (outline.limited ? L" · Índice parcial" : L"");
+            SetWindowTextW(outlineLabel, summary.c_str());
+        }
     }
     void RequestOutline() {
         if (pages && !outlineLoaded && !outlinePending) {
@@ -1332,6 +1401,7 @@ public:
         if (pd.hDevNames) GlobalFree(pd.hDevNames);
     }
     void Command(int id) {
+        if (id == About) { DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_ABOUT), window, AboutProc, 0); return; }
         if (id == OpenMenu) { ShowOpenMenu(); return; }
         if (id == ForgetHistory) { ClearReadingHistory(); return; }
         pendingReadingState.reset();
@@ -1542,7 +1612,7 @@ public:
         HDC dc = CreateCompatibleDC(target);
         HBITMAP buffer = CreateCompatibleBitmap(target, std::max<LONG>(1, rc.right), std::max<LONG>(1, rc.bottom));
         HGDIOBJ oldBuffer = SelectObject(dc, buffer);
-        HBRUSH background = CreateSolidBrush(RGB(238, 240, 243)); FillRect(dc, &rc, background); DeleteObject(background);
+        HBRUSH background = CreateSolidBrush(UiColor::Canvas); FillRect(dc, &rc, background); DeleteObject(background);
         RECT bar{0, 0, rc.right, BarHeight}; FillRect(dc, &bar, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
         SelectObject(dc, font); SetBkMode(dc, TRANSPARENT); SetTextColor(dc, RGB(72, 79, 92));
         if (pages) {
@@ -1554,6 +1624,8 @@ public:
                 int x = ViewLeft() + layout.Left(i, ViewWidth(), horizontal);
                 int y = BarHeight + static_cast<int>(layout.Top(i) - scroll);
                 RECT sheet{x, y, x + width, y + height};
+                RECT shadow{x + 2, y + 3, x + width + 2, y + height + 3};
+                SetDCBrushColor(dc, RGB(223, 228, 234)); FillRect(dc, &shadow, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
                 FillRect(dc, &sheet, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
                 auto found = cache.find(i);
                 if (found != cache.end()) {
@@ -1603,14 +1675,35 @@ public:
         HPEN separator = CreatePen(PS_SOLID, 1, RGB(226, 231, 237)); auto oldPen = SelectObject(dc, separator);
         MoveToEx(dc, 0, BarHeight - 1, nullptr); LineTo(dc, rc.right, BarHeight - 1);
         SelectObject(dc, oldPen); DeleteObject(separator);
-        SetTextColor(dc, RGB(114, 127, 145)); RECT brand{rc.right - 130, 0, rc.right - 18, BarHeight};
-        DrawTextW(dc, L"CHUCAO", -1, &brand, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+        SelectObject(dc, font); SetTextColor(dc, UiColor::Ink);
+        for (int x : {124, 228, 448, 652}) {
+            RECT rule{x, 17, x + 1, 35}; SetDCBrushColor(dc, UiColor::Line);
+            FillRect(dc, &rule, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+        }
+        RECT pageField{290, 11, 388, 41}; UiRoundRect(dc, pageField, UiColor::Field, UiColor::Field);
+        auto pageLabel = pages ? std::to_wstring(page + 1) + L" / " + std::to_wstring(pages) : L"— / —";
+        SelectObject(dc, strongFont); DrawTextW(dc, pageLabel.c_str(), -1, &pageField, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        RECT zoomField{498, 0, 558, BarHeight};
+        auto zoomLabel = zoom > 0 ? std::to_wstring(static_cast<int>(std::round(zoom * 100))) + L"%" : L"Ancho";
+        SelectObject(dc, font); SetTextColor(dc, UiColor::Muted);
+        DrawTextW(dc, zoomLabel.c_str(), -1, &zoomField, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         if (searchVisible) {
             RECT findBar{ViewLeft(), BarHeight + ViewHeight(), rc.right, rc.bottom - 26};
             FillRect(dc, &findBar, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
+            int width = std::max(120, std::min(320, static_cast<int>(rc.right) - ViewLeft() - 320));
+            RECT field{ViewLeft() + 12, findBar.top + 6, ViewLeft() + 60 + width, findBar.top + 38};
+            UiRoundRect(dc, field, UiColor::Field, GetFocus() == query ? RGB(209, 151, 105) : UiColor::Line);
+            int saved = SaveDC(dc); HPEN iconPen = CreatePen(PS_SOLID, 2, UiColor::Muted);
+            SelectObject(dc, iconPen); SelectObject(dc, GetStockObject(NULL_BRUSH));
+            int x = field.left + 12, y = field.top + 8;
+            Ellipse(dc, x, y, x + 12, y + 12); MoveToEx(dc, x + 10, y + 10, nullptr); LineTo(dc, x + 17, y + 17);
+            RestoreDC(dc, saved); DeleteObject(iconPen);
+            RECT rule{findBar.left, findBar.top, findBar.right, findBar.top + 1};
+            SetDCBrushColor(dc, UiColor::Line); FillRect(dc, &rule, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         }
+        RECT footerBar{0, rc.bottom - 26, rc.right, rc.bottom}; FillRect(dc, &footerBar, reinterpret_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
         RECT footer{16, rc.bottom - 24, rc.right - 16, rc.bottom};
-        FillRect(dc, &footer, background = CreateSolidBrush(RGB(238, 240, 243))); DeleteObject(background);
+        SelectObject(dc, font); SetTextColor(dc, UiColor::Muted);
         DrawTextW(dc, status.c_str(), -1, &footer, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
         BitBlt(target, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
         SelectObject(dc, oldBuffer); DeleteObject(buffer); DeleteDC(dc);
@@ -1657,26 +1750,29 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     if (!app) return DefWindowProcW(window, message, wp, lp);
     auto paint = [&](HDC dc) {
         RECT rc{}; GetClientRect(window, &rc); FillRect(dc, &rc, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
-        SelectObject(dc, app->font); SetBkMode(dc, TRANSPARENT); SetTextColor(dc, RGB(57, 71, 90));
-        RECT title{16, 0, rc.right - 80, 40}; DrawTextW(dc, L"Contenido", -1, &title, DT_SINGLELINE | DT_VCENTER);
+        SelectObject(dc, app->strongFont); SetBkMode(dc, TRANSPARENT); SetTextColor(dc, UiColor::Ink);
+        RECT title{20, 0, rc.right - 80, 48}; DrawTextW(dc, L"Contenido", -1, &title, DT_SINGLELINE | DT_VCENTER);
+        RECT rule{rc.right - 1, 0, rc.right, rc.bottom}; SetDCBrushColor(dc, UiColor::Line);
+        FillRect(dc, &rule, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
     };
     switch (message) {
     case WM_CREATE:
         app->IconButton(window, OutlinePin, L"Fijar el índice abierto");
         app->IconButton(window, OutlineClose, L"Plegar el índice (Ctrl+B)");
         app->outlineTree = CreateWindowExW(0, WC_TREEVIEWW, L"Índice del documento", WS_CHILD | WS_VISIBLE | WS_TABSTOP |
-            TVS_HASLINES | TVS_LINESATROOT | TVS_HASBUTTONS | TVS_SHOWSELALWAYS, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
+            TVS_LINESATROOT | TVS_HASBUTTONS | TVS_SHOWSELALWAYS | TVS_FULLROWSELECT, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
         app->outlineLabel = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 8, 0, 1, 1, window, nullptr, nullptr, nullptr);
         TreeView_SetBkColor(app->outlineTree, RGB(255, 255, 255)); TreeView_SetTextColor(app->outlineTree, RGB(57, 71, 90));
-        TreeView_SetItemHeight(app->outlineTree, 28);
+        SetWindowTheme(app->outlineTree, L"Explorer", nullptr);
+        TreeView_SetItemHeight(app->outlineTree, 32); TreeView_SetIndent(app->outlineTree, 16);
         SendMessageW(app->outlineTree, WM_SETFONT, reinterpret_cast<WPARAM>(app->font), TRUE);
         SendMessageW(app->outlineLabel, WM_SETFONT, reinterpret_cast<WPARAM>(app->font), TRUE); return 0;
     case WM_SIZE: {
         RECT rc{}; GetClientRect(window, &rc);
-        MoveWindow(GetDlgItem(window, OutlinePin), rc.right - 80, 2, 36, 36, TRUE);
-        MoveWindow(GetDlgItem(window, OutlineClose), rc.right - 42, 2, 36, 36, TRUE);
-        MoveWindow(app->outlineTree, 8, 44, std::max<LONG>(1, rc.right - 16), std::max<LONG>(1, rc.bottom - 88), TRUE);
-        MoveWindow(app->outlineLabel, 8, std::max<LONG>(0, rc.bottom - 40), std::max<LONG>(1, rc.right - 16), 36, TRUE); return 0;
+        MoveWindow(GetDlgItem(window, OutlinePin), rc.right - 80, 6, 36, 36, TRUE);
+        MoveWindow(GetDlgItem(window, OutlineClose), rc.right - 42, 6, 36, 36, TRUE);
+        MoveWindow(app->outlineTree, 12, 52, std::max<LONG>(1, rc.right - 24), std::max<LONG>(1, rc.bottom - 96), TRUE);
+        MoveWindow(app->outlineLabel, 20, std::max<LONG>(0, rc.bottom - 36), std::max<LONG>(1, rc.right - 32), 28, TRUE); return 0;
     }
     case WM_COMMAND: app->Command(LOWORD(wp)); return 0;
     case WM_DRAWITEM: app->PaintButton(*reinterpret_cast<DRAWITEMSTRUCT*>(lp)); return TRUE;
@@ -1723,22 +1819,24 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     if (!app) return DefWindowProcW(window, message, wp, lp);
     switch (message) {
     case WM_CREATE: {
-        app->font = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+        app->font = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+        app->strongFont = CreateFontW(-14, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
         app->welcomeFont = CreateFontW(-28, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
         SendMessageW(window, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_CHUCAO), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_SHARED)));
         app->tooltip = CreateWindowExW(0, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
             CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, window, nullptr, nullptr, nullptr);
         SendMessageW(app->tooltip, TTM_SETMAXTIPWIDTH, 0, 320);
         struct Control { const wchar_t* text; int id, x; };
-        Control buttons[] = {{L"Abrir PDF y recientes (Ctrl+O / Ctrl+Mayús+O)", OpenMenu, 12},
-            {L"Página anterior", Previous, 64}, {L"Página siguiente", Next, 104}, {L"Alejar", Smaller, 156},
-            {L"Acercar", Larger, 196}, {L"Ajustar al ancho (Ctrl+0)", Fit, 236}, {L"Mostrar u ocultar el índice (Ctrl+B)", Outline, 288},
-            {L"Buscar en el documento (Ctrl+F)", Find, 328}, {L"Imprimir (Ctrl+P)", Print, 380}};
-        for (const auto& button : buttons) MoveWindow(app->IconButton(window, button.id, button.text), button.x, 8, 36, 36, TRUE);
+        Control buttons[] = {{L"Abrir PDF y recientes (Ctrl+O / Ctrl+Mayús+O)", OpenMenu, 16},
+            {L"Mostrar u ocultar el índice (Ctrl+B)", Outline, 140}, {L"Buscar en el documento (Ctrl+F)", Find, 180},
+            {L"Página anterior", Previous, 248}, {L"Página siguiente", Next, 396}, {L"Alejar", Smaller, 460},
+            {L"Acercar", Larger, 564}, {L"Ajustar al ancho (Ctrl+0)", Fit, 604}, {L"Imprimir (Ctrl+P)", Print, 664}};
+        for (const auto& button : buttons) MoveWindow(app->IconButton(window, button.id, button.text), button.x, 8, button.id == OpenMenu ? 96 : 36, 36, TRUE);
+        app->IconButton(window, About, L"Acerca de Chucao (F1)");
         app->IconButton(window, OutlineRail, L"Desplegar el índice");
         app->outlineWindow = CreateWindowExW(WS_EX_CONTROLPARENT, L"ChucaoOutline", L"Contenido del documento", WS_CHILD | WS_CLIPCHILDREN,
             0, BarHeight, 260, 500, window, nullptr, GetModuleHandleW(nullptr), app);
-        app->query = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL, 0, 0, 220, 26, window, reinterpret_cast<HMENU>(Query), nullptr, nullptr);
+        app->query = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL, 0, 0, 220, 26, window, reinterpret_cast<HMENU>(Query), nullptr, nullptr);
         SendMessageW(app->query, EM_SETCUEBANNER, FALSE, reinterpret_cast<LPARAM>(L"Buscar en el documento"));
         app->findLabel = CreateWindowW(L"STATIC", L"Buscar", WS_CHILD, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
         app->findFeedback = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
@@ -1751,7 +1849,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->ArrangeChrome(); DragAcceptFiles(window, TRUE); return 0;
     }
     case WM_COMMAND:
-        if (LOWORD(wp) == Query && HIWORD(wp) == EN_CHANGE) {
+        if (LOWORD(wp) == Query && (HIWORD(wp) == EN_SETFOCUS || HIWORD(wp) == EN_KILLFOCUS)) { app->Redraw(); }
+        else if (LOWORD(wp) == Query && HIWORD(wp) == EN_CHANGE) {
             app->searching = false; app->searchPage = -1; app->searchBoxes.clear();
             SetWindowTextW(app->findFeedback, L"");
             KillTimer(window, 9);
@@ -1763,6 +1862,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     case WM_CTLCOLORSTATIC:
         SetTextColor(reinterpret_cast<HDC>(wp), RGB(95, 109, 128)); SetBkColor(reinterpret_cast<HDC>(wp), RGB(255, 255, 255));
         return reinterpret_cast<LRESULT>(GetStockObject(WHITE_BRUSH));
+    case WM_CTLCOLOREDIT:
+        if (reinterpret_cast<HWND>(lp) == app->query) {
+            SetTextColor(reinterpret_cast<HDC>(wp), UiColor::Ink); SetBkColor(reinterpret_cast<HDC>(wp), UiColor::Field);
+            SetDCBrushColor(reinterpret_cast<HDC>(wp), UiColor::Field);
+            return reinterpret_cast<LRESULT>(GetStockObject(DC_BRUSH));
+        }
+        break;
     case ChromeHover: app->PeekOutline(); return 0;
     case WM_LBUTTONDOWN: app->BeginSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
     case WM_MOUSEMOVE:
@@ -1846,7 +1952,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->worker.reset();
         if (app->outlineWindow) DestroyWindow(app->outlineWindow);
         MSG pending{}; while (PeekMessageW(&pending, window, Ready, Ready, PM_REMOVE)) delete reinterpret_cast<Result*>(pending.lParam);
-        DeleteObject(app->font); DeleteObject(app->welcomeFont);
+        DeleteObject(app->font); DeleteObject(app->strongFont); DeleteObject(app->welcomeFont);
         if (app->welcomeImage) DeleteObject(app->welcomeImage);
         PostQuitMessage(0); return 0;
     }
@@ -1869,9 +1975,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool interfaceTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-interface";
     bool benchmark = interfaceTest || recentTest || stateTest || (argv && argc == 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
     bool previewHome = argv && argc == 3 && std::wstring(argv[1]) == L"--preview-home";
-    bool shellBenchmark = argv && argc == 3 && (std::wstring(argv[1]) == L"--benchmark-shell" || previewHome);
+    bool previewAbout = argv && argc == 3 && std::wstring(argv[1]) == L"--preview-about";
+    bool shellBenchmark = argv && argc == 3 && (std::wstring(argv[1]) == L"--benchmark-shell" || previewHome || previewAbout);
     SetProcessDPIAware();
-    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_TREEVIEW_CLASSES}; InitCommonControlsEx(&controls);
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_TREEVIEW_CLASSES | ICC_LINK_CLASS}; InitCommonControlsEx(&controls);
     WNDCLASSW wc{}; wc.hInstance = instance; wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(IDI_CHUCAO));
     wc.lpszClassName = L"ChucaoReader"; wc.lpfnWndProc = WindowProc; RegisterClassW(&wc);
@@ -1901,13 +2008,23 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     if (!window) return 1;
     if (!benchmark && !shellBenchmark) { ShowWindow(window, show); UpdateWindow(window); }
     app.shellMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-    if (shellBenchmark) { if (previewHome) app.SaveTestImage(app.benchmarkReport + L".home.bmp"); app.BenchmarkResult(true); }
+    if (shellBenchmark) {
+        bool success = true;
+        if (previewHome) app.SaveTestImage(app.benchmarkReport + L".home.bmp");
+        if (previewAbout) {
+            HWND dialog = CreateDialogParamW(instance, MAKEINTRESOURCEW(IDD_ABOUT), window, AboutProc, 0);
+            success = dialog != nullptr;
+            if (dialog) { app.SaveTestImage(app.benchmarkReport + L".about.bmp", dialog); DestroyWindow(dialog); }
+        }
+        app.BenchmarkResult(success);
+    }
     else if (benchmark) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
     else if (argv && argc > 1) app.Load(argv[1]);
     if (argv) LocalFree(argv);
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
         if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE && app.searchVisible) { app.HideSearch(); continue; }
+        if (msg.message == WM_KEYDOWN && msg.wParam == VK_F1) { app.Command(About); continue; }
         if (app.outlineWindow && (msg.hwnd == app.outlineWindow || IsChild(app.outlineWindow, msg.hwnd))) {
             if (msg.message == WM_KEYDOWN && msg.wParam == 'F' && GetKeyState(VK_CONTROL) < 0) { app.ShowSearch(); continue; }
             if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN && GetFocus() == app.outlineTree) { app.NavigateOutline(); continue; }
