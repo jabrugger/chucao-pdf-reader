@@ -1,6 +1,6 @@
 # Pendientes de Chucao PDF Reader
 
-Actualizado: 2026-11-15.
+Actualizado: 2026-11-16.
 
 Lista consolidada de trabajo pendiente. Las casillas se marcan cuando el resultado
 está implementado y verificado; las validaciones manuales se registran por separado.
@@ -37,6 +37,10 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   - [x] Distinguir el primer pedido de contraseña del aviso de contraseña incorrecta.
 
 ## Validación de funciones implementadas
+
+- [x] Recompilar en esta PC la interfaz integrada de `8e46ece` y ejecutar la suite
+  completa el 2026-11-16. Revisadas las capturas con/sin índice y búsqueda inferior.
+  La validación visual del usuario continúa pendiente.
 
 - [x] Comprobar orden y límite de recientes, nombres repetidos, Unicode,
   apertura desde el menú, archivo no disponible y borrado sin reinserción al cerrar.

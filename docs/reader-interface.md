@@ -41,3 +41,14 @@ destinos, contraseñas/permisos, recientes y persistencia.
 
 Pendientes: validación visual del usuario, DPI por monitor, temas, pestañas y
 revisión más amplia de accesibilidad. Esta entrega no declara definitivo el diseño.
+
+## Validación local — 2026-11-16
+
+Tras actualizar desde `8e46ece`, se recompiló Release x64 mediante `scripts/build.cmd`
+en esta PC con Visual Studio 2026. `scripts/test-reader.ps1` terminó correctamente,
+incluida la prueba `-Interface` y la regresión completa de motor, persistencia,
+recientes, contraseñas, geometría, índice, destinos, enlaces, navegación y texto.
+Se inspeccionaron las capturas fuera de pantalla con índice/búsqueda y sin paneles;
+no se controlaron ventanas del escritorio ni se usó el perfil real del usuario.
+El ejecutable actualizado queda en `build/Chucao.exe`, acompañado por `pdfium.dll`.
+Esta comprobación no sustituye la prueba del usuario con sus PDF habituales.
