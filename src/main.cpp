@@ -234,8 +234,8 @@ public:
                 };
                 int state = FPDF_RenderPageBitmap_Start(bitmap, pdfPage, 0, 0, result->width, result->height, 0, FPDF_ANNOT, &pause);
                 while (state == FPDF_RENDER_TOBECONTINUED && !cancelled_ && revision == revision_)
-                    state = FPDF_RenderPage_Continue(pdfPage, &pause);
-                FPDF_RenderPage_Close(pdfPage);
+                    state = FPDF_RenderPageBitmap_Continue(pdfPage, &pause);
+                FPDF_RenderPageBitmap_Close(pdfPage);
                 FPDFBitmap_Destroy(bitmap);
                 if (state == FPDF_RENDER_DONE) result->kind = Result::Image;
                 else result->message = L"No se pudo dibujar la página.";
