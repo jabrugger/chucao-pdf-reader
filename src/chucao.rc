@@ -11,7 +11,7 @@ CAPTION "Acerca de Chucao"
 FONT 9, "Segoe UI"
 BEGIN
     ICON IDI_CHUCAO, -1, 12, 14, 40, 40
-    LTEXT "Chucao PDF Reader", -1, 66, 12, 246, 14
+    LTEXT "Chucao PDF Reader", IDC_ABOUT_TITLE, 66, 12, 246, 14
     LTEXT "", IDC_ABOUT_VERSION, 66, 30, 246, 12
     LTEXT "", IDC_ABOUT_AUTHOR, 66, 48, 246, 12
     LTEXT "", IDC_ABOUT_EMAIL, 66, 62, 246, 12

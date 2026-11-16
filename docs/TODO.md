@@ -25,6 +25,8 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   fecha de release y acceso al repositorio de GitHub.
 - [x] Simplificar Acerca de: repositorio como enlace nativo, sin botones;
   cierre con Escape o la X del diálogo.
+- [x] Evitar el foco automático del enlace al abrir Acerca de; conservar acceso
+  con Tab y activación por teclado.
 - [x] Primera pasada de pulido visual: barra agrupada, acción Abrir con etiqueta,
   indicador de página y zoom, acento cálido, índice sin líneas y búsqueda plana.
   Compilación y regresión aprobadas; pendiente la devolución visual del usuario.

@@ -58,7 +58,11 @@ INT_PTR CALLBACK AboutProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
         RECT owner{}, bounds{}; GetWindowRect(GetParent(dialog), &owner); GetWindowRect(dialog, &bounds);
         SetWindowPos(dialog, nullptr, owner.left + ((owner.right - owner.left) - (bounds.right - bounds.left)) / 2,
             owner.top + ((owner.bottom - owner.top) - (bounds.bottom - bounds.top)) / 2, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
-        return TRUE;
+        // Start on informational text; Tab can still move to the repository link.
+        SetFocus(GetDlgItem(dialog, IDC_ABOUT_TITLE));
+        LITEM link{}; link.mask = LIF_ITEMINDEX | LIF_STATE; link.iLink = 0; link.stateMask = LIS_FOCUSED;
+        SendDlgItemMessageW(dialog, IDC_ABOUT_REPOSITORY, LM_SETITEM, 0, reinterpret_cast<LPARAM>(&link));
+        return FALSE;
     }
     if (message == WM_COMMAND) {
         if (LOWORD(wp) == IDOK || LOWORD(wp) == IDCANCEL) { EndDialog(dialog, LOWORD(wp)); return TRUE; }

@@ -95,6 +95,8 @@ Por preferencia del usuario se quitaron ambos botones y se compactó el diálogo
 El repositorio es un enlace nativo SysLink, activable con mouse o teclado;
 Escape y la X cierran la ventana. Se habilitaron los controles comunes v6 de
 Windows para ese enlace. Recompilación, captura y diagnóstico de interfaz aprobados.
+Al abrir el diálogo el foco inicial queda en el título informativo, para que el único
+enlace no aparezca enmarcado automáticamente. Tab permite acceder a él normalmente.
 
 ## Pulido de lectura — 2026-11-16
 
