@@ -1143,7 +1143,7 @@ public:
         TextPoint point;
         if (!PointOnPage(x, y, point)) { ClearSelection(); SetFocus(window); return; }
         ClearSelection(); selectionStart = selectionEnd = point; dragStart = {x, y}; dragging = true;
-        SetFocus(window); SetCapture(window); SetTimer(window, 4, 35, nullptr);
+        SetFocus(window); SetCapture(window); KillTimer(window, 4); SetTimer(window, 4, 35, nullptr);
         if (!LinkAt(point)) NeedText(point.page);
     }
     void MoveSelection(int x, int y) {
