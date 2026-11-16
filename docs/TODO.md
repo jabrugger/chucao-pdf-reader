@@ -17,6 +17,8 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   búsqueda inferior ocultable e índice integrado, automático y plegable con vista
   temporal desde el borde. Un clic navega por el índice. Evidencia:
   [reader-interface.md](reader-interface.md). Pendiente de aprobación visual del usuario.
+- [x] Ocultar el borde de foco de los iconos al usar el mouse y conservarlo
+  para la navegación por teclado.
 - [ ] Incorporar temas claro y oscuro.
 - [ ] Incorporar pestañas para varios documentos.
 - [x] Recordar página, zoom y posición vertical/horizontal por documento, al cerrar
