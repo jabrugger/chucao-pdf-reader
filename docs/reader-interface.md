@@ -15,7 +15,7 @@ y PDFium; no incorpora un framework visual ni dependencias gráficas nuevas.
   permanece cerrado al abrir un PDF sin ellos. Botón, Ctrl+B y plegado en la cabecera.
 - Vista temporal al acercarse al borde izquierdo, sin cambiar el ancho del documento
   ni generar otro render. Se retira al alejarse el puntero y se puede fijar con la
-  chincheta o al elegir un capítulo. Clic único y Enter navegan; expandir una rama
+  chincheta. Elegir un capítulo no fija la vista temporal. Clic único y Enter navegan; expandir una rama
   no activa su destino.
 
 El panel fijo cambia el ancho disponible, preservando página, posición vertical
@@ -97,6 +97,19 @@ Escape y la X cierran la ventana. Se habilitaron los controles comunes v6 de
 Windows para ese enlace. Recompilación, captura y diagnóstico de interfaz aprobados.
 Al abrir el diálogo el foco inicial queda en el título informativo, para que el único
 enlace no aparezca enmarcado automáticamente. Tab permite acceder a él normalmente.
+
+## Cierre del índice temporal — 2026-11-16
+
+Se quitó el fijado automático al elegir un capítulo desde la vista temporal. Tras
+un clic, el foco vuelve al documento para que el árbol no impida colapsar el panel
+al retirar el puntero. Mientras el puntero permanece dentro, puede seguir eligiendo
+entradas. La chincheta y el botón del índice siguen permitiendo fijarlo abierto.
+La navegación por teclado conserva el foco del árbol cuando corresponde.
+
+El diagnóstico `-Interface` reproduce desplegar, activar una entrada y salir del
+área temporal sin mover el puntero del escritorio. Verifica que no quede fijado,
+se cierre y no cambie el ancho de lectura ni fuerce un render al ocultarse.
+Los diagnósticos de índice comprueban por separado el salto y regreso al destino.
 
 ## Pulido de lectura — 2026-11-16
 

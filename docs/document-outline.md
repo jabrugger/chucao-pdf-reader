@@ -5,7 +5,7 @@ el PDF tiene marcadores y se mantiene cerrado si no los tiene. El botón del ín
 Ctrl+B o el botón de plegado permiten ocultarlo y volver a abrirlo. Acercar el mouse
 al borde izquierdo muestra una vista temporal sobre el documento; al alejarlo se
 retira. La chincheta permite alternar entre fijo y temporal. Elegir un capítulo
-desde la vista temporal fija el panel para seguir navegando.
+desde la vista temporal conserva ese modo: al retirar el puntero se colapsa.
 
 Un clic o Enter lleva al destino. Las flechas recorren y expanden el árbol.
 Escape lo pliega cuando el foco está en el índice; si la búsqueda está abierta,

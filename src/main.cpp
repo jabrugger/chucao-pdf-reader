@@ -658,6 +658,9 @@ public:
         if (!outlinePeek) { KillTimer(window, 7); return; }
         POINT point{}; GetCursorPos(&point); ScreenToClient(window, &point);
         bool inside = point.x >= 0 && point.x < OutlineWidth() + 24 && point.y >= BarHeight && point.y < BarHeight + ViewHeight();
+        UpdateOutlinePeek(inside);
+    }
+    void UpdateOutlinePeek(bool inside) {
         if (!inside && !IsChild(outlineWindow, GetFocus())) { outlinePeek = false; KillTimer(window, 7); ArrangeChrome(); }
     }
     void CheckInterface(bool searched = false) {
@@ -679,6 +682,11 @@ public:
             int collapsedWidth = ViewWidth(); auto before = revision;
             PeekOutline();
             if (!outlinePeek || outlinePinned || ViewWidth() != collapsedWidth || revision != before || collapsedWidth <= pinnedWidth) { BenchmarkResult(false); return; }
+            ActivateOutlineItem(TreeView_GetChild(outlineTree, TreeView_GetRoot(outlineTree)));
+            if (outlinePinned || !outlinePeek) { BenchmarkResult(false); return; }
+            UpdateOutlinePeek(false); // Simulate leaving the overlay without moving the desktop pointer.
+            if (outlinePeek || outlinePinned || ViewWidth() != collapsedWidth || revision != before) { BenchmarkResult(false); return; }
+            ++linkEpoch; // Navigation itself is covered by the outline diagnostic; ignore this pending reply.
             SetOutlinePinned(true);
             if (ViewWidth() != pinnedWidth) { BenchmarkResult(false); return; }
             zoom = oldZoom; Reflow(); Render();
@@ -741,14 +749,16 @@ public:
         ++linkEpoch;
         int index = static_cast<int>(item.lParam);
         if (index >= 0 && index < static_cast<int>(outline.entries.size()) && outline.entries[index].page >= 0) {
-            if (outlinePeek) SetOutlinePinned(true);
             pendingReadingState.reset(); ClearSelection();
             worker->FollowDestination(outline.entries[index].destination, document, linkEpoch);
         }
         else { status = L"Esta entrada no tiene un destino dentro del documento."; Redraw(); }
     }
     void ActivateOutlineItem(HTREEITEM item) {
-        if (item) { TreeView_SelectItem(outlineTree, item); NavigateOutline(); }
+        if (item) {
+            TreeView_SelectItem(outlineTree, item); NavigateOutline();
+            if (outlinePeek) SetFocus(window);
+        }
     }
     void CheckOutline() {
         if (outlineChecks == 2) {

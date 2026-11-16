@@ -27,6 +27,8 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   cierre con Escape o la X del diálogo.
 - [x] Evitar el foco automático del enlace al abrir Acerca de; conservar acceso
   con Tab y activación por teclado.
+- [x] Mantener temporal el índice desplegado por hover al elegir un capítulo;
+  devolver el foco al documento y colapsarlo al retirar el puntero.
 - [x] Primera pasada de pulido visual: barra agrupada, acción Abrir con etiqueta,
   indicador de página y zoom, acento cálido, índice sin líneas y búsqueda plana.
   Compilación y regresión aprobadas; pendiente la devolución visual del usuario.
