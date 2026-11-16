@@ -52,3 +52,14 @@ Se inspeccionaron las capturas fuera de pantalla con índice/búsqueda y sin pan
 no se controlaron ventanas del escritorio ni se usó el perfil real del usuario.
 El ejecutable actualizado queda en `build/Chucao.exe`, acompañado por `pdfium.dll`.
 Esta comprobación no sustituye la prueba del usuario con sus PDF habituales.
+
+## Foco de los botones — 2026-11-16
+
+Se corrigió el borde punteado que quedaba visible tras usar un botón con el mouse.
+La pintura de los iconos respeta `ODS_NOFOCUSRECT`; el mouse oculta la indicación
+de foco y el teclado vuelve a habilitarla. Se conserva la navegación accesible
+con Tab. El fondo activo de índice/búsqueda sigue indicando si están abiertos.
+Compilación CMake Release x64 y diagnóstico `-Interface` aprobados. En esta entrega
+el EXE corregido está en `build/cmake/Release/Chucao.exe`: la instancia abierta
+impidió reemplazar `build/Chucao.exe`. Pendiente de comprobación del usuario con
+mouse y Tab en la ventana visible.

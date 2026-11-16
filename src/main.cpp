@@ -539,7 +539,8 @@ public:
         }
         POINT mouse{}; GetCursorPos(&mouse); RECT rect{}; GetWindowRect(item.hwndItem, &rect);
         DrawUiIcon(item.hDC, item.rcItem, icon, active, PtInRect(&rect, mouse) != FALSE,
-            (item.itemState & ODS_SELECTED) != 0, (item.itemState & ODS_FOCUS) != 0);
+            (item.itemState & ODS_SELECTED) != 0,
+            (item.itemState & (ODS_FOCUS | ODS_NOFOCUSRECT)) == ODS_FOCUS);
     }
     void ArrangeChrome() {
         if (arranging) return;
@@ -1703,6 +1704,8 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
 }
 
 LRESULT CALLBACK IconButtonProc(HWND window, UINT message, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR) {
+    if (message == WM_LBUTTONDOWN)
+        SendMessageW(GetAncestor(window, GA_ROOT), WM_CHANGEUISTATE, MAKEWPARAM(UIS_SET, UISF_HIDEFOCUS), 0);
     if (message == WM_MOUSEMOVE) {
         TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, window, 0}; TrackMouseEvent(&track); InvalidateRect(window, nullptr, FALSE);
         if (GetDlgCtrlID(window) == OutlineRail) SendMessageW(GetParent(window), ChromeHover, 0, 0);
@@ -1915,6 +1918,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
             continue;
         }
         if (msg.message == WM_KEYDOWN) {
+            SendMessageW(window, WM_CHANGEUISTATE, MAKEWPARAM(UIS_CLEAR, UISF_HIDEFOCUS), 0);
             bool ctrl = GetKeyState(VK_CONTROL) < 0, edit = GetFocus() == app.query;
             if (!edit && GetKeyState(VK_MENU) < 0 && msg.wParam == VK_LEFT) { app.BackFromLink(); continue; }
             if (!edit && (msg.wParam == VK_NEXT || msg.wParam == VK_PRIOR || msg.wParam == VK_DOWN || msg.wParam == VK_UP || msg.wParam == VK_HOME || msg.wParam == VK_END)) {
