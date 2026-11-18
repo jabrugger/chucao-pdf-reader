@@ -57,6 +57,10 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   cierre (×, clic medio, Ctrl+W), Ctrl+T y Ctrl+Tab. Evidencia: [tabs.md](tabs.md).
 - [x] Recordar página, zoom y posición vertical/horizontal por documento, al cerrar
   o cambiar de PDF. Evidencia: [reading-state.md](reading-state.md).
+- [x] Diálogo de Opciones (tema, reabrir la última sesión opcional, olvidar
+  historial y sesión). Evidencia automatizada: [preferences.md](preferences.md).
+- [ ] Validar manualmente el diálogo de Opciones (mouse, teclado, DPI, tema oscuro)
+  y la restauración con documentos reales, protegidos y remotos.
 - [x] Incorporar archivos recientes, con apertura bajo demanda y opción para
   olvidar historial y posiciones. Evidencia: [recent-files.md](recent-files.md).
 - [x] Permitir abrir enlaces HTTP/HTTPS con clic explícito en el navegador

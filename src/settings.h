@@ -5,9 +5,10 @@
 #include <string>
 
 // Small, local preferences file. It never contains document contents, paths or
-// passwords; today it only remembers the chosen theme.
+// passwords. Session paths are stored separately and only when enabled.
 struct AppSettings {
     bool dark = false;
+    bool restoreSession = false;
 };
 
 class SettingsStore {
@@ -45,6 +46,13 @@ public:
         if (line == "theme=dark") settings.dark = true;
         else if (line == "theme=light") settings.dark = false;
         else return {};
+        while (std::getline(lines, line)) {
+            strip(line);
+            if (line == "restore=1") settings.restoreSession = true;
+            else if (line == "restore=0") settings.restoreSession = false;
+            else if (line.empty()) continue;
+            else return {};
+        }
         return settings;
     }
     bool Write(const AppSettings& settings) const {
@@ -52,7 +60,7 @@ public:
         auto slash = filename_.find_last_of(L"\\/");
         if (slash == std::wstring::npos) return false;
         if (!CreateDirectoryW(filename_.substr(0, slash).c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) return false;
-        std::string data = std::string("ChucaoSettings 1\n") + (settings.dark ? "theme=dark\n" : "theme=light\n");
+        std::string data = std::string("ChucaoSettings 1\n") + (settings.dark ? "theme=dark\n" : "theme=light\n") + (settings.restoreSession ? "restore=1\n" : "restore=0\n");
         auto temporary = filename_ + L"." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64()) + L".tmp";
         HANDLE file = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
         bool ok = file != INVALID_HANDLE_VALUE;

@@ -21,6 +21,7 @@
 #include "reading-state.h"
 #include "recent-files.h"
 #include "settings.h"
+#include "session-state.h"
 #include "pdf-errors.h"
 #include <algorithm>
 #include <atomic>
@@ -54,6 +55,7 @@ constexpr UINT Ready = WM_APP + 1;
 constexpr UINT ChromeHover = WM_APP + 2;
 
 constexpr int RecentBase = 4000;
+constexpr int HomeList = 4200;
 enum { Open = 100, Previous, Next, Smaller, Larger, Fit, Find, Print, Query, FindNext, FindPrevious, Copy, Outline, OpenMenu, ForgetHistory,
     FindClose, OutlineClose, OutlinePin, OutlineRail, About, Theme, NewTabCmd, CloseTabCmd, NextTabCmd, PrevTabCmd };
 
@@ -559,6 +561,7 @@ bool PasswordDialog(HWND owner, std::wstring& password, const std::wstring& prom
 
 LRESULT CALLBACK OutlineProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK IconButtonProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
+INT_PTR CALLBACK SettingsProc(HWND, UINT, WPARAM, LPARAM);
 
 class Reader {
 public:
@@ -614,6 +617,10 @@ public:
     bool savedOnClose = false;
     bool suppressCurrentState = false;
     std::vector<ReadingState> recentEntries;
+    HWND homeList = nullptr;
+    bool restoreLastSession = false, sessionWrites = true;
+    int sessionTest = 0, sessionStep = 0, sessionChecks = 0;
+    std::wstring sessionTestA, sessionTestB;
     bool recentTest = false;
     bool themeTest = false;
     bool startupTest = false;
@@ -696,22 +703,26 @@ public:
         return button;
     }
     void PaintButton(const DRAWITEMSTRUCT& item) {
-        auto px = [&](int value) { return D(value); };
-        if (item.CtlID == OpenMenu) {
-            POINT mouse{}; GetCursorPos(&mouse); RECT screen{}; GetWindowRect(item.hwndItem, &screen);
-            bool pressed = (item.itemState & ODS_SELECTED) != 0;
-            COLORREF color = pressed ? UiTheme().pressed : PtInRect(&screen, mouse) ? UiTheme().hover : UiTheme().active;
-            SetDCBrushColor(item.hDC, UiTheme().bar);
-            FillRect(item.hDC, &item.rcItem, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
-            RECT box = item.rcItem; InflateRect(&box, -px(1), -px(1)); UiRoundRect(item.hDC, box, color, color, px(10));
-            // The folder glyph shares the same palette; the label makes the primary action discoverable.
-            DrawOpenGlyph(item.hDC, item.rcItem, UiTheme().accent, static_cast<float>(dpi) / 96.0f);
-            SelectObject(item.hDC, strongFont); SetBkMode(item.hDC, TRANSPARENT); SetTextColor(item.hDC, UiTheme().accent);
-            RECT text{box.left + px(34), 0, box.right - px(22), item.rcItem.bottom};
-            DrawTextW(item.hDC, L"Abrir", -1, &text, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
-            if ((item.itemState & (ODS_FOCUS | ODS_NOFOCUSRECT)) == ODS_FOCUS) DrawFocusRect(item.hDC, &box);
-            return;
+        if (item.CtlID == HomeList) {
+            SetDCBrushColor(item.hDC, UiTheme().bar); FillRect(item.hDC, &item.rcItem, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+            if (item.itemID >= recentEntries.size()) return;
+            RECT row = item.rcItem; InflateRect(&row, -D(2), -D(2));
+            if (item.itemState & ODS_SELECTED) UiRoundRect(item.hDC, row, UiTheme().hover, UiTheme().hover, D(10));
+            const auto& file = recentEntries[item.itemID].path;
+            auto slash = file.find_last_of(L"\\/");
+            auto name = file.substr(slash == std::wstring::npos ? 0 : slash + 1);
+            auto folder = slash == std::wstring::npos ? L"" : file.substr(0, slash);
+            int saved = SaveDC(item.hDC); SetBkMode(item.hDC, TRANSPARENT);
+            RECT title{row.left + D(16), row.top + D(6), row.right - D(16), row.top + D(27)};
+            SelectObject(item.hDC, strongFont); SetTextColor(item.hDC, UiTheme().ink);
+            DrawTextW(item.hDC, name.c_str(), -1, &title, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+            RECT pathBox{title.left, row.top + D(27), title.right, row.bottom - D(4)};
+            SelectObject(item.hDC, font); SetTextColor(item.hDC, UiTheme().muted);
+            DrawTextW(item.hDC, folder.c_str(), -1, &pathBox, DT_SINGLELINE | DT_VCENTER | DT_PATH_ELLIPSIS | DT_NOPREFIX);
+            if ((item.itemState & (ODS_FOCUS | ODS_NOFOCUSRECT)) == ODS_FOCUS) DrawFocusRect(item.hDC, &row);
+            RestoreDC(item.hDC, saved); return;
         }
+        auto px = [&](int value) { return D(value); };
         UiIcon icon = UiIcon::Folder; bool active = false;
         switch (item.CtlID) {
         case Previous: case FindPrevious: case OutlineClose: icon = UiIcon::Previous; break;
@@ -724,7 +735,7 @@ public:
         case Print: icon = UiIcon::Printer; break;
         case FindClose: icon = UiIcon::Close; break;
         case OutlinePin: icon = UiIcon::Pin; active = outlinePinned; break;
-        case Theme: icon = UiDark() ? UiIcon::Sun : UiIcon::Moon; break;
+        case Theme: icon = UiIcon::Gear; break;
         case About: icon = UiIcon::Info; break;
         }
         POINT mouse{}; GetCursorPos(&mouse); RECT rect{}; GetWindowRect(item.hwndItem, &rect);
@@ -737,9 +748,9 @@ public:
         arranging = true;
         RECT rc{}; GetClientRect(window, &rc);
         struct ToolbarItem { int id, x, width; };
-        const ToolbarItem toolbar[] = {{OpenMenu, 16, 96}, {Outline, 140, 36}, {Find, 180, 36},
-            {Previous, 248, 36}, {Next, 396, 36}, {Smaller, 460, 36}, {Larger, 564, 36},
-            {Fit, 604, 36}, {Print, 664, 36}, {Theme, 708, 36}};
+        const ToolbarItem toolbar[] = {{OpenMenu, 16, 36}, {Outline, 76, 36}, {Find, 116, 36},
+            {Previous, 184, 36}, {Next, 332, 36}, {Smaller, 400, 36}, {Larger, 508, 36},
+            {Fit, 548, 36}, {Print, 612, 36}, {Theme, 664, 36}};
         for (const auto& item : toolbar)
             MoveWindow(GetDlgItem(window, item.id), D(item.x), D(8), D(item.width), D(36), TRUE);
         MoveWindow(GetDlgItem(window, About), rc.right - D(54), D(8), D(36), D(36), TRUE);
@@ -762,6 +773,7 @@ public:
         Reflow(true, previousContentWidth); previousContentWidth = ViewWidth(); InvalidateRect(window, nullptr, TRUE);
         InvalidateRect(GetDlgItem(window, Outline), nullptr, TRUE); InvalidateRect(GetDlgItem(window, Find), nullptr, TRUE);
         arranging = false;
+        ArrangeHome();
     }
     void ShowSearch(bool focus = true) {
         if (!searchVisible) { searchVisible = true; ArrangeChrome(); Render(); }
@@ -840,21 +852,94 @@ public:
             SetWindowTheme(outlineWindow, highContrast ? L"" : (dark ? L"DarkMode_Explorer" : L"Explorer"), nullptr);
         }
         if (outlineTree) StyleOutline();
-        if (persist && ConfigureSettings()) SettingsStore(settingsFile).Write({dark});
+        if (persist && ConfigureSettings()) SettingsStore(settingsFile).Write({dark, restoreLastSession});
         if (!window) { applyingPalette = false; return; }
         RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
         for (HWND control : {outlineWindow, query, findFeedback, findLabel}) if (control) InvalidateRect(control, nullptr, TRUE);
         applyingPalette = false;
     }
     void LoadTheme() {
+        restoreLastSession = false;
         if (forceHighContrast) { ApplyPalette(false, false); return; }
         if (forceDarkTheme) { ApplyPalette(true, false); return; }
         if (ConfigureSettings()) {
-            if (auto settings = SettingsStore(settingsFile).Read()) { ApplyPalette(settings->dark, false); return; }
+            if (auto settings = SettingsStore(settingsFile).Read()) { restoreLastSession = settings->restoreSession; ApplyPalette(settings->dark, false); return; }
         }
         ApplyPalette(false, false);
     }
     void ToggleTheme() { ApplyPalette(!darkTheme, true); }
+    std::wstring SessionFile() {
+        if (!ConfigureSettings()) return {};
+        return settingsFile.substr(0, settingsFile.find_last_of(L"\\/") + 1) + L"last-session.dat";
+    }
+    bool SaveSession() {
+        if (!sessionWrites || !restoreLastSession || !settingsEnabled) return true;
+        SavedSession saved;
+        for (size_t i = 0; i < tabs.size() && i < 64; ++i) saved.paths.push_back(tabs[i].path);
+        saved.active = std::max(0, activeTab);
+        if (saved.active >= static_cast<int>(saved.paths.size()) && !saved.paths.empty()) {
+            saved.paths.back() = tabs[activeTab].path; saved.active = static_cast<int>(saved.paths.size()) - 1;
+        }
+        return SessionStore(SessionFile()).Write(saved);
+    }
+    bool RestoreSession() {
+        if (!settingsEnabled || !restoreLastSession || !tabs.empty()) return false;
+        auto saved = SessionStore(SessionFile()).Read();
+        if (saved.paths.empty()) return false;
+        for (const auto& file : saved.paths) tabs.push_back({file, {}});
+        activeTab = saved.active; Load(tabs[activeTab].path); return true;
+    }
+    void RefreshHomeRecents() {
+        std::optional<ReadingState> current;
+        if (pages && viewReady && !pendingReadingState && !suppressCurrentState) current = CurrentReadingState();
+        recentEntries = ConfigureReadingState() ? RecentFiles(ReadingStateStore(readingStateFile).Read(), current) : std::vector<ReadingState>{};
+        if (homeList) {
+            SendMessageW(homeList, LB_RESETCONTENT, 0, 0);
+            for (const auto& entry : recentEntries) SendMessageW(homeList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(entry.path.c_str()));
+        }
+        ArrangeHome(); Redraw();
+    }
+    int HomeListTop() const { return ContentTop() + D(190); }
+    void ArrangeHome() {
+        if (!homeList) return;
+        RECT rc{}; GetClientRect(window, &rc);
+        int width = std::min(D(660), std::max(D(100), static_cast<int>(rc.right) - D(48)));
+        MoveWindow(homeList, (rc.right - width) / 2, HomeListTop(), width, std::max(D(56), static_cast<int>(rc.bottom) - D(50) - HomeListTop()), TRUE);
+        SendMessageW(homeList, LB_SETITEMHEIGHT, 0, D(56)); SendMessageW(homeList, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        ShowWindow(homeList, !pages && !openingDocument && !recentEntries.empty() ? SW_SHOWNA : SW_HIDE);
+    }
+    void RunSessionTest() {
+        if (sessionTest == 1) OpenDocument(sessionTestA);
+        else if (sessionTest == 2) { if (!RestoreSession()) BenchmarkResult(false); }
+        else {
+            bool ok = !RestoreSession() && tabs.empty() && !worker;
+            RefreshHomeRecents(); sessionChecks = 2;
+            SaveTestImage(benchmarkReport + L".home.bmp", window);
+            BenchmarkResult(ok && recentEntries.size() == 2);
+        }
+    }
+    void CheckSessionImage() {
+        if (!pages || !viewReady || pendingReadingState) return;
+        if (sessionTest == 1) {
+            if (sessionStep == 0) { sessionChecks = 1; sessionStep = 1; OpenDocument(sessionTestB); }
+            else {
+                bool ok = tabs.size() == 2 && activeTab == 1 && pages == 4 && SaveSession();
+                auto saved = SessionStore(SessionFile()).Read(); sessionChecks = 3;
+                BenchmarkResult(ok && saved.paths.size() == 2 && saved.active == 1);
+            }
+        } else if (sessionTest == 2) {
+            bool ok = restoreLastSession && tabs.size() == 2 && activeTab == 1 && pages == 4;
+            ++sessionChecks;
+            while (!tabs.empty()) CloseTab(activeTab);
+            RefreshHomeRecents();
+            ok = ok && recentEntries.size() == 2 && SendMessageW(homeList, LB_GETCOUNT, 0, 0) == 2;
+            ++sessionChecks; SaveTestImage(benchmarkReport + L".home.bmp", window);
+            HWND options = CreateDialogParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_SETTINGS), window, SettingsProc, reinterpret_cast<LPARAM>(this));
+            ok = ok && options && IsDlgButtonChecked(options, IDC_SETTINGS_RESTORE) == BST_CHECKED;
+            if (options) { SaveTestImage(benchmarkReport + L".settings.bmp", options); DestroyWindow(options); }
+            ++sessionChecks; BenchmarkResult(ok);
+        }
+    }
     void RunHcTest() {
         forceHighContrast = true;
         ApplyPalette(false, false);
@@ -904,7 +989,7 @@ public:
         auto previousName = accessibleName(GetDlgItem(window, Previous));
         debug += L"query=" + queryName + L"\ntheme=" + themeName + L"\nprevious=" + previousName + L"\n";
         ok = ok && queryName.find(L"Buscar") != std::wstring::npos;
-        ok = ok && themeName.find(L"Tema") != std::wstring::npos;
+        ok = ok && themeName.find(L"Opciones") != std::wstring::npos;
         ok = ok && previousName.find(L"Página anterior") != std::wstring::npos;
         SetFocus(window); CycleFocus();
         debug += L"focus1=" + std::to_wstring(GetFocus() ? GetDlgCtrlID(GetFocus()) : -1) + L"\n";
@@ -1165,7 +1250,7 @@ public:
         double readyMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         char data[1024]{};
         Endpoint a, b; SelectionRange(a, b);
-        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d,\"navigation_steps\":%d,\"cache_hits\":%zu,\"cache_bytes\":%zu,\"outline_checks\":%d,\"link_checks\":%d,\"password_checks\":%d,\"state_checks\":%d,\"recent_checks\":%d,\"tabs_checks\":%d,\"tabs_step\":%d,\"tabs_password_prompts\":%d,\"tabs_closed\":%d,\"text_checks\":%d,\"text_step\":%d,\"selection_first\":%d,\"selection_last\":%d,\"first_page\":%d,\"first_render_ms\":%.3f,\"first_bitmap_ms\":%.3f,\"first_compose_ms\":%.3f}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages, navigationStep, navigationHits, cacheBytes, outlineChecks, linkChecks, passwordChecks, readingStateChecks, recentChecks, tabsChecks, tabsStep, tabsPrompts, tabsClosed, textChecks, textStep, a.character, b.character, startupPage, startupRenderMs, startupBitmapMs, startupComposeMs);
+        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d,\"navigation_steps\":%d,\"cache_hits\":%zu,\"cache_bytes\":%zu,\"outline_checks\":%d,\"link_checks\":%d,\"password_checks\":%d,\"state_checks\":%d,\"recent_checks\":%d,\"session_checks\":%d,\"tabs_checks\":%d,\"tabs_step\":%d,\"tabs_password_prompts\":%d,\"tabs_closed\":%d,\"text_checks\":%d,\"text_step\":%d,\"selection_first\":%d,\"selection_last\":%d,\"first_page\":%d,\"first_render_ms\":%.3f,\"first_bitmap_ms\":%.3f,\"first_compose_ms\":%.3f}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages, navigationStep, navigationHits, cacheBytes, outlineChecks, linkChecks, passwordChecks, readingStateChecks, recentChecks, sessionChecks, tabsChecks, tabsStep, tabsPrompts, tabsClosed, textChecks, textStep, a.character, b.character, startupPage, startupRenderMs, startupBitmapMs, startupComposeMs);
         HANDLE output = CreateFileW(benchmarkReport.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (output != INVALID_HANDLE_VALUE) { DWORD written = 0; WriteFile(output, data, size, &written, nullptr); CloseHandle(output); }
         PostMessageW(window, WM_CLOSE, 0, 0);
@@ -1389,63 +1474,35 @@ public:
     }
 
     void Redraw() { InvalidateRect(window, nullptr, FALSE); }
-    HMENU BuildOpenMenu() {
-        recentEntries.clear();
-        if (ConfigureReadingState()) {
-            std::optional<ReadingState> current;
-            if (pages && viewReady && !pendingReadingState && !suppressCurrentState) current = CurrentReadingState();
-            recentEntries = RecentFiles(ReadingStateStore(readingStateFile).Read(), current);
-        }
-        HMENU menu = CreatePopupMenu(); if (!menu) return nullptr;
-        AppendMenuW(menu, MF_STRING, Open, L"Abrir PDF…\tCtrl+O");
-        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING | MF_DISABLED, 0, recentEntries.empty() ? L"No hay archivos recientes" : L"Recientes");
-        for (size_t i = 0; i < recentEntries.size(); ++i) AppendMenuW(menu, MF_STRING, RecentBase + i, RecentLabel(recentEntries[i].path, i).c_str());
-        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING | (recentEntries.empty() ? MF_DISABLED : 0), ForgetHistory, L"Olvidar historial y posiciones…");
-        return menu;
-    }
-    void ShowOpenMenu() {
-        HMENU menu = BuildOpenMenu();
-        if (!menu) { status = L"No se pudo abrir el menú de recientes."; Redraw(); return; }
-        RECT button{}; GetWindowRect(GetDlgItem(window, OpenMenu), &button);
-        UINT command = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN, button.left, button.bottom, window, nullptr);
-        DestroyMenu(menu); if (command) Command(static_cast<int>(command));
-    }
     bool ClearReadingHistory(bool confirm = true) {
         if (!readingStateWrites || !ConfigureReadingState() || (!confirm && !recentTest)) return false;
         if (confirm && MessageBoxW(window, L"¿Olvidar la lista de recientes y las posiciones guardadas?", L"Historial de Chucao", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES) return false;
         if (!ReadingStateStore(readingStateFile).Clear()) { status = L"No se pudo guardar el cambio del historial. Se conserva el archivo anterior."; Redraw(); return false; }
         recentEntries.clear(); suppressCurrentState = true; pendingReadingState.reset();
         for (auto& tab : tabs) tab.reading.reset();
-        status = L"Historial y posiciones olvidados."; Redraw(); return true;
+        if (settingsEnabled && sessionWrites) { auto file = SessionFile(); if (!file.empty()) SessionStore(file).Write({}); }
+        status = L"Historial y posiciones olvidados."; RefreshHomeRecents(); return true;
     }
     void CheckRecents() {
         if (!recentTest || !pages || pendingReadingState || !cache.count(layout.PageAt(scroll))) return;
-        HMENU menu = BuildOpenMenu();
-        bool ok = menu && GetMenuItemCount(menu) == static_cast<int>(recentEntries.size()) + 5;
+        RefreshHomeRecents();
+        bool ok = homeList && SendMessageW(homeList, LB_GETCOUNT, 0, 0) == static_cast<LRESULT>(recentEntries.size());
         if (recentStep == 0) {
-            ok = ok && recentEntries.size() == 3 && recentEntries.front().path == ReadingStateStore::NormalizePath(path);
-            for (size_t i = 0; i < recentEntries.size(); ++i) {
-                ok = ok && GetMenuItemID(menu, static_cast<int>(i) + 3) == RecentBase + i;
-                if (recentEntries[i].path != ReadingStateStore::NormalizePath(path)) {
-                    if (recentEntries[i].path.find(L"ausente.pdf") != std::wstring::npos) recentMissing = recentEntries[i].path;
-                    else recentOther = recentEntries[i].path;
-                }
+            ok = ok && recentEntries.size() == 3 && SameTab(recentEntries.front().path, path);
+            for (const auto& entry : recentEntries) if (!SameTab(entry.path, path)) {
+                if (entry.path.find(L"ausente.pdf") != std::wstring::npos) recentMissing = entry.path;
+                else recentOther = entry.path;
             }
             ok = ok && !recentOther.empty() && !recentMissing.empty();
-        } else ok = ok && path == recentOther;
-        if (menu) DestroyMenu(menu);
+        } else ok = ok && SameTab(path, recentOther);
         if (!ok) { BenchmarkResult(false); return; }
         ++recentChecks;
         if (recentStep == 0) { recentStep = 1; OpenRecentForTest(recentOther); }
         else if (recentStep == 1) { recentStep = 2; OpenRecentForTest(recentMissing); }
         else {
-            SaveTestImage(benchmarkReport + L".bmp", window);
-            if (!ClearReadingHistory(false) || !ReadingStateStore(readingStateFile).Read().empty() || SaveReadingState() || !pages) { BenchmarkResult(false); return; }
-            menu = BuildOpenMenu(); ok = menu && recentEntries.empty() && (GetMenuState(menu, ForgetHistory, MF_BYCOMMAND) & MF_DISABLED);
-            if (menu) DestroyMenu(menu);
-            ++recentChecks; recentStep = 4; BenchmarkResult(ok);
+            if (!ClearReadingHistory(false) || !ReadingStateStore(readingStateFile).Read().empty() || SaveReadingState()) { BenchmarkResult(false); return; }
+            ++recentChecks; recentStep = 4;
+            BenchmarkResult(recentEntries.empty() && SendMessageW(homeList, LB_GETCOUNT, 0, 0) == 0);
         }
     }
     void OpenRecentForTest(const std::wstring& target) {
@@ -1512,7 +1569,7 @@ public:
             L" · Clic en la pestaña para reintentar." : L"";
     }
     void CancelPasswordOpen() {
-        openingDocument = false; status = L"Apertura cancelada." + TabRetryHint(); Redraw();
+        openingDocument = false; status = L"Apertura cancelada." + TabRetryHint(); ArrangeHome(); Redraw();
     }
     bool PointOnPage(int x, int y, TextPoint& point, bool clamp = false) {
         if (!pages || (!clamp && (x < ViewLeft() || x >= ViewLeft() + ViewWidth() || y < ContentTop() || y >= ContentTop() + ViewHeight()))) return false;
@@ -1733,7 +1790,7 @@ public:
     void Load(const std::wstring& file, const std::wstring& password = L"", bool retry = false) {
         if (!worker) worker = std::make_unique<PdfWorker>(window);
         if (!retry) ResetDocument(file);
-        openingDocument = true; status = L"Abriendo documento…"; Redraw(); worker->Load(path, password, document, retry);
+        openingDocument = true; status = L"Abriendo documento…"; ArrangeHome(); Redraw(); worker->Load(path, password, document, retry);
     }
     void OpenDocument(const std::wstring& file) {
         if (file.empty()) return;
@@ -1770,6 +1827,7 @@ public:
         if (worker) worker->Close(document);
         SetWindowTextW(window, L"Chucao PDF Reader");
         status = L"Abrí un PDF para empezar · Ctrl+O";
+        RefreshHomeRecents();
         Redraw();
     }
     bool TabsCheck(bool ok) {
@@ -1919,12 +1977,12 @@ public:
     }
     void Command(int id) {
         if (id == About) { DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_ABOUT), window, AboutProc, 0); return; }
-        if (id == OpenMenu) { ShowOpenMenu(); return; }
+        if (id == OpenMenu) { ChooseFile(); return; }
         if (id == ForgetHistory) { ClearReadingHistory(); return; }
         pendingReadingState.reset();
         ++linkEpoch;
         if (id >= RecentBase && id < RecentBase + static_cast<int>(recentEntries.size())) {
-            auto selectedPath = recentEntries[id - RecentBase].path; OpenDocument(selectedPath); return;
+            auto selectedPath = recentEntries[id - RecentBase].path; SetFocus(window); OpenDocument(selectedPath); return;
         }
         switch (id) {
         case Open: ChooseFile(); break;
@@ -1952,7 +2010,7 @@ public:
             else SetOutlinePinned(true);
             break;
         case Print: PrintFile(); break;
-        case Theme: ToggleTheme(); break;
+        case Theme: DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_SETTINGS), window, SettingsProc, reinterpret_cast<LPARAM>(this)); break;
         case NewTabCmd: ChooseFile(); break;
         case CloseTabCmd: CloseTab(activeTab); break;
         case NextTabCmd: NextTab(1); break;
@@ -1968,7 +2026,7 @@ public:
             openingDocument = false;
             canCopy = result->copyAllowed; canPrint = result->printAllowed;
             openedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-            pages = result->pages; layout.Reset(pages);
+            pages = result->pages; layout.Reset(pages); ArrangeHome();
             if (rapidTest) rapidPages = result->pages;
             pendingReadingState = SessionTabView();
             if (!pendingReadingState && ConfigureReadingState()) pendingReadingState = ReadingStateStore(readingStateFile).Find(path, pages);
@@ -2057,6 +2115,7 @@ public:
                     Receive(std::move(stale));
                     BenchmarkResult(pages == before && pages == rapidPages && rapidPages > 0);
                 }
+                else if (sessionTest) CheckSessionImage();
                 else if (tabsTest) CheckTabsImage();
                 else if (textTest) CheckText(Result::Image);
                 else if (navigationTest) { PostMessageW(window, WM_TIMER, 3, 0); }
@@ -2142,6 +2201,7 @@ public:
             break;
         case Result::Failure: {
             openingDocument = false;
+            ArrangeHome();
             auto slash = path.find_last_of(L"\\/");
             auto name = path.substr(slash == std::wstring::npos ? 0 : slash + 1);
             status = name.empty() ? result->message : name + L": " + result->message;
@@ -2149,10 +2209,10 @@ public:
             Redraw();
             if (tabsTest) CheckTabsFailure();
             else if (recentTest && recentStep == 2 && path == recentMissing) {
-                HMENU menu = BuildOpenMenu();
+                RefreshHomeRecents();
                 bool retained = false;
                 for (const auto& entry : recentEntries) if (entry.path == recentMissing) retained = true;
-                if (menu) DestroyMenu(menu);
+
                 if (!retained) { BenchmarkResult(false); break; }
                 ++recentChecks; recentStep = 3; OpenRecentForTest(recentOther);
             } else BenchmarkResult(false);
@@ -2277,16 +2337,9 @@ public:
             SelectClipRgn(dc, nullptr);
         } else if (!pages) {
             RECT empty{0, ContentTop(), rc.right, rc.bottom - D(26)};
-            SetDCBrushColor(dc, UiTheme().bar);
-            FillRect(dc, &empty, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+            SetDCBrushColor(dc, UiTheme().bar); FillRect(dc, &empty, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
             if (!welcomeImage) welcomeImage = static_cast<HBITMAP>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDB_CHUCAO_HOME), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION));
-            int available = std::max<LONG>(1, empty.bottom - empty.top);
-            int size = std::min(D(224), std::max(D(100), available - D(130)));
-            int top = empty.top + std::max(D(8), (available - size - D(108)) / 2);
-            // The artwork is a white-background bitmap; a matching rounded card keeps
-            // it intentional in the dark theme instead of a stray white square.
-            RECT card{(rc.right - size) / 2 - D(10), top - D(10), (rc.right + size) / 2 + D(10), top + size + D(10)};
-            UiRoundRect(dc, card, UiTheme().sheet, UiTheme().sheet, D(20));
+            int size = D(96), top = ContentTop() + D(16);
             if (welcomeImage) {
                 HDC picture = CreateCompatibleDC(dc); auto oldPicture = SelectObject(picture, welcomeImage);
                 BITMAP bitmap{}; GetObjectW(welcomeImage, sizeof(bitmap), &bitmap);
@@ -2294,21 +2347,25 @@ public:
                 StretchBlt(dc, (rc.right - size) / 2, top, size, size, picture, 0, 0, bitmap.bmWidth, bitmap.bmHeight, SRCCOPY);
                 SelectObject(picture, oldPicture); DeleteDC(picture);
             }
-            RECT title{D(24), top + size + D(8), rc.right - D(24), top + size + D(42)};
-            SelectObject(dc, welcomeFont); SetTextColor(dc, UiTheme().welcomeTitle);
+            RECT title{D(24), top + size + D(6), rc.right - D(24), top + size + D(42)};
+            SelectObject(dc, welcomeFont); SetTextColor(dc, UiTheme().ink);
             DrawTextW(dc, L"Chucao", -1, &title, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-            SelectObject(dc, font); SetTextColor(dc, UiTheme().welcomeText);
-            RECT tagline{D(24), title.bottom + D(2), rc.right - D(24), title.bottom + D(28)};
-            DrawTextW(dc, L"Tu documento, sin distracciones.", -1, &tagline, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-            RECT action{D(24), tagline.bottom + D(12), rc.right - D(24), tagline.bottom + D(38)};
-            DrawTextW(dc, L"Abrir PDF · Ctrl+O", -1, &action, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            int width = std::min(D(660), std::max(D(100), static_cast<int>(rc.right) - D(48)));
+            RECT heading{(rc.right - width) / 2 + D(16), HomeListTop() - D(30), (rc.right + width) / 2, HomeListTop()};
+            SelectObject(dc, strongFont); SetTextColor(dc, UiTheme().muted);
+            DrawTextW(dc, L"Recientes", -1, &heading, DT_SINGLELINE | DT_VCENTER);
+            if (recentEntries.empty()) {
+                RECT hint{heading.left, HomeListTop() + D(12), heading.right, HomeListTop() + D(48)};
+                SelectObject(dc, font);
+                DrawTextW(dc, L"Todavía no hay PDF recientes. Abrí uno con la carpeta o Ctrl+O.", -1, &hint, DT_WORDBREAK);
+            }
         }
         HPEN separator = CreatePen(PS_SOLID, 1, UiTheme().line); auto oldPen = SelectObject(dc, separator);
         MoveToEx(dc, 0, BarPixels() - 1, nullptr); LineTo(dc, rc.right, BarPixels() - 1);
         SelectObject(dc, oldPen); DeleteObject(separator);
         DrawTabs(dc, rc);
         SelectObject(dc, font); SetTextColor(dc, UiTheme().ink);
-        for (int x : {D(124), D(228), D(448), D(652)}) {
+        for (int x : {D(60), D(164), D(384), D(600)}) {
             RECT rule{x, D(17), x + std::max(1, D(1)), D(35)}; SetDCBrushColor(dc, UiTheme().line);
             FillRect(dc, &rule, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         }
@@ -2316,10 +2373,10 @@ public:
         RECT aboutRule{rc.right - D(62), D(17), rc.right - D(62) + std::max(1, D(1)), D(35)};
         SetDCBrushColor(dc, UiTheme().line);
         FillRect(dc, &aboutRule, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
-        RECT pageField{D(290), D(11), D(388), D(41)}; UiRoundRect(dc, pageField, UiTheme().field, UiTheme().field, D(10));
+        RECT pageField{D(226), D(11), D(324), D(41)}; UiRoundRect(dc, pageField, UiTheme().field, UiTheme().field, D(10));
         auto pageLabel = pages ? std::to_wstring(page + 1) + L" / " + std::to_wstring(pages) : L"— / —";
         SelectObject(dc, strongFont); DrawTextW(dc, pageLabel.c_str(), -1, &pageField, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-        RECT zoomField{D(498), 0, D(558), BarPixels()};
+        RECT zoomField{D(440), 0, D(500), BarPixels()};
         auto zoomLabel = zoom > 0 ? std::to_wstring(static_cast<int>(std::round(zoom * 100))) + L"%" : L"Ancho";
         SelectObject(dc, font); SetTextColor(dc, UiTheme().muted);
         DrawTextW(dc, zoomLabel.c_str(), -1, &zoomField, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
@@ -2396,6 +2453,53 @@ public:
     }
 };
 
+INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
+    auto app = reinterpret_cast<Reader*>(GetWindowLongPtrW(dialog, DWLP_USER));
+    if (message == WM_INITDIALOG) {
+        app = reinterpret_cast<Reader*>(lp); SetWindowLongPtrW(dialog, DWLP_USER, lp);
+        HWND theme = GetDlgItem(dialog, IDC_SETTINGS_THEME);
+        SendMessageW(theme, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Claro"));
+        SendMessageW(theme, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Oscuro"));
+        SendMessageW(theme, CB_SETCURSEL, app->darkTheme ? 1 : 0, 0);
+        CheckDlgButton(dialog, IDC_SETTINGS_RESTORE, app->restoreLastSession ? BST_CHECKED : BST_UNCHECKED);
+        ApplyWindowTheme(dialog, UiDark());
+        RECT owner{}, bounds{}; GetWindowRect(app->window, &owner); GetWindowRect(dialog, &bounds);
+        SetWindowPos(dialog, nullptr, owner.left + ((owner.right - owner.left) - (bounds.right - bounds.left)) / 2,
+            owner.top + ((owner.bottom - owner.top) - (bounds.bottom - bounds.top)) / 2, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+        return TRUE;
+    }
+    if (!app) return FALSE;
+    if (message == WM_CTLCOLORDLG || message == WM_CTLCOLORSTATIC || message == WM_CTLCOLORBTN || message == WM_CTLCOLORLISTBOX) {
+        if (message != WM_CTLCOLORDLG) { SetTextColor(reinterpret_cast<HDC>(wp), UiTheme().ink); SetBkColor(reinterpret_cast<HDC>(wp), UiTheme().bar); }
+        return reinterpret_cast<INT_PTR>(UiBackgroundBrush());
+    }
+    if (message == WM_COMMAND) {
+        int id = LOWORD(wp);
+        if (id == IDOK || id == IDCANCEL) { EndDialog(dialog, id); return TRUE; }
+        if ((id == IDC_SETTINGS_THEME && HIWORD(wp) == CBN_SELCHANGE) || (id == IDC_SETTINGS_RESTORE && HIWORD(wp) == BN_CLICKED)) {
+            AppSettings value{SendDlgItemMessageW(dialog, IDC_SETTINGS_THEME, CB_GETCURSEL, 0, 0) == 1,
+                IsDlgButtonChecked(dialog, IDC_SETTINGS_RESTORE) == BST_CHECKED};
+            if (!app->ConfigureSettings() || !SettingsStore(app->settingsFile).Write(value)) {
+                SendDlgItemMessageW(dialog, IDC_SETTINGS_THEME, CB_SETCURSEL, app->darkTheme ? 1 : 0, 0);
+                CheckDlgButton(dialog, IDC_SETTINGS_RESTORE, app->restoreLastSession ? BST_CHECKED : BST_UNCHECKED);
+                SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, L"No se pudieron guardar las opciones."); return TRUE;
+            }
+            bool wasRestoring = app->restoreLastSession;
+            app->restoreLastSession = value.restoreSession; app->ApplyPalette(value.dark, false);
+            bool saved = value.restoreSession ? app->SaveSession() : !wasRestoring || SessionStore(app->SessionFile()).Write({});
+            SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, saved ? L"" : L"No se pudo actualizar la sesión guardada.");
+            ApplyWindowTheme(dialog, UiDark()); RedrawWindow(dialog, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+            return TRUE;
+        }
+    }
+    if (message == WM_NOTIFY) {
+        auto notice = reinterpret_cast<NMHDR*>(lp);
+        if (notice->idFrom == IDC_SETTINGS_CLEAR && (notice->code == NM_CLICK || notice->code == NM_RETURN)) {
+            app->ClearReadingHistory(); return TRUE;
+        }
+    }
+    return FALSE;
+}
 LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     auto app = reinterpret_cast<Reader*>(GetWindowLongPtrW(window, GWLP_USERDATA));
     if (message == WM_NCCREATE) {
@@ -2502,13 +2606,16 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
             CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, window, nullptr, nullptr, nullptr);
         SendMessageW(app->tooltip, TTM_SETMAXTIPWIDTH, 0, app->D(320));
         struct Control { const wchar_t* text; int id, x; };
-        Control buttons[] = {{L"Abrir PDF y recientes (Ctrl+O / Ctrl+Mayús+O)", OpenMenu, 16},
+        Control buttons[] = {{L"Abrir PDF (Ctrl+O)", OpenMenu, 16},
             {L"Mostrar u ocultar el índice (Ctrl+B)", Outline, 140}, {L"Buscar en el documento (Ctrl+F)", Find, 180},
             {L"Página anterior", Previous, 248}, {L"Página siguiente", Next, 396}, {L"Alejar", Smaller, 460},
             {L"Acercar", Larger, 564}, {L"Ajustar al ancho (Ctrl+0)", Fit, 604}, {L"Imprimir (Ctrl+P)", Print, 664}};
         for (const auto& button : buttons) app->IconButton(window, button.id, button.text);
-        app->IconButton(window, Theme, L"Tema claro u oscuro (Ctrl+D)");
+        app->IconButton(window, Theme, L"Opciones de tema y sesión");
         app->IconButton(window, About, L"Acerca de Chucao (F1)");
+        app->homeList = CreateWindowW(L"LISTBOX", L"PDF abiertos recientemente", WS_CHILD | WS_TABSTOP | WS_VSCROLL |
+            LBS_NOTIFY | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS | LBS_NOINTEGRALHEIGHT, 0, 0, 1, 1, window,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(HomeList)), nullptr, nullptr);
         app->IconButton(window, OutlineRail, L"Desplegar el índice");
         app->outlineWindow = CreateWindowExW(WS_EX_CONTROLPARENT, L"ChucaoOutline", L"Contenido del documento", WS_CHILD | WS_CLIPCHILDREN,
             0, app->ContentTop(), app->D(260), app->D(500), window, nullptr, GetModuleHandleW(nullptr), app);
@@ -2519,7 +2626,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         const Accessible names[] = {{OpenMenu, L"Abrir PDF y recientes"}, {Outline, L"Mostrar u ocultar el índice"},
             {Find, L"Buscar en el documento"}, {Previous, L"Página anterior"}, {Next, L"Página siguiente"},
             {Smaller, L"Alejar"}, {Larger, L"Acercar"}, {Fit, L"Ajustar al ancho"}, {Print, L"Imprimir"},
-            {Theme, L"Tema claro u oscuro"}, {About, L"Acerca de Chucao"}};
+            {Theme, L"Opciones de tema y sesión"}, {About, L"Acerca de Chucao"}};
         for (const auto& entry : names) SetAccessibleName(GetDlgItem(window, entry.id), entry.name);
         app->findLabel = CreateWindowW(L"STATIC", L"Buscar", WS_CHILD, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
         app->findFeedback = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
@@ -2554,7 +2661,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->ApplyPalette(app->darkTheme, false);
         return 0;
     case WM_COMMAND:
-        if (LOWORD(wp) == Query && (HIWORD(wp) == EN_SETFOCUS || HIWORD(wp) == EN_KILLFOCUS)) { app->Redraw(); }
+        if (LOWORD(wp) == HomeList) {
+            if (HIWORD(wp) == LBN_DBLCLK || (HIWORD(wp) == LBN_SELCHANGE && (GetKeyState(VK_LBUTTON) & 0x8000))) {
+                int index = static_cast<int>(SendMessageW(app->homeList, LB_GETCURSEL, 0, 0));
+                if (index >= 0) app->Command(RecentBase + index);
+            }
+        }
+        else if (LOWORD(wp) == Query && (HIWORD(wp) == EN_SETFOCUS || HIWORD(wp) == EN_KILLFOCUS)) { app->Redraw(); }
         else if (LOWORD(wp) == Query && HIWORD(wp) == EN_CHANGE) {
             app->searching = false; app->searchPage = -1; app->searchBoxes.clear();
             SetWindowTextW(app->findFeedback, L"");
@@ -2564,6 +2677,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         } else app->Command(LOWORD(wp));
         return 0;
     case WM_DRAWITEM: app->PaintButton(*reinterpret_cast<DRAWITEMSTRUCT*>(lp)); return TRUE;
+    case WM_MEASUREITEM: reinterpret_cast<MEASUREITEMSTRUCT*>(lp)->itemHeight = app->D(56); return TRUE;
+    case WM_CTLCOLORLISTBOX:
+        SetTextColor(reinterpret_cast<HDC>(wp), UiTheme().ink); SetBkColor(reinterpret_cast<HDC>(wp), UiTheme().bar);
+        return reinterpret_cast<LRESULT>(UiBackgroundBrush());
     case WM_CTLCOLORSTATIC:
         SetTextColor(reinterpret_cast<HDC>(wp), UiTheme().muted); SetBkColor(reinterpret_cast<HDC>(wp), UiTheme().bar);
         return reinterpret_cast<LRESULT>(UiBackgroundBrush());
@@ -2666,8 +2783,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     }
     case WM_ERASEBKGND: return 1;
     case WM_CLOSE:
-        app->SaveReadingState(); app->savedOnClose = true; DestroyWindow(window); return 0;
-    case WM_ENDSESSION: if (wp) app->SaveReadingState(); return 0;
+        app->SaveReadingState(); app->SaveSession(); app->savedOnClose = true; DestroyWindow(window); return 0;
+    case WM_ENDSESSION: if (wp) { app->SaveReadingState(); app->SaveSession(); } return 0;
     case WM_PAINT: app->Paint(); return 0;
     case WM_DESTROY: {
         if (!app->savedOnClose) app->SaveReadingState();
@@ -2701,8 +2818,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool hcTest = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-highcontrast";
     bool rapidTest = argv && argc == 5 && std::wstring(argv[1]) == L"--benchmark-rapid";
     bool tabsTest = argv && argc == 6 && std::wstring(argv[1]) == L"--benchmark-tabs";
+    int sessionTest = argv ? (argc == 6 && std::wstring(argv[1]) == L"--benchmark-session-write" ? 1 : argc == 4 && std::wstring(argv[1]) == L"--benchmark-session-read" ? 2 : argc == 4 && std::wstring(argv[1]) == L"--benchmark-session-off" ? 3 : 0) : 0;
     bool interfaceTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-interface";
-    bool benchmark = interfaceTest || recentTest || themeTest || startupTest || dpiTest || keysTest || hcTest || rapidTest || tabsTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
+    bool benchmark = sessionTest || interfaceTest || recentTest || themeTest || startupTest || dpiTest || keysTest || hcTest || rapidTest || tabsTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
     bool previewHome = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-home";
     bool previewAbout = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-about";
     bool forceDark = false;
@@ -2743,6 +2861,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.settingsEnabled = !benchmark && !shellBenchmark;
     if (dpiTest || keysTest || hcTest) app.benchmarkReport = argv[2];
     if (themeTest) { app.settingsFile = argv[2]; app.settingsConfigured = true; app.settingsEnabled = true; }
+    if (sessionTest) {
+        std::wstring folder = argv[sessionTest == 1 ? 4 : 2];
+        app.sessionTest = sessionTest; app.settingsEnabled = true; app.settingsFile = folder + L"\\settings.dat";
+        app.readingStateEnabled = true; app.readingStateFile = folder + L"\\reading-state.dat";
+        app.readingStateWrites = sessionTest == 1; app.sessionWrites = sessionTest == 1;
+        if (sessionTest == 1) { app.sessionTestA = argv[2]; app.sessionTestB = argv[3]; }
+    }
     if (forceDark) { app.forceDarkTheme = true; app.settingsEnabled = false; }
     if (forceHighContrast) { app.forceHighContrast = true; app.settingsEnabled = false; }
     if (recentTest) { app.recentTest = true; app.readingStateFile = argv[4]; app.readingStateEnabled = true; }
@@ -2754,6 +2879,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     if (benchmark && !dpiTest && !keysTest && !hcTest && !rapidTest && !tabsTest) app.benchmarkReport = argv[3];
     if (rapidTest) app.benchmarkReport = argv[4];
     if (tabsTest) { app.tabsTestA = argv[2]; app.tabsTestB = argv[3]; app.tabsTestProtected = argv[4]; app.benchmarkReport = argv[5]; }
+    if (sessionTest) app.benchmarkReport = argv[sessionTest == 1 ? 5 : 3];
     if (shellBenchmark) app.benchmarkReport = argv[2];
     HWND window = CreateWindowExW(WS_EX_CONTROLPARENT, L"ChucaoReader", L"Chucao PDF Reader",
         WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_HSCROLL | WS_CLIPCHILDREN,
@@ -2775,6 +2901,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         }
         app.BenchmarkResult(success);
     }
+    else if (sessionTest) { app.RunSessionTest(); SetTimer(window, 2, 30000, nullptr); }
     else if (themeTest) app.RunThemeTest();
     else if (dpiTest) app.RunDpiTest();
     else if (keysTest) app.RunKeysTest();
@@ -2789,10 +2916,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
             if (argument != L"--theme-dark" && argument != L"--force-highcontrast") app.OpenDocument(argument);
         }
     }
+    if (!benchmark && !shellBenchmark && app.tabs.empty()) app.RestoreSession();
+    app.RefreshHomeRecents();
     if (argv) LocalFree(argv);
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
         if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE && app.searchVisible) { app.HideSearch(); continue; }
+        if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN && GetFocus() == app.homeList) {
+            int selected = static_cast<int>(SendMessageW(app.homeList, LB_GETCURSEL, 0, 0));
+            if (selected >= 0) app.Command(RecentBase + selected); continue;
+        }
         if (msg.message == WM_KEYDOWN && msg.wParam == VK_F1) { app.Command(About); continue; }
         if (msg.message == WM_KEYDOWN && msg.wParam == VK_F6) { app.CycleFocus(); continue; }
         if (app.outlineWindow && (msg.hwnd == app.outlineWindow || IsChild(app.outlineWindow, msg.hwnd))) {
@@ -2819,7 +2952,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
             if (!edit && (focused == window || focused == app.outlineTree) &&
                 (msg.wParam == VK_SUBTRACT || msg.wParam == VK_OEM_MINUS || msg.wParam == '-')) { app.Command(Smaller); continue; }
             if (!edit && GetKeyState(VK_MENU) < 0 && msg.wParam == VK_LEFT) { app.BackFromLink(); continue; }
-            if (!edit && (msg.wParam == VK_NEXT || msg.wParam == VK_PRIOR || msg.wParam == VK_DOWN || msg.wParam == VK_UP || msg.wParam == VK_HOME || msg.wParam == VK_END)) {
+            if (!edit && focused != app.homeList && (msg.wParam == VK_NEXT || msg.wParam == VK_PRIOR || msg.wParam == VK_DOWN || msg.wParam == VK_UP || msg.wParam == VK_HOME || msg.wParam == VK_END)) {
                 app.pendingReadingState.reset();
                 ++app.linkEpoch;
                 if (msg.wParam == VK_HOME) app.ScrollTo(0);
@@ -2835,7 +2968,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
             else if (ctrl && msg.wParam == 'F') command = Find;
             else if (ctrl && msg.wParam == 'P') command = Print;
             else if (ctrl && !edit && msg.wParam == 'C') command = Copy;
-            else if (ctrl && msg.wParam == 'D') command = Theme;
+            else if (ctrl && msg.wParam == 'D') { app.ToggleTheme(); continue; }
             else if (ctrl && msg.wParam == '0') command = Fit;
             else if (ctrl && msg.wParam == VK_TAB) command = GetKeyState(VK_SHIFT) < 0 ? PrevTabCmd : NextTabCmd;
             else if (ctrl && !edit && msg.wParam == 'W') command = CloseTabCmd;

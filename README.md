@@ -102,6 +102,8 @@ documento. Ver [alcance y pruebas](docs/reading-state.md).
 - Pestañas: varios documentos abiertos a la vez. Ctrl+T abre, Ctrl+W cierra,
   Ctrl+Tab y Ctrl+Mayús+Tab alternan; el clic medio cierra una pestaña. Cada una
   recuerda su posición. Ver [pestañas](docs/tabs.md).
+- Opciones: el icono de tema abre un diálogo con el tema y la opción (desactivada
+  por defecto) de reabrir los PDF de la última sesión. Ver [opciones](docs/preferences.md).
 - Los documentos cifrados solicitan contraseña y avisan si es incorrecta; no se
   guarda en disco ni en logs. Los permisos de copia e impresión se comprueban al abrir.
 - El zoom conserva la página y la posición de lectura; la imagen anterior sirve de

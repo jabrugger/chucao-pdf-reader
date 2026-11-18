@@ -19,6 +19,19 @@ BEGIN
     CONTROL "<a href=""https://github.com/jabrugger/chucao-pdf-reader"">github.com/jabrugger/chucao-pdf-reader</a>", IDC_ABOUT_REPOSITORY, "SysLink", WS_TABSTOP, 66, 99, 246, 18
 END
 
+IDD_SETTINGS DIALOGEX 0, 0, 332, 172
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Opciones de Chucao"
+FONT 9, "Segoe UI"
+BEGIN
+    LTEXT "Tema preferido", -1, 16, 16, 140, 12
+    COMBOBOX IDC_SETTINGS_THEME, 172, 12, 144, 64, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    CONTROL "Reabrir los PDF de la última sesión", IDC_SETTINGS_RESTORE, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 16, 48, 300, 16
+    LTEXT "Al iniciar sin elegir un archivo. Los PDF protegidos volverán a pedir contraseña.", -1, 28, 69, 280, 28
+    CONTROL "<a>Olvidar recientes y posiciones guardadas</a>", IDC_SETTINGS_CLEAR, "SysLink", WS_TABSTOP, 16, 112, 300, 18
+    LTEXT "", IDC_SETTINGS_STATUS, 16, 140, 300, 22
+END
+
 1 VERSIONINFO
 FILEVERSION CHUCAO_VERSION_NUMBERS
 PRODUCTVERSION CHUCAO_VERSION_NUMBERS

@@ -4,7 +4,7 @@
 #include <cmath>
 #include <algorithm>
 
-enum class UiIcon { Folder, Previous, Next, Minus, Plus, Fit, Outline, Search, Printer, Close, Pin, Moon, Sun, Info };
+enum class UiIcon { Folder, Previous, Next, Minus, Plus, Fit, Outline, Search, Printer, Close, Pin, Moon, Sun, Info, Gear };
 
 // Central palette for every custom-drawn surface. PDF sheets stay white in both
 // themes: the document is the content, not part of the chrome.
@@ -147,6 +147,13 @@ inline void DrawUiIcon(HDC dc, RECT bounds, UiIcon icon, bool active, bool hover
         graphics.DrawEllipse(&pen, sx(a), sy(b), (c - a) * scale, (d - b) * scale);
     };
     switch (icon) {
+    case UiIcon::Gear:
+        ellipse(4, 4, 16, 16); ellipse(8, 8, 12, 12);
+        for (int i = 0; i < 8; ++i) {
+            float angle = static_cast<float>(i * 3.141592653589793 / 4);
+            line(10 + 6 * std::cos(angle), 10 + 6 * std::sin(angle), 10 + 9 * std::cos(angle), 10 + 9 * std::sin(angle));
+        }
+        break;
     case UiIcon::Folder:
         line(2, 6, 2, 3); line(2, 3, 8, 3); line(8, 3, 10, 6); line(10, 6, 18, 6);
         line(18, 6, 16, 17); line(16, 17, 2, 17); line(2, 17, 2, 6); line(2, 8, 17, 8); break;
