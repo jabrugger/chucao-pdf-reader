@@ -130,8 +130,12 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   espera creciente de hasta dos segundos para el bloqueo y reintentos del reemplazo
   final. La prueba cubre un bloqueo mantenido 700 ms. Evidencia:
   [reading-state.md](reading-state.md).
-- [ ] Medir arranque y tiempo hasta la primera página visible en pantalla,
-  distinguiéndolos de la generación y recepción del bitmap.
+- [x] Medir el arranque y el tiempo hasta el primer cuadro compuesto,
+  distinguiendo apertura, render, recepción del bitmap y composición. Evidencia:
+  [performance.md](performance.md). La presentación física (DWM/scan-out) sigue
+  pendiente y se registra abajo.
+- [ ] Medir la presentación física en pantalla con trazas del sistema o captura
+  externa; `first_compose_ms` no incluye DWM ni el barrido del monitor.
 - [ ] Comparar Chucao, SumatraPDF y KillerPDF como aplicaciones completas con un
   corpus reproducible, versiones, equipo y estado de caché documentados.
 - [ ] Investigar la cancelación o aislamiento de lecturas lentas: actualmente una

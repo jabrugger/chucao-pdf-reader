@@ -67,6 +67,38 @@ la aplicación KillerPDF. No mide su visor, caché de aplicación ni primera pin
 Su primera prueba puede haber leído datos que PDFium no necesitaba. No inferir que
 KillerPDF es más lento ni que el lenguaje explica el resultado.
 
+## Desglose del arranque — 2026-11-18
+
+`--benchmark-startup` (o `benchmark-open.ps1 -Startup`) arranca el lector oculto,
+abre el PDF y descompone el tiempo desde `wWinMain`:
+
+| Campo | Qué mide |
+| --- | --- |
+| `shell_ms` | proceso hasta ventana creada y primer `UpdateWindow` |
+| `opened_ms` | hasta que el worker abre/autentica el documento |
+| `first_render_ms` | carga de página y render de PDFium para el primer bitmap |
+| `first_bitmap_ms` | hasta que la UI recibe ese bitmap |
+| `first_compose_ms` | hasta componer el primer cuadro completo en un DIB, con `Draw` |
+| `ready_ms` | hasta generar el informe (coincide con la composición en este modo) |
+
+Cinco ejecuciones con los fixtures sintéticos de `test-results`, misma PC:
+
+| Documento | `shell_ms` | `opened_ms` | `first_render_ms` | `first_bitmap_ms` | `first_compose_ms` |
+| --- | --- | --- | --- | --- | --- |
+| sample.pdf (2 páginas) | 45–67 | 55–121 | 83–113 | 143–217 | 160–237 |
+| mixed-pages.pdf (4 páginas) | 35–40 | 42–49 | 69–82 | 114–135 | 130–151 |
+
+La composición agrega aproximadamente 15–20 ms sobre la recepción del bitmap.
+La mayor parte del tiempo restante es renderizado de PDFium y espera del worker,
+no creación de la ventana. Los valores varían con el estado de caché del sistema
+y no deben presentarse como un mínimo reproducible.
+
+**Límite importante**: `first_compose_ms` termina cuando la aplicación dibuja en
+un bitmap compatible, no cuando Windows presenta los píxeles en el monitor. No
+incluye DWM, sincronización vertical ni el tiempo de barrido de la pantalla. Para
+medir la presentación física hacen falta trazas del sistema (ETW/DWM) o captura
+externa; sigue pendiente.
+
 ## Cambios en el lector y próximos pasos
 
 - Inicialización del worker/PDFium al abrir un documento, no al crear ventana vacía.
@@ -74,7 +106,8 @@ KillerPDF es más lento ni que el lenguaje explica el resultado.
 - Cancelación del timer de resize cuando ya hay un render inmediato: evita un segundo
   render de la primera página por el evento inicial de tamaño.
 - La lectura de archivos no incorpora la caché experimental que dio resultados mixtos.
-- Pendiente: primera pintura visible, perfil del arranque con trazas del sistema,
-  comparación de aplicaciones completas y carga progresiva/cancelación del motor.
+- Pendiente: presentación física en pantalla (DWM/scan-out), perfil del arranque
+  con trazas del sistema, comparación de aplicaciones completas y carga
+  progresiva/cancelación del motor.
 
 Esta investigación todavía no confirma que Chucao sea más rápido que KillerPDF.

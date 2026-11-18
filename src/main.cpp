@@ -522,6 +522,9 @@ public:
     std::vector<ReadingState> recentEntries;
     bool recentTest = false;
     bool themeTest = false;
+    bool startupTest = false;
+    int startupStage = 0, startupPage = -1;
+    double startupRenderMs = 0, startupBitmapMs = 0, startupComposeMs = 0;
     int recentStep = 0, recentChecks = 0;
     std::wstring recentOther, recentMissing;
     std::unique_ptr<PdfWorker> worker;
@@ -896,12 +899,22 @@ public:
             Load(path.substr(0, path.find_last_of(L"\\/") + 1) + L"sample.pdf");
         }
     }
+    void ComposeFrame() {
+        RECT rc{}; GetClientRect(window, &rc);
+        if (rc.right <= 0 || rc.bottom <= 0) return;
+        HDC target = CreateCompatibleDC(nullptr);
+        HBITMAP bitmap = target ? CreateCompatibleBitmap(target, rc.right, rc.bottom) : nullptr;
+        if (!target || !bitmap) { if (bitmap) DeleteObject(bitmap); if (target) DeleteDC(target); return; }
+        auto old = SelectObject(target, bitmap);
+        Draw(target, rc);
+        SelectObject(target, old); DeleteObject(bitmap); DeleteDC(target);
+    }
     void BenchmarkResult(bool success) {
         if (benchmarkReport.empty()) return;
         double readyMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-        char data[768]{};
+        char data[1024]{};
         Endpoint a, b; SelectionRange(a, b);
-        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d,\"navigation_steps\":%d,\"cache_hits\":%zu,\"cache_bytes\":%zu,\"outline_checks\":%d,\"link_checks\":%d,\"password_checks\":%d,\"state_checks\":%d,\"recent_checks\":%d,\"text_checks\":%d,\"text_step\":%d,\"selection_first\":%d,\"selection_last\":%d}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages, navigationStep, navigationHits, cacheBytes, outlineChecks, linkChecks, passwordChecks, readingStateChecks, recentChecks, textChecks, textStep, a.character, b.character);
+        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d,\"navigation_steps\":%d,\"cache_hits\":%zu,\"cache_bytes\":%zu,\"outline_checks\":%d,\"link_checks\":%d,\"password_checks\":%d,\"state_checks\":%d,\"recent_checks\":%d,\"text_checks\":%d,\"text_step\":%d,\"selection_first\":%d,\"selection_last\":%d,\"first_page\":%d,\"first_render_ms\":%.3f,\"first_bitmap_ms\":%.3f,\"first_compose_ms\":%.3f}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages, navigationStep, navigationHits, cacheBytes, outlineChecks, linkChecks, passwordChecks, readingStateChecks, recentChecks, textChecks, textStep, a.character, b.character, startupPage, startupRenderMs, startupBitmapMs, startupComposeMs);
         HANDLE output = CreateFileW(benchmarkReport.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (output != INVALID_HANDLE_VALUE) { DWORD written = 0; WriteFile(output, data, size, &written, nullptr); CloseHandle(output); }
         PostMessageW(window, WM_CLOSE, 0, 0);
@@ -1597,6 +1610,7 @@ public:
             if (result->viewVersion != viewVersion) return;
             {
                 int index = result->page;
+                double renderMilliseconds = result->milliseconds;
                 layout.Learn(index, result->pageWidth, result->pageHeight);
                 if (pendingReadingState) {
                     ApplyReadingState(*pendingReadingState);
@@ -1607,7 +1621,14 @@ public:
                 cacheBytes += result->pixels.size(); entry = {std::move(result), viewVersion, ++useClock};
                 if (!pendingReadingState) viewReady = true;
                 ScrollTo(scroll, false); TrimCache(); Render();
-                if (textTest) CheckText(Result::Image);
+                if (startupTest && startupStage == 0) {
+                    startupStage = 1; startupPage = index; startupRenderMs = renderMilliseconds;
+                    startupBitmapMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+                    ComposeFrame();
+                    startupComposeMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+                    BenchmarkResult(true);
+                }
+                else if (textTest) CheckText(Result::Image);
                 else if (navigationTest) { PostMessageW(window, WM_TIMER, 3, 0); }
                 else if (interfaceTest) { /* Wait for the outline and search diagnostics. */ }
                 else if (outlineTest) { if (!outlineWindow) ToggleOutline(); }
@@ -2094,8 +2115,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     int stateTest = argv && argc == 5 ? (std::wstring(argv[1]) == L"--benchmark-state-write" ? 1 : std::wstring(argv[1]) == L"--benchmark-state-read" ? 2 : 0) : 0;
     bool recentTest = argv && argc == 5 && std::wstring(argv[1]) == L"--benchmark-recents";
     bool themeTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-theme";
+    bool startupTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-startup";
     bool interfaceTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-interface";
-    bool benchmark = interfaceTest || recentTest || themeTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
+    bool benchmark = interfaceTest || recentTest || themeTest || startupTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
     bool previewHome = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-home";
     bool previewAbout = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-about";
     bool forceDark = false;
@@ -2119,6 +2141,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.linksTest = linksTest;
     app.passwordTest = passwordTest;
     app.themeTest = themeTest;
+    app.startupTest = startupTest;
     app.readingStateEnabled = !benchmark && !shellBenchmark;
     app.settingsEnabled = !benchmark && !shellBenchmark;
     if (themeTest) { app.settingsFile = argv[2]; app.settingsConfigured = true; app.settingsEnabled = true; }

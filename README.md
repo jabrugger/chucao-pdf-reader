@@ -133,6 +133,8 @@ Las acciones de scripts/archivos y otros protocolos permanecen inactivos.
 `-Navigation` y `-Text` miden toda la secuencia de prueba, no solo la apertura.
 Las pruebas de texto no modifican el portapapeles: verifican internamente el
 resultado y generan imágenes locales del visor para inspección visual.
+`-Startup` separa ventana, apertura, render, recepción del bitmap y composición
+del primer cuadro; no incluye la presentación física en pantalla.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/smoke-test.ps1

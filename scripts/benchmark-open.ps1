@@ -9,7 +9,8 @@ param(
     [switch]$Links,
     [switch]$Passwords,
     [switch]$Destinations,
-    [switch]$Interface
+    [switch]$Interface,
+    [switch]$Startup
 )
 $ErrorActionPreference = 'Stop'
 if ($Runs -lt 1 -or $Runs -gt 20) { throw 'Runs debe estar entre 1 y 20.' }
@@ -20,7 +21,7 @@ $exe = [IO.Path]::Combine($root, 'build', $Executable)
 for ($i = 1; $i -le $Runs; $i++) {
     $report = [IO.Path]::Combine($output, "open-$([Guid]::NewGuid().ToString('N')).json")
     $clock = [Diagnostics.Stopwatch]::StartNew()
-    $arguments = if ($ShellOnly) { @('--benchmark-shell', ('"' + $report + '"')) } else { @($(if ($Interface) { '--benchmark-interface' } elseif ($Destinations) { '--benchmark-destinations' } elseif ($Passwords) { '--benchmark-passwords' } elseif ($Links) { '--benchmark-links' } elseif ($Outline) { '--benchmark-outline' } elseif ($Text) { '--benchmark-text' } elseif ($Navigation) { '--benchmark-navigation' } else { '--benchmark-open' }), ('"' + $Pdf + '"'), ('"' + $report + '"')) }
+    $arguments = if ($ShellOnly) { @('--benchmark-shell', ('"' + $report + '"')) } else { @($(if ($Interface) { '--benchmark-interface' } elseif ($Startup) { '--benchmark-startup' } elseif ($Destinations) { '--benchmark-destinations' } elseif ($Passwords) { '--benchmark-passwords' } elseif ($Links) { '--benchmark-links' } elseif ($Outline) { '--benchmark-outline' } elseif ($Text) { '--benchmark-text' } elseif ($Navigation) { '--benchmark-navigation' } else { '--benchmark-open' }), ('"' + $Pdf + '"'), ('"' + $report + '"')) }
     $process = Start-Process -FilePath $exe -ArgumentList $arguments -WindowStyle Hidden -PassThru
     if (!$process.WaitForExit(35000)) {
         # Only terminate the diagnostic child created by this script.
@@ -32,5 +33,5 @@ for ($i = 1; $i -le $Runs; $i++) {
     if (![IO.File]::Exists($report)) { throw "No se generó informe; exit=$($process.ExitCode)." }
     $result = [IO.File]::ReadAllText($report) | ConvertFrom-Json
     if (!$result.success) { throw 'El lector no pudo abrir/renderizar el documento.' }
-    [PSCustomObject]@{exe=$Executable; run=$i; process_ms=[math]::Round($clock.Elapsed.TotalMilliseconds, 2); shell_ms=$result.shell_ms; opened_ms=$result.opened_ms; ready_ms=$result.ready_ms; pages=$result.pages; navigation_steps=$result.navigation_steps; cache_hits=$result.cache_hits; cache_bytes=$result.cache_bytes; text_checks=$result.text_checks; outline_checks=$result.outline_checks; link_checks=$result.link_checks; password_checks=$result.password_checks}
+    [PSCustomObject]@{exe=$Executable; run=$i; process_ms=[math]::Round($clock.Elapsed.TotalMilliseconds, 2); shell_ms=$result.shell_ms; opened_ms=$result.opened_ms; ready_ms=$result.ready_ms; first_render_ms=$result.first_render_ms; first_bitmap_ms=$result.first_bitmap_ms; first_compose_ms=$result.first_compose_ms; pages=$result.pages; navigation_steps=$result.navigation_steps; cache_hits=$result.cache_hits; cache_bytes=$result.cache_bytes; text_checks=$result.text_checks; outline_checks=$result.outline_checks; link_checks=$result.link_checks; password_checks=$result.password_checks}
 }

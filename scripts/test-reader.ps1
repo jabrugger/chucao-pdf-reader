@@ -26,6 +26,8 @@ $themeResult = [IO.File]::ReadAllText($themeReport) | ConvertFrom-Json
 if (!$themeResult.success) { throw 'El cambio de tema o su persistencia no coincidió.' }
 & ([IO.Path]::Combine($root, 'build', 'layout-test.exe'))
 if ($LASTEXITCODE -ne 0) { throw 'Falló la geometría del documento.' }
+$startup = & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Executable $Executable -Pdf ([IO.Path]::Combine($root, 'test-results', 'sample.pdf')) -Runs 1 -Startup
+if (!$startup -or $startup.first_bitmap_ms -le 0 -or $startup.first_compose_ms -lt $startup.first_bitmap_ms) { throw 'Falló la medición del arranque.' }
 & ([IO.Path]::Combine($root, 'build', 'outline-test.exe')) ([IO.Path]::Combine($root, 'test-results'))
 if ($LASTEXITCODE -ne 0) { throw 'Falló el índice del documento.' }
 & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Executable $Executable -Pdf ([IO.Path]::Combine($root, 'test-results', 'outline.pdf')) -Runs 1 -Interface
