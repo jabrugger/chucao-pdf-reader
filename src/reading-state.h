@@ -106,12 +106,14 @@ private:
         auto folder = filename_.substr(0, slash);
         if (!CreateDirectoryW(folder.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) return false;
         // Merge under an exclusive lock so independent reader windows retain each other's entries.
+        // Back off gradually: short waits resolve brief contention quickly, while a writer
+        // blocked by slow I/O still gets a couple of seconds before the save is abandoned.
         HANDLE lock = INVALID_HANDLE_VALUE;
-        for (int attempt = 0; attempt < 50; ++attempt) {
+        for (int attempt = 0; attempt < 48; ++attempt) {
             lock = CreateFileW((filename_ + L".lock").c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
             if (lock != INVALID_HANDLE_VALUE) break;
             if (GetLastError() != ERROR_SHARING_VIOLATION) return false;
-            Sleep(10);
+            Sleep(std::min(50, 8 + attempt * 2));
         }
         if (lock == INVALID_HANDLE_VALUE) return false;
         auto entries = Read();
@@ -124,7 +126,18 @@ private:
         if (ok) {
             DWORD written = 0; ok = WriteFile(file, data.data(), static_cast<DWORD>(data.size()), &written, nullptr) && written == data.size() && FlushFileBuffers(file);
             CloseHandle(file);
-            if (ok) ok = MoveFileExW(temporary.c_str(), filename_.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+            if (ok) {
+                // A reader or scanner can briefly hold the profile; retry the replacement
+                // instead of losing the whole save on a transient sharing violation.
+                ok = false;
+                for (int attempt = 0; attempt < 5 && !ok; ++attempt) {
+                    ok = MoveFileExW(temporary.c_str(), filename_.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+                    if (ok) break;
+                    DWORD error = GetLastError();
+                    if (error != ERROR_SHARING_VIOLATION && error != ERROR_ACCESS_DENIED) break;
+                    Sleep(20 * (attempt + 1));
+                }
+            }
             if (!ok) DeleteFileW(temporary.c_str());
         }
         CloseHandle(lock); return ok;

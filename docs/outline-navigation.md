@@ -31,16 +31,23 @@ La misma aplicación de destinos se usa para marcadores y enlaces internos:
 | Fit | Página completa, con margen de 24 píxeles por lado |
 | FitH | Ancho de la página y coordenada superior indicada |
 | FitV | Alto de la página y coordenada izquierda indicada |
+| FitR | Rectángulo indicado, con margen de 24 píxeles por lado |
+| FitB | Caja de contenido de la página completa |
+| FitBH | Ancho de la caja de contenido y coordenada superior indicada |
+| FitBV | Alto de la caja de contenido y coordenada izquierda indicada |
 
 Los ajustes se calculan para el área de lectura al activar el destino. El zoom se
 limita al intervalo del lector, 25–400%; las páginas extremas pueden no caber
 completas cuando se alcanza un límite. El presupuesto de renderizado sigue vigente.
-Fit centra horizontalmente la página y la sitúa al inicio de la vista continua.
+Fit, FitB y FitBH centran horizontalmente la página; FitR, FitV y FitBV anclan su
+borde izquierdo, y todos se sitúan al inicio vertical de la vista continua.
 Alt+Izquierda recupera el zoom y la posición anteriores al salto.
 
-FitR y los modos de caja de contenido FitB/FitBH/FitBV siguen pendientes y conservan
-el zoom actual. También queda pendiente conservar la posición previa si FitH/FitV
-usan una coordenada null: la API numérica empleada no distingue ese valor de cero
+La caja de contenido se obtiene con `FPDF_GetPageBoundingBox` al activar el destino;
+si la página no informa una caja válida se usa la página completa. El rectángulo de
+FitR se acota a los límites de la página. Queda pendiente conservar la posición
+previa si FitH/FitV/FitBH/FitBV usan una coordenada null: la API numérica empleada
+no distingue ese valor de cero
 (ver [implementación de PDFium](https://pdfium.googlesource.com/pdfium/+/refs/heads/main/core/fpdfdoc/cpdf_dest.cpp)).
 Por ahora se interpreta como cero. No se aplica el mismo tratamiento a XYZ, donde
 la API sí informa qué campos se omitieron.
@@ -49,17 +56,19 @@ la API sí informa qué campos se omitieron.
 
 - `outline-test.exe`: metadatos XYZ, resolución de la página y transformación
   de regreso a coordenadas PDF; coordenadas X/Y omitidas, rotación/recorte y
-  destinos inválidos. Conserva las pruebas de límites, ciclos, cancelación,
-  títulos Unicode y acciones inactivas.
+  destinos inválidos. Verifica FitR contra su rectángulo, FitB/FitBH/FitBV contra
+  la caja de contenido y el zoom resultante de los cuatro modos. Conserva las
+  pruebas de límites, ciclos, cancelación, títulos Unicode y acciones inactivas.
 - `benchmark-open.ps1 -Outline`, con `outline.pdf` y `rotated-outline.pdf`:
   controles nativos del árbol, activación de una entrada y Enter, navegación asincrónica a XYZ
   con zoom 300%, regreso por el historial, entradas inactivas, descarte de resultados
   atrasados y reapertura con limpieza del árbol. Tres comprobaciones por ejecución.
 - Las pruebas de enlaces internos/web verifican que el helper compartido conserve
   su comportamiento anterior. Todo se ejecuta con ventanas ocultas y PDF sintéticos.
-- `benchmark-open.ps1 -Destinations`: cinco variantes (Fit, FitH, FitV, XYZ con
-  zoom 200% y XYZ con zoom cero), repetidas con rotación y CropBox. Comprueba las
-  dimensiones resultantes, el zoom, regreso, entrada inactiva y reapertura.
+- `benchmark-open.ps1 -Destinations`: nueve variantes (Fit, FitH, FitV, XYZ con
+  zoom 200%, XYZ con zoom cero, FitR, FitB, FitBH y FitBV), repetidas con rotación
+  y CropBox. Comprueba las dimensiones resultantes, el zoom, regreso, entrada
+  inactiva y reapertura.
   `outline-test.exe` verifica además los cálculos con un área conocida y los límites.
 
 El clic único y los accesos del panel integrado se verificaron con un fixture en

@@ -1,6 +1,6 @@
 # Pendientes de Chucao PDF Reader
 
-Actualizado: 2026-11-16.
+Actualizado: 2026-11-18.
 
 Lista consolidada de trabajo pendiente. Las casillas se marcan cuando el resultado
 está implementado y verificado; las validaciones manuales se registran por separado.
@@ -44,8 +44,10 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   Evidencia: [outline-navigation.md](outline-navigation.md).
 - [x] Aplicar Fit, FitH, FitV y zoom XYZ en marcadores y enlaces internos, con
   límites de zoom y regreso a la vista anterior.
-- [ ] Completar FitR, FitB, FitBH y FitBV; conservar la posición anterior cuando
-  FitH/FitV omiten su coordenada (la API numérica usada no distingue null de cero).
+- [x] Completar FitR, FitB, FitBH y FitBV con el rectángulo indicado o la caja de
+  contenido de la página. Evidencia: [outline-navigation.md](outline-navigation.md).
+- [ ] Conservar la posición anterior cuando FitH, FitV, FitBH o FitBV omiten su
+  coordenada (la API numérica usada no distingue null de cero).
 - [ ] Mejorar accesibilidad y navegación por teclado, incluidos foco y controles.
 - [ ] Adaptar la interfaz a distintos DPI por monitor.
 - [ ] Revisar y pulir los mensajes de error.
@@ -91,8 +93,8 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
 - [ ] Validar el índice con teclado y mouse, y revisar su aspecto a distintos DPI.
 - [x] Validar automáticamente saltos del índice a coordenadas XYZ, coordenadas
   omitidas, rotación/recorte, regreso y descarte de resultados atrasados.
-- [x] Validar ajuste de página/ancho/alto, zoom XYZ explícito o cero y límites,
-  con páginas normales y rotadas/recortadas.
+- [x] Validar ajuste de página/ancho/alto/rectángulo/caja de contenido, zoom XYZ
+  explícito o cero y límites, con páginas normales y rotadas/recortadas.
 - [ ] Validar manualmente ajustes y zoom de enlaces/marcadores de PDF reales.
 - [ ] Probar enlaces internos de documentos reales, cursor, clic y regreso con
   Alt+Izquierda.
@@ -110,9 +112,10 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
 
 ## Rendimiento
 
-- [ ] Mejorar la tolerancia del guardado de historial a la contención con E/S lenta:
-  en la regresión del 2026-11-13 una prueba de escritores simultáneos agotó la
-  espera de 500 ms; la repetición aislada pasó. No se modificó ese límite.
+- [x] Mejorar la tolerancia del guardado de historial a la contención con E/S lenta:
+  espera creciente de hasta dos segundos para el bloqueo y reintentos del reemplazo
+  final. La prueba cubre un bloqueo mantenido 700 ms. Evidencia:
+  [reading-state.md](reading-state.md).
 - [ ] Medir arranque y tiempo hasta la primera página visible en pantalla,
   distinguiéndolos de la generación y recepción del bitmap.
 - [ ] Comparar Chucao, SumatraPDF y KillerPDF como aplicaciones completas con un

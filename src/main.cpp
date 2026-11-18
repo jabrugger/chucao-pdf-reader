@@ -787,6 +787,9 @@ public:
                 else if (target.view == PDFDEST_VIEW_FITH) positioned = std::abs(w - (ViewWidth() - 48)) <= 1;
                 else if (target.view == PDFDEST_VIEW_FITV) positioned = std::abs(h - (ViewHeight() - 48)) <= 1;
                 else if (target.view == PDFDEST_VIEW_XYZ) positioned = zoom == (target.zoom > 0 ? target.zoom : 3);
+                else if (target.view == PDFDEST_VIEW_FITR || target.view == PDFDEST_VIEW_FITB ||
+                    target.view == PDFDEST_VIEW_FITBH || target.view == PDFDEST_VIEW_FITBV)
+                    positioned = target.hasBox && zoom == DestinationZoom(target, ViewWidth(), ViewHeight(), 3);
                 else positioned = false;
             }
             if (page != 1 || target.page != 1 || !positioned) { BenchmarkResult(false); return; }
@@ -1500,8 +1503,10 @@ public:
                 ClearSelection(); layout.Learn(target.page, target.width, target.height);
                 zoom = DestinationZoom(target, ViewWidth(), ViewHeight(), zoom); Reflow();
                 ScrollTo(layout.Top(target.page) + static_cast<std::int64_t>(target.y * layout.Height(target.page)) - DocumentLayout::Gap);
+                // Whole-width modes center the page; rectangles and vertical fits anchor on their left edge.
+                bool centered = target.view == PDFDEST_VIEW_FIT || target.view == PDFDEST_VIEW_FITB || target.view == PDFDEST_VIEW_FITBH;
                 ScrollHorizontal(static_cast<int>(layout.Left(target.page, ViewWidth()) +
-                    (target.view == PDFDEST_VIEW_FIT ? layout.Width(target.page) / 2.0 - ViewWidth() / 2.0 : target.x * layout.Width(target.page) - DocumentLayout::Gap)));
+                    (centered ? layout.Width(target.page) / 2.0 - ViewWidth() / 2.0 : target.x * layout.Width(target.page) - DocumentLayout::Gap)));
                 PageStatus();
             } else if (!result->linkTarget.webUrl.empty()) OpenWebLink(result->linkTarget.webUrl);
             else if (result->linkTarget.hit) {

@@ -73,7 +73,7 @@ $outlineObjects += @(
     '<< /S /GoTo /D [6 0 R /XYZ 150 200 null] >>'
 )
 Write-PdfFixture ([IO.Path]::Combine($output, 'outline.pdf')) $outlineObjects
-foreach ($mode in @('Fit', 'FitH 200', 'FitV 150', 'XYZ 150 200 2', 'XYZ 150 200 0')) {
+foreach ($mode in @('Fit', 'FitH 200', 'FitV 150', 'XYZ 150 200 2', 'XYZ 150 200 0', 'FitR 50 100 300 400', 'FitB', 'FitBH 200', 'FitBV 150')) {
     $fitOutline = @($outlineObjects)
     $fitOutline[14] = $fitOutline[14].Replace('XYZ 150 200 null', $mode)
     Write-PdfFixture ([IO.Path]::Combine($output, ('destination-' + $mode.Replace(' ', '-') + '.pdf'))) $fitOutline

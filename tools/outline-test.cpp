@@ -31,14 +31,43 @@ int wmain(int argc, wchar_t** argv) {
         int checks = 0;
         auto cancelled = ReadOutline(pdf, [&] { return ++checks > 2; });
         Check(cancelled.entries.size() == 2, "cancel traversal");
-        for (const auto* name : {L"destination-Fit.pdf", L"destination-FitH-200.pdf", L"destination-FitV-150.pdf", L"destination-XYZ-150-200-2.pdf", L"destination-XYZ-150-200-0.pdf"}) {
+        for (const auto* name : {L"destination-Fit.pdf", L"destination-FitH-200.pdf", L"destination-FitV-150.pdf",
+            L"destination-XYZ-150-200-2.pdf", L"destination-XYZ-150-200-0.pdf",
+            L"destination-FitR-50-100-300-400.pdf", L"destination-FitB.pdf", L"destination-FitBH-200.pdf", L"destination-FitBV-150.pdf"}) {
             outline = read(name);
             auto target = ResolveDestination(pdf, outline.entries[1].destination);
             double scale = DestinationZoom(target, 1048, 848, 3);
             if (target.view == PDFDEST_VIEW_FIT) Check(std::abs(scale - 1000.0 / 792) < 1e-6, "fit whole page");
             else if (target.view == PDFDEST_VIEW_FITH) Check(std::abs(scale - 1000.0 / 792) < 1e-6 && target.y == .5, "fit width at top coordinate");
             else if (target.view == PDFDEST_VIEW_FITV) Check(scale == 2 && target.x > 0, "fit height at left coordinate");
-            else Check(scale == (target.zoom > 0 ? 2 : 3), "explicit XYZ zoom and zero preserves current zoom");
+            else if (target.view == PDFDEST_VIEW_XYZ) Check(scale == (target.zoom > 0 ? 2 : 3), "explicit XYZ zoom and zero preserves current zoom");
+            else {
+                Check(target.hasBox, "box destination resolved");
+                double left = 0, top = 0, right = 1, bottom = 1;
+                if (target.view == PDFDEST_VIEW_FITR) {
+                    left = 50.0 / target.width; right = 300.0 / target.width;
+                    top = (target.height - 400.0) / target.height; bottom = (target.height - 100.0) / target.height;
+                    Check(std::abs(target.boxLeft - left) < .002 && std::abs(target.boxRight - right) < .002 &&
+                        std::abs(target.boxTop - top) < .002 && std::abs(target.boxBottom - bottom) < .002, "FitR rectangle");
+                } else {
+                    auto page = FPDF_LoadPage(pdf, 1); FS_RECTF box{0, static_cast<float>(target.height), static_cast<float>(target.width), 0};
+                    if (page) { if (!FPDF_GetPageBoundingBox(page, &box)) box = FS_RECTF{0, static_cast<float>(target.height), static_cast<float>(target.width), 0}; FPDF_ClosePage(page); }
+                    left = std::max(0.0, box.left / target.width); right = std::min(1.0, box.right / target.width);
+                    top = std::max(0.0, (target.height - box.top) / target.height); bottom = std::min(1.0, (target.height - box.bottom) / target.height);
+                    Check(std::abs(target.boxLeft - left) < .002 && std::abs(target.boxRight - right) < .002 &&
+                        std::abs(target.boxTop - top) < .002 && std::abs(target.boxBottom - bottom) < .002, "content box matches the page bounding box");
+                }
+                double boxWidth = (target.boxRight - target.boxLeft) * target.width;
+                double boxHeight = (target.boxBottom - target.boxTop) * target.height;
+                double expected = target.view == PDFDEST_VIEW_FITBH ? 1000.0 / boxWidth :
+                    target.view == PDFDEST_VIEW_FITBV ? 800.0 / boxHeight :
+                    std::min(1000.0 / boxWidth, 800.0 / boxHeight);
+                expected = std::max(.25, std::min(4.0, expected));
+                Check(std::abs(scale - expected) < 1e-6, "box fit zoom");
+                if (target.view == PDFDEST_VIEW_FITR) Check(std::abs(boxWidth - 250) < .5 && std::abs(boxHeight - 300) < .5, "FitR rectangle dimensions");
+                if (target.view == PDFDEST_VIEW_FITBH) Check(target.y == .5 && target.x == .5, "FitBH top coordinate and centered width");
+                if (target.view == PDFDEST_VIEW_FITBV) Check(target.x > 0 && target.y >= 0, "FitBV left coordinate");
+            }
         }
         DestinationLocation bounded; bounded.page = 0; bounded.width = 100; bounded.height = 200;
         bounded.view = PDFDEST_VIEW_XYZ; bounded.zoom = 100;
@@ -47,7 +76,11 @@ int wmain(int argc, wchar_t** argv) {
         bounded.view = PDFDEST_VIEW_FIT;
         Check(DestinationZoom(bounded, 10, 10, 3) == .25, "tiny viewport stays bounded");
         bounded.view = PDFDEST_VIEW_FITR;
-        Check(DestinationZoom(bounded, 1000, 800, 0) == 0, "unsupported mode preserves fit-width zoom");
+        Check(std::abs(DestinationZoom(bounded, 1000, 800, 0) - 3.76) < 1e-9, "FitR without a rectangle falls back to the page size");
+        bounded.hasBox = true;
+        Check(std::abs(DestinationZoom(bounded, 1000, 800, 0) - 3.76) < 1e-9, "FitR whole-page box");
+        bounded.boxLeft = bounded.boxRight = .5;
+        Check(DestinationZoom(bounded, 1000, 800, 3) == 3, "degenerate box preserves the current zoom");
         for (const auto* name : {L"outline.pdf", L"rotated-outline.pdf"}) {
             outline = read(name);
             auto target = ResolveDestination(pdf, outline.entries[1].destination);

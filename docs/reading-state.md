@@ -40,9 +40,11 @@ de contraseña y vistas todavía no disponibles no reemplazan una posición vál
 
 Se escribe un temporal, se vacía al disco y se reemplaza el perfil. Un archivo
 `.lock` coordina la combinación de entradas entre ventanas, con espera acotada de
-aproximadamente medio segundo. Distintos documentos no se pisan; si dos ventanas
-guardan el mismo documento, prevalece la última escritura completada. Si no se
-puede escribir, el lector sigue funcionando y se conserva el perfil anterior.
+unos dos segundos y pausas crecientes; el reemplazo final también se reintenta
+ante bloqueos transitorios de lectores o antivirus. Distintos documentos no se
+pisan; si dos ventanas guardan el mismo documento, prevalece la última escritura
+completada. Si no se puede escribir, el lector sigue funcionando y se conserva el
+perfil anterior.
 
 Las lecturas están acotadas y descartan versiones desconocidas o registros
 inválidos. Un guardado posterior reconstruye el perfil con el formato actual y
@@ -56,8 +58,9 @@ perfiles aislados en test-results. No toca el perfil real de LocalAppData.
 
 - El test del almacenamiento verifica Unicode, mayúsculas/separadores de ruta,
   ida y vuelta de coordenadas, cambio de cantidad de páginas, valores inválidos,
-  fusión de escritores simultáneos, límite de 128 entradas, archivos corruptos o
-  demasiado grandes, recuperación y destino no escribible.
+  fusión de escritores simultáneos, tolerancia a un bloqueo de escritura mantenido
+  700 ms, límite de 128 entradas, archivos corruptos o demasiado grandes,
+  recuperación y destino no escribible.
 - Siete procesos reales del lector guardan y recuperan dos documentos distintos
   y un PDF cifrado, a zoom 300%, con posición vertical y horizontal conocidas.
   Los procesos de lectura no alteran el perfil. El PDF protegido vuelve a pedir

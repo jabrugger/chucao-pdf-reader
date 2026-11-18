@@ -38,6 +38,18 @@ int wmain(int argc, wchar_t** argv) {
         std::thread writerA(parallel, 0), writerB(parallel, 1); writerA.join(); writerB.join();
         Check(merged, "parallel writers complete within bounded wait");
         Check(first.Read().size() == 12, "parallel writers preserve all records");
+        // A lock held by slow I/O longer than the old half-second budget must still be tolerated.
+        std::atomic<bool> locked{false};
+        std::thread holder([&] {
+            HANDLE handle = CreateFileW((filename + L".lock").c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            locked = handle != INVALID_HANDLE_VALUE;
+            if (locked) { Sleep(700); CloseHandle(handle); }
+        });
+        while (!locked) Sleep(1);
+        auto slow = a; slow.path = L"C:\\Libros\\slow-lock.pdf";
+        Check(ReadingStateStore(filename).Update(slow), "slow lock holder tolerated");
+        holder.join();
+        Check(locked && first.Find(slow.path, slow.pages).has_value(), "slow save persisted");
         for (int i = 0; i < 130; ++i) { a.path = L"C:\\Libros\\" + std::to_wstring(i) + L".pdf"; Check(first.Update(a), "bounded history write"); }
         Check(first.Read().size() == 128 && !first.Find(L"C:\\Libros\\0.pdf", 410), "history evicts oldest at 128");
         Write(filename, "unknown version\n"); Check(first.Read().empty(), "unknown format ignored");

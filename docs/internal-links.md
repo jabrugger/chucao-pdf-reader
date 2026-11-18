@@ -2,7 +2,8 @@
 
 Clic en un enlace interno lleva a la página y, para destinos XYZ, a la posición
 indicada. Un zoom XYZ positivo se aplica dentro de los límites del lector;
-cero/null conserva el zoom. Fit, FitH y FitV ajustan página, ancho y alto.
+cero/null conserva el zoom. Fit, FitH, FitV, FitR y los modos de caja de contenido
+FitB/FitBH/FitBV ajustan la vista según el destino.
 Alt+Izquierda vuelve al punto de lectura
 anterior, incluyendo zoom y desplazamiento horizontal. El historial guarda hasta
 64 posiciones y se limpia al abrir otro documento.
@@ -63,6 +64,7 @@ agregan botones ni paneles a la interfaz para esta función.
   No se abre un navegador, no se imprimen documentos ni se modifica el portapapeles.
 
 Pendiente de comprobación manual: sensación del cursor y del clic físico, regreso
-con teclado y enlaces de documentos reales. FitR y FitB/FitBH/FitBV siguen pendientes;
-ver [ajustes y límites](outline-navigation.md). También faltan la prueba manual del clic web y del
-navegador predeterminado, incluida la respuesta ante un fallo de apertura.
+con teclado y enlaces de documentos reales. Los ajustes FitR y FitB/FitBH/FitBV
+están cubiertos por pruebas automatizadas; ver [ajustes y límites](outline-navigation.md).
+También faltan la prueba manual del clic web y del navegador predeterminado,
+incluida la respuesta ante un fallo de apertura.
