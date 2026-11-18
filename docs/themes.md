@@ -34,8 +34,8 @@ con Ctrl+D.
 - La barra de título intenta `DWMWA_USE_IMMERSIVE_DARK_MODE` (atributos 19 y 20).
   Si Windows no lo admite, se conserva la barra nativa sin fallar.
 - La imagen de bienvenida tiene fondo blanco; en tema oscuro se dibuja sobre una
-  tarjeta redondeada clara para que no parezca un recorte accidental. Lo mismo se
-  hace con el icono de Acerca de.
+  tarjeta redondeada clara para que no parezca un recorte accidental. Los iconos
+  de la barra son vectoriales y se adaptan a la paleta activa.
 
 ## Verificación
 

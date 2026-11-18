@@ -20,7 +20,8 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
 - [x] Ocultar el borde de foco de los iconos al usar el mouse y conservarlo
   para la navegación por teclado.
 - [x] Usar el icono del chucao en lugar del texto de marca de la esquina superior
-  derecha de la barra de lectura.
+  derecha de la barra de lectura. En 2026-11-18 ese acceso se unificó como icono
+  vectorial de información; el chucao queda en la ventana, el EXE y Acerca de.
 - [x] Agregar Acerca de desde el pajarito o F1, con versión, autor/contacto,
   fecha de release y acceso al repositorio de GitHub.
 - [x] Simplificar Acerca de: repositorio como enlace nativo, sin botones;
@@ -32,6 +33,10 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
 - [x] Primera pasada de pulido visual: barra agrupada, acción Abrir con etiqueta,
   indicador de página y zoom, acento cálido, índice sin líneas y búsqueda plana.
   Compilación y regresión aprobadas; pendiente la devolución visual del usuario.
+- [x] Unificar la barra de herramientas: iconos vectoriales antialiasing, sin
+  marcos nativos, separador propio para Acerca de (icono de información) y sol/luna
+  para el tema. Evidencia: [reader-interface.md](reader-interface.md) y
+  [accessibility.md](accessibility.md).
 - [x] Incorporar temas claro y oscuro, con botón, Ctrl+D y preferencia local.
   Evidencia: [themes.md](themes.md).
 - [ ] Incorporar pestañas para varios documentos.

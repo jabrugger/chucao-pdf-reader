@@ -4,7 +4,7 @@
 #include <cmath>
 #include <algorithm>
 
-enum class UiIcon { Folder, Previous, Next, Minus, Plus, Fit, Outline, Search, Printer, Close, Pin, Moon, Sun };
+enum class UiIcon { Folder, Previous, Next, Minus, Plus, Fit, Outline, Search, Printer, Close, Pin, Moon, Sun, Info };
 
 // Central palette for every custom-drawn surface. PDF sheets stay white in both
 // themes: the document is the content, not part of the chrome.
@@ -158,6 +158,13 @@ inline void DrawUiIcon(HDC dc, RECT bounds, UiIcon icon, bool active, bool hover
         line(10, 1, 10, 3.5f); line(10, 16.5f, 10, 19); line(1, 10, 3.5f, 10); line(16.5f, 10, 19, 10);
         line(3.6f, 3.6f, 5.4f, 5.4f); line(14.6f, 14.6f, 16.4f, 16.4f);
         line(16.4f, 3.6f, 14.6f, 5.4f); line(5.4f, 14.6f, 3.6f, 16.4f); break;
+    case UiIcon::Info: {
+        ellipse(4, 4, 16, 16);
+        Gdiplus::SolidBrush dot(UiDraw::Color(active ? palette.accent : palette.ink));
+        graphics.FillEllipse(&dot, sx(9.0f), sy(6.0f), 2 * scale, 2 * scale);
+        line(10, 9, 10, 14);
+        break;
+    }
     }
     if (focused) {
         int margin = std::max(2, static_cast<int>(std::lround(4 * scale)));

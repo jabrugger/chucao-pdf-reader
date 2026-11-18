@@ -66,11 +66,11 @@ mouse y Tab en la ventana visible.
 
 ## Marca gráfica de la barra — 2026-11-16
 
-El texto CHUCAO de la esquina superior derecha se reemplazó por el icono del
-pajarito elegido por el usuario, de 36 píxeles, integrado en los recursos del EXE.
-El icono compartido se carga una sola vez y no requiere archivos externos.
-Compilación CMake Release y diagnóstico de interfaz aprobados; se inspeccionó
-la captura fuera de pantalla. Ejecutable en `build/cmake/Release/Chucao.exe`.
+El texto CHUCAO de la esquina superior derecha se reemplazó por un acceso a
+Acerca de. Inicialmente usó el pajarito elegido por el usuario, de 36 píxeles;
+en 2026-11-18 se sustituyó por un icono vectorial de información para mantener
+una barra uniforme (ver «Barra unificada»). El chucao sigue como icono de la
+ventana, del EXE y del diálogo Acerca de.
 
 ## Acerca de — 2026-11-16
 
@@ -151,3 +151,24 @@ La muestra es pequeña, con cachés sin vaciar y variación de carga del sistema
 no demuestra una mejora de velocidad ni mide la presentación física en pantalla.
 No se observó una regresión en esta comprobación. La ventana vacía sigue sin
 inicializar PDFium. Los informes e imágenes quedan en `test-results`, fuera de Git.
+
+## Barra unificada — 2026-11-18
+
+La barra superior se rediseñó para mantener un solo lenguaje visual:
+
+- Iconos vectoriales de un mismo peso, dibujados con GDI+ y antialiasing (extremos
+  y uniones redondeados), incluidos sol/luna del tema y el nuevo icono de
+  información de Acerca de.
+- Separadores por grupo: apertura · paneles · páginas · zoom · impresión/tema,
+  más un separador propio antes de Acerca de, anclado a la derecha.
+- Los botones propios pintan toda su superficie e ignoran `WM_NCPAINT` y el
+  recorte no cliente, de modo que el marco 3D del control `BUTTON` ya no aparece
+  como un borde claro en el tema oscuro.
+- El estado presionado, el hover y el foco se calculan en el subclass; el anillo
+  de foco solo se muestra con navegación por teclado.
+
+El chucao permanece en el icono de la aplicación, la barra de tareas y el diálogo
+Acerca de. La barra no usa imágenes rasterizadas para los controles, así que no
+agrega recursos ni tiempo de carga; el dibujo es GDI+ sobre el mismo HDC de
+pintura. Capturas reales en claro y oscuro, y a 144/192 DPI, verificaron la
+ausencia de marcos y la uniformidad de los glifos.

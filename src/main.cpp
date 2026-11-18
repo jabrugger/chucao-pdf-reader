@@ -579,8 +579,7 @@ public:
     HFONT strongFont = nullptr;
     HFONT welcomeFont = nullptr;
     HBITMAP welcomeImage = nullptr;
-    HICON brandIcon = nullptr;
-    int brandIconSize = 0;
+
     bool readingStateEnabled = true, readingStateWrites = true, stateConfigured = false, viewReady = false;
     std::wstring readingStateFile;
     bool settingsEnabled = true, settingsConfigured = false, forceDarkTheme = false;
@@ -675,22 +674,6 @@ public:
             if ((item.itemState & (ODS_FOCUS | ODS_NOFOCUSRECT)) == ODS_FOCUS) DrawFocusRect(item.hDC, &box);
             return;
         }
-        if (item.CtlID == About) {
-            SetDCBrushColor(item.hDC, UiTheme().bar);
-            FillRect(item.hDC, &item.rcItem, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
-            // The supplied icon has a white background; a matching card keeps it
-            // looking deliberate in the dark theme.
-            RECT card = item.rcItem; InflateRect(&card, -px(2), -px(2));
-            UiRoundRect(item.hDC, card, UiTheme().sheet, UiTheme().sheet, px(8));
-            if (!brandIcon || brandIconSize != px(32)) {
-                if (brandIcon) DestroyIcon(brandIcon);
-                brandIconSize = px(32);
-                brandIcon = static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_CHUCAO), IMAGE_ICON, brandIconSize, brandIconSize, 0));
-            }
-            if (brandIcon) DrawIconEx(item.hDC, item.rcItem.left + px(2), item.rcItem.top + px(2), brandIcon, px(32), px(32), 0, nullptr, DI_NORMAL);
-            if ((item.itemState & (ODS_FOCUS | ODS_NOFOCUSRECT)) == ODS_FOCUS) DrawFocusRect(item.hDC, &item.rcItem);
-            return;
-        }
         UiIcon icon = UiIcon::Folder; bool active = false;
         switch (item.CtlID) {
         case Previous: case FindPrevious: case OutlineClose: icon = UiIcon::Previous; break;
@@ -704,6 +687,7 @@ public:
         case FindClose: icon = UiIcon::Close; break;
         case OutlinePin: icon = UiIcon::Pin; active = outlinePinned; break;
         case Theme: icon = UiDark() ? UiIcon::Sun : UiIcon::Moon; break;
+        case About: icon = UiIcon::Info; break;
         }
         POINT mouse{}; GetCursorPos(&mouse); RECT rect{}; GetWindowRect(item.hwndItem, &rect);
         DrawUiIcon(item.hDC, item.rcItem, icon, active, PtInRect(&rect, mouse) != FALSE,
@@ -2003,6 +1987,10 @@ public:
             RECT rule{x, D(17), x + std::max(1, D(1)), D(35)}; SetDCBrushColor(dc, UiTheme().line);
             FillRect(dc, &rule, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         }
+        // About sits on the far right; give it its own separator before the field.
+        RECT aboutRule{rc.right - D(62), D(17), rc.right - D(62) + std::max(1, D(1)), D(35)};
+        SetDCBrushColor(dc, UiTheme().line);
+        FillRect(dc, &aboutRule, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         RECT pageField{D(290), D(11), D(388), D(41)}; UiRoundRect(dc, pageField, UiTheme().field, UiTheme().field, D(10));
         auto pageLabel = pages ? std::to_wstring(page + 1) + L" / " + std::to_wstring(pages) : L"— / —";
         SelectObject(dc, strongFont); DrawTextW(dc, pageLabel.c_str(), -1, &pageField, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
@@ -2227,7 +2215,6 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         if (suggested) SetWindowPos(window, nullptr, suggested->left, suggested->top,
             suggested->right - suggested->left, suggested->bottom - suggested->top,
             SWP_NOZORDER | SWP_NOACTIVATE);
-        app->brandIconSize = 0; // Reload the About artwork at the new scale.
         app->CreateFonts();
         app->previousContentWidth = 0;
         app->ArrangeChrome();

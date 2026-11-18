@@ -17,8 +17,8 @@ bitmap de la interfaz.
   incluye `BarHeight`, márgenes entre páginas, botones, barra de búsqueda, pie,
   bienvenida, panel del índice, alto de fila y sangría del árbol.
 - Las fuentes se recrean con `CreateFonts` al cambiar de monitor; los controles
-  se actualizan con `ApplyFonts`. La imagen de bienvenida y el icono de Acerca de
-  se escalan al tamaño correspondiente.
+  se actualizan con `ApplyFonts`. La imagen de bienvenida se escala al tamaño
+  correspondiente; los iconos de la barra son vectoriales y escalan con GDI+.
 - `WM_DPICHANGED` aplica el rectángulo sugerido por Windows, vuelve a maquetar y
   dispara un render nuevo con el ancho de vista actualizado.
 - Los glifos vectoriales escalan su espacio de 20 × 20 y el grosor del trazo;
