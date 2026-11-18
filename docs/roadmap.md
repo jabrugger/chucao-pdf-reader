@@ -17,9 +17,9 @@ La lista consolidada y verificable de pendientes está en [TODO.md](TODO.md).
    destinos directos/nombrados y regreso al punto de lectura. Persistencia local de
    página, zoom y posición por documento. Enlaces web HTTP/HTTPS por clic explícito.
 3. **Interfaz**: propuesta visual inspirada en MarkPad, toolbar compacta, panel
-   opcional, temas claro/oscuro, DPI por monitor y navegación por teclado con
-   nombres accesibles. Pendientes las pestañas, los anuncios para lectores de
-   pantalla, el alto contraste y la validación visual con el usuario.
+   opcional, temas claro/oscuro, DPI por monitor, pestañas y navegación por
+   teclado con nombres accesibles. Pendientes los anuncios para lectores de
+   pantalla, el alto contraste real y la validación visual con el usuario.
 4. **Validación de motor**: corpus y métricas reproducibles contra Sumatra/KillerPDF.
    Comparar MuPDF si hay fallos que justifiquen el coste; motor KillerPDF aislado
    si aporta ventajas medibles. No asumir que un lenguaje determina el resultado.

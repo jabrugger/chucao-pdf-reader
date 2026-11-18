@@ -39,7 +39,8 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   [accessibility.md](accessibility.md).
 - [x] Incorporar temas claro y oscuro, con botón, Ctrl+D y preferencia local.
   Evidencia: [themes.md](themes.md).
-- [ ] Incorporar pestañas para varios documentos.
+- [x] Incorporar pestañas para varios documentos, con franja, reutilización,
+  cierre (×, clic medio, Ctrl+W), Ctrl+T y Ctrl+Tab. Evidencia: [tabs.md](tabs.md).
 - [x] Recordar página, zoom y posición vertical/horizontal por documento, al cerrar
   o cambiar de PDF. Evidencia: [reading-state.md](reading-state.md).
 - [x] Incorporar archivos recientes, con apertura bajo demanda y opción para
@@ -145,6 +146,11 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   segundo y descarte un resultado atrasado del primero (`--benchmark-rapid`).
 - [ ] Validar manualmente abrir muchos documentos seguidos con mouse/teclado y con
   archivos reales remotos o protegidos.
+- [x] Validar automáticamente la gestión de pestañas: abrir, reutilizar, activar,
+  cerrar conservando la vecina y volver a la bienvenida. Evidencia:
+  [tabs.md](tabs.md).
+- [ ] Validar manualmente alternar pestañas con muchos documentos, archivos
+  protegidos y remotos, y con teclado y mouse.
 - [ ] Cambiar zoom y tamaño de ventana durante el renderizado.
 - [ ] Cerrar durante lectura, búsqueda o renderizado, sin bloqueos ni fugas.
 - [ ] Medir CPU y memoria tras muchas aperturas y recorridos.

@@ -55,7 +55,7 @@ constexpr UINT ChromeHover = WM_APP + 2;
 
 constexpr int RecentBase = 4000;
 enum { Open = 100, Previous, Next, Smaller, Larger, Fit, Find, Print, Query, FindNext, FindPrevious, Copy, Outline, OpenMenu, ForgetHistory,
-    FindClose, OutlineClose, OutlinePin, OutlineRail, About, Theme };
+    FindClose, OutlineClose, OutlinePin, OutlineRail, About, Theme, NewTabCmd, CloseTabCmd, NextTabCmd, PrevTabCmd };
 
 // Best-effort dark title bar. Older Windows builds ignore both attributes.
 void ApplyWindowTheme(HWND window, bool dark) {
@@ -562,6 +562,18 @@ public:
     int D(int value) const { return MulDiv(value, dpi, 96); }
     int BarPixels() const { return D(52); }
     int PageGap() const { return D(DocumentLayout::Gap); }
+    int TabBarHeight() const { return tabs.empty() ? 0 : D(34); }
+    int ContentTop() const { return BarPixels() + TabBarHeight(); }
+    std::wstring TabKey(const std::wstring& file) const { return ReadingStateStore::NormalizePath(file); }
+    bool SameTab(const std::wstring& a, const std::wstring& b) const {
+        auto na = TabKey(a), nb = TabKey(b);
+        return !na.empty() && na == nb;
+    }
+    const wchar_t* TabTitle(const std::wstring& file) const {
+        auto slash = file.find_last_of(L"\\/");
+        auto name = slash == std::wstring::npos ? file : file.substr(slash + 1);
+        return name.c_str();
+    }
     DocumentOutline outline;
     bool outlineLoaded = false, outlinePending = false, outlineTest = false;
     int outlineChecks = 0, outlineStep = 0;
@@ -600,6 +612,8 @@ public:
     bool hcTest = false;
     bool rapidTest = false;
     int rapidPages = 0;
+    bool tabsTest = false;
+    std::wstring tabsTestA, tabsTestB;
     int startupStage = 0, startupPage = -1;
     double startupRenderMs = 0, startupBitmapMs = 0, startupComposeMs = 0;
     int recentStep = 0, recentChecks = 0;
@@ -638,6 +652,11 @@ public:
     int testWordStart[2]{0, 0};
     std::vector<TextBox> searchBoxes;
     std::wstring path, status = L"Abrí un PDF para empezar · Ctrl+O";
+    std::vector<std::wstring> tabs;
+    int activeTab = -1, hoverTab = -1;
+    bool hoverTabClose = false;
+    struct TabLayout { RECT bounds{}, close{}; };
+    std::vector<TabLayout> tabLayout;
     std::wstring benchmarkReport;
     bool navigationTest = false;
     bool textTest = false;
@@ -711,10 +730,10 @@ public:
         MoveWindow(GetDlgItem(window, About), rc.right - D(54), D(8), D(36), D(36), TRUE);
         int left = ViewLeft(), bottom = static_cast<int>(rc.bottom) - D(26);
         int panelBottom = outlinePinned ? bottom : BarPixels() + ViewHeight();
-        MoveWindow(outlineWindow, 0, BarPixels(), OutlineWidth(), std::max(1, panelBottom - BarPixels()), TRUE);
+        MoveWindow(outlineWindow, 0, ContentTop(), OutlineWidth(), std::max(1, panelBottom - ContentTop()), TRUE);
         ShowWindow(outlineWindow, outlinePinned || outlinePeek ? SW_SHOWNA : SW_HIDE);
         HWND rail = GetDlgItem(window, OutlineRail);
-        MoveWindow(rail, 0, BarPixels(), D(18), ViewHeight(), TRUE);
+        MoveWindow(rail, 0, ContentTop(), D(18), ViewHeight(), TRUE);
         ShowWindow(rail, !outlinePinned && outlineLoaded && !outline.entries.empty() && !outlinePeek ? SW_SHOWNA : SW_HIDE);
         if (outlinePeek) SetWindowPos(outlineWindow, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         int y = bottom - D(44), width = std::max(D(120), std::min(D(320), static_cast<int>(rc.right) - left - D(320)));
@@ -950,7 +969,7 @@ public:
     void CheckOutlinePeek() {
         if (!outlinePeek) { KillTimer(window, 7); return; }
         POINT point{}; GetCursorPos(&point); ScreenToClient(window, &point);
-        bool inside = point.x >= 0 && point.x < OutlineWidth() + D(24) && point.y >= BarPixels() && point.y < BarPixels() + ViewHeight();
+        bool inside = point.x >= 0 && point.x < OutlineWidth() + D(24) && point.y >= ContentTop() && point.y < ContentTop() + ViewHeight();
         UpdateOutlinePeek(inside);
     }
     void UpdateOutlinePeek(bool inside) {
@@ -991,7 +1010,7 @@ public:
             if (searchBoxes.empty() || searchPage != 0) { BenchmarkResult(false); return; }
             auto box = searchBoxes.front(); TextPoint hit;
             int x = ViewLeft() + layout.Left(0, ViewWidth(), horizontal) + static_cast<int>((box.left + box.right) * .5 * layout.Width(0));
-            int y = BarPixels() + static_cast<int>(layout.Top(0) - scroll + (box.top + box.bottom) * .5 * layout.Height(0));
+            int y = ContentTop() + static_cast<int>(layout.Top(0) - scroll + (box.top + box.bottom) * .5 * layout.Height(0));
             if (!PointOnPage(x, y, hit) || hit.page != 0) { BenchmarkResult(false); return; }
             SaveTestImage(benchmarkReport + L".interface.bmp", window);
             HideSearch();
@@ -1193,7 +1212,7 @@ public:
             zoom = 3; Reflow(); Render();
             ScrollHorizontal(static_cast<int>(layout.Left(0, ViewWidth()) + point.x * layout.Width(0) - ViewWidth() / 2.0));
         int sx = ViewLeft() + layout.Left(0, ViewWidth(), horizontal) + static_cast<int>(point.x * layout.Width(0));
-            int sy = BarPixels() + static_cast<int>(layout.Top(0) - scroll + point.y * layout.Height(0)); TextPoint hit;
+            int sy = ContentTop() + static_cast<int>(layout.Top(0) - scroll + point.y * layout.Height(0)); TextPoint hit;
             if (!PointOnPage(sx, sy, hit) || !LinkAt(hit)) { BenchmarkResult(false); return; }
             point = hit; linkTestHorizontal = horizontal;
             linkTestScroll = scroll; linkStep = 2; ActivateLink(point);
@@ -1248,7 +1267,7 @@ public:
             selectionEnd = {0, (b.left + b.right) / 2, (b.top + b.bottom) / 2};
             TextPoint hit;
             int x = ViewLeft() + layout.Left(0, ViewWidth(), horizontal) + static_cast<int>(selectionStart.x * layout.Width(0));
-            int y = BarPixels() + static_cast<int>(layout.Top(0) - scroll + selectionStart.y * layout.Height(0));
+            int y = ContentTop() + static_cast<int>(layout.Top(0) - scroll + selectionStart.y * layout.Height(0));
             if (!PointOnPage(x, y, hit) || NearestCharacter(boxes, hit.x, hit.y, layout.Height(0) / static_cast<double>(layout.Width(0))) != first) { BenchmarkResult(false); return; }
             selected = true; ++selectionRevision; textStep = 3; CopySelection();
         } else if (textStep == 3 && kind == Result::Copied) {
@@ -1465,8 +1484,8 @@ public:
         PageStatus();
     }
     bool PointOnPage(int x, int y, TextPoint& point, bool clamp = false) {
-        if (!pages || (!clamp && (x < ViewLeft() || x >= ViewLeft() + ViewWidth() || y < BarPixels() || y >= BarPixels() + ViewHeight()))) return false;
-        auto documentY = scroll + y - BarPixels();
+        if (!pages || (!clamp && (x < ViewLeft() || x >= ViewLeft() + ViewWidth() || y < ContentTop() || y >= ContentTop() + ViewHeight()))) return false;
+        auto documentY = scroll + y - ContentTop();
         int index = layout.PageAt(documentY);
         int left = ViewLeft() + layout.Left(index, ViewWidth(), horizontal);
         double px = (x - left) / static_cast<double>(layout.Width(index));
@@ -1581,7 +1600,7 @@ public:
         }
         Redraw();
     }
-    int ViewHeight() const { RECT rc{}; GetClientRect(window, &rc); return std::max<int>(1, rc.bottom - BarPixels() - D(26) - (searchVisible ? D(44) : 0)); }
+    int ViewHeight() const { RECT rc{}; GetClientRect(window, &rc); return std::max<int>(1, rc.bottom - ContentTop() - D(26) - (searchVisible ? D(44) : 0)); }
     int ViewWidth() const { RECT rc{}; GetClientRect(window, &rc); return std::max<int>(1, rc.right - ViewLeft()); }
     std::int64_t MaxScroll() const { return std::max<std::int64_t>(0, layout.Total() - ViewHeight()); }
     void ScrollHorizontal(int value) {
@@ -1666,29 +1685,76 @@ public:
         revision = worker->Render(std::move(missing), width, zoom, document, viewVersion);
         Redraw();
     }
+    void ResetDocument(const std::wstring& file) {
+        SaveReadingState(); viewReady = false; pendingReadingState.reset();
+        outlinePinned = outlinePeek = false; outlineAutoShow = true; KillTimer(window, 7);
+        suppressCurrentState = false;
+        pageLinks.clear(); pendingLinks.clear(); linkHistory.clear();
+        outline = {}; outlineLoaded = outlinePending = false; PopulateOutline();
+        EndSelection(); ClearSelection(); textPages.clear(); pendingText.clear(); searchPage = -1; searchBoxes.clear();
+        path = file; ++document; pages = 0; canCopy = canPrint = false; page = 0; scroll = 0; horizontal = 0; zoom = 0; searching = false;
+        cache.clear(); cacheBytes = 0; layout.Reset(0); layout.Rebuild(ViewWidth(), zoom, PageGap());
+        planned.clear(); renderWidth = 0; renderZoom = -1; ++viewVersion;
+        ScrollHorizontal(0);
+        ArrangeChrome();
+    }
     void Load(const std::wstring& file, const std::wstring& password = L"", bool retry = false) {
         if (!worker) worker = std::make_unique<PdfWorker>(window);
-        if (!retry) {
-            SaveReadingState(); viewReady = false; pendingReadingState.reset();
-            outlinePinned = outlinePeek = false; outlineAutoShow = true; KillTimer(window, 7);
-            suppressCurrentState = false;
-            pageLinks.clear(); pendingLinks.clear(); linkHistory.clear();
-            outline = {}; outlineLoaded = outlinePending = false; PopulateOutline();
-            EndSelection(); ClearSelection(); textPages.clear(); pendingText.clear(); searchPage = -1; searchBoxes.clear();
-            path = file; ++document; pages = 0; canCopy = canPrint = false; page = 0; scroll = 0; horizontal = 0; zoom = 0; searching = false;
-            cache.clear(); cacheBytes = 0; layout.Reset(0); layout.Rebuild(ViewWidth(), zoom, PageGap());
-            planned.clear(); renderWidth = 0; renderZoom = -1; ++viewVersion;
-            ScrollHorizontal(0);
-            ArrangeChrome();
-        }
+        if (!retry) ResetDocument(file);
         status = L"Abriendo documento…"; Redraw(); worker->Load(path, password, document, retry);
+    }
+    void OpenDocument(const std::wstring& file) {
+        if (file.empty()) return;
+        for (int i = 0; i < static_cast<int>(tabs.size()); ++i)
+            if (SameTab(tabs[i], file)) { ActivateTab(i); return; }
+        tabs.push_back(file);
+        activeTab = static_cast<int>(tabs.size()) - 1;
+        Load(file);
+    }
+    void ActivateTab(int index) {
+        if (index < 0 || index >= static_cast<int>(tabs.size()) || index == activeTab) return;
+        activeTab = index;
+        Load(tabs[index]);
+    }
+    void CloseTab(int index) {
+        if (index < 0 || index >= static_cast<int>(tabs.size())) return;
+        bool wasActive = index == activeTab;
+        tabs.erase(tabs.begin() + index);
+        if (tabs.empty()) { activeTab = -1; CloseDocument(); return; }
+        if (wasActive) {
+            int next = std::min(index, static_cast<int>(tabs.size()) - 1);
+            activeTab = next;
+            Load(tabs[next]);
+        } else if (index < activeTab) --activeTab;
+        ArrangeChrome(); Redraw();
+    }
+    void NextTab(int delta) {
+        if (tabs.size() < 2) return;
+        ActivateTab((activeTab + delta + static_cast<int>(tabs.size())) % static_cast<int>(tabs.size()));
+    }
+    void CloseDocument() {
+        if (!worker) worker = std::make_unique<PdfWorker>(window);
+        ResetDocument(L"");
+        SetWindowTextW(window, L"Chucao PDF Reader");
+        status = L"Abrí un PDF para empezar · Ctrl+O";
+        Redraw();
+    }
+    void RunTabsTest() {
+        bool ok = tabs.empty() && activeTab == -1;
+        OpenDocument(tabsTestA); ok = ok && tabs.size() == 1 && activeTab == 0 && path == tabsTestA;
+        OpenDocument(tabsTestB); ok = ok && tabs.size() == 2 && activeTab == 1 && path == tabsTestB;
+        OpenDocument(tabsTestA); ok = ok && tabs.size() == 2 && activeTab == 0 && path == tabsTestA; // reuses the open tab
+        ActivateTab(1); ok = ok && activeTab == 1 && path == tabsTestB;
+        CloseTab(0); ok = ok && tabs.size() == 1 && activeTab == 0 && path == tabsTestB;
+        CloseTab(0); ok = ok && tabs.empty() && activeTab == -1 && pages == 0 && path.empty();
+        BenchmarkResult(ok);
     }
     void ChooseFile() {
         wchar_t filename[32768]{};
         OPENFILENAMEW ofn{}; ofn.lStructSize = sizeof(ofn); ofn.hwndOwner = window;
         ofn.lpstrFilter = L"Documentos PDF\0*.pdf\0Todos los archivos\0*.*\0";
         ofn.lpstrFile = filename; ofn.nMaxFile = 32768; ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-        if (GetOpenFileNameW(&ofn)) Load(filename);
+        if (GetOpenFileNameW(&ofn)) OpenDocument(filename);
     }
     void ChangePage(int target) {
         if (!pages) return;
@@ -1727,7 +1793,7 @@ public:
         pendingReadingState.reset();
         ++linkEpoch;
         if (id >= RecentBase && id < RecentBase + static_cast<int>(recentEntries.size())) {
-            auto selectedPath = recentEntries[id - RecentBase].path; Load(selectedPath); return;
+            auto selectedPath = recentEntries[id - RecentBase].path; OpenDocument(selectedPath); return;
         }
         switch (id) {
         case Open: ChooseFile(); break;
@@ -1756,6 +1822,10 @@ public:
             break;
         case Print: PrintFile(); break;
         case Theme: ToggleTheme(); break;
+        case NewTabCmd: ChooseFile(); break;
+        case CloseTabCmd: CloseTab(activeTab); break;
+        case NextTabCmd: NextTab(1); break;
+        case PrevTabCmd: NextTab(-1); break;
         }
     }
     void Receive(std::unique_ptr<Result> result) {
@@ -1952,6 +2022,76 @@ public:
         }
         }
     }
+    void ComputeTabs(const RECT& rc) {
+        tabLayout.clear();
+        if (tabs.empty()) return;
+        int height = TabBarHeight(), x = D(8), gap = D(4), closeW = D(26);
+        int count = static_cast<int>(tabs.size());
+        int tabW = std::max(D(96), std::min(D(220), static_cast<int>(rc.right - D(16) - gap * (count - 1)) / count));
+        for (int i = 0; i < count; ++i) {
+            TabLayout t;
+            t.bounds = {x, BarPixels() + D(3), x + tabW, BarPixels() + height - D(2)};
+            t.close = {t.bounds.right - closeW, t.bounds.top + D(3), t.bounds.right - D(6), t.bounds.bottom - D(3)};
+            tabLayout.push_back(t);
+            x += tabW + gap;
+        }
+    }
+    int TabHitTest(int x, int y, bool& close) {
+        close = false;
+        if (tabs.empty()) return -1;
+        RECT rc{}; GetClientRect(window, &rc);
+        ComputeTabs(rc);
+        for (size_t i = 0; i < tabLayout.size(); ++i) {
+            const auto& t = tabLayout[i];
+            if (x >= t.bounds.left && x < t.bounds.right && y >= t.bounds.top && y < t.bounds.bottom) {
+                close = x >= t.close.left;
+                return static_cast<int>(i);
+            }
+        }
+        return -1;
+    }
+    bool TabClick(int x, int y) {
+        if (tabs.empty()) return false;
+        bool close = false;
+        int index = TabHitTest(x, y, close);
+        if (index < 0) return false;
+        if (close) CloseTab(index);
+        else ActivateTab(index);
+        return true;
+    }
+    void DrawTabs(HDC dc, const RECT& rc) {
+        if (tabs.empty()) return;
+        ComputeTabs(rc);
+        SelectObject(dc, font); SetBkMode(dc, TRANSPARENT);
+        for (size_t i = 0; i < tabLayout.size(); ++i) {
+            const auto& t = tabLayout[i];
+            bool active = static_cast<int>(i) == activeTab;
+            bool hovered = static_cast<int>(i) == hoverTab;
+            COLORREF fill = active ? UiTheme().canvas : hovered ? UiTheme().hover : UiTheme().bar;
+            UiRoundRect(dc, t.bounds, fill, UiTheme().line, D(8));
+            if (active) {
+                RECT underline{t.bounds.left + D(6), t.bounds.bottom - D(2), t.bounds.right - D(6), t.bounds.bottom - D(1)};
+                SetDCBrushColor(dc, UiTheme().accent);
+                FillRect(dc, &underline, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+            }
+            SetTextColor(dc, active ? UiTheme().ink : UiTheme().muted);
+            RECT text{t.bounds.left + D(10), t.bounds.top, t.close.left - D(4), t.bounds.bottom};
+            DrawTextW(dc, TabTitle(tabs[i]), -1, &text, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+            // Small close cross with GDI+ so it stays crisp at every DPI.
+            Gdiplus::Graphics graphics(dc);
+            if (graphics.GetLastStatus() == Gdiplus::Ok) {
+                graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+                float scale = static_cast<float>(dpi) / 96.0f;
+                Gdiplus::Pen pen(UiDraw::Color(hovered && hoverTabClose ? UiTheme().accent : UiTheme().muted),
+                    std::max(1.4f, 1.6f * scale));
+                pen.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound, Gdiplus::DashCapRound);
+                float cx = (t.close.left + t.close.right) / 2.0f, cy = (t.close.top + t.close.bottom) / 2.0f;
+                float r = std::min(4.0f * scale, (t.close.right - t.close.left) / 2.0f);
+                graphics.DrawLine(&pen, cx - r, cy - r, cx + r, cy + r);
+                graphics.DrawLine(&pen, cx - r, cy + r, cx + r, cy - r);
+            }
+        }
+    }
     void Draw(HDC target, RECT rc) {
         HDC dc = CreateCompatibleDC(target);
         HBITMAP buffer = CreateCompatibleBitmap(target, std::max<LONG>(1, rc.right), std::max<LONG>(1, rc.bottom));
@@ -1961,13 +2101,13 @@ public:
         RECT bar{0, 0, rc.right, BarPixels()}; FillRect(dc, &bar, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         SelectObject(dc, font); SetBkMode(dc, TRANSPARENT); SetTextColor(dc, UiTheme().muted);
         if (pages) {
-            IntersectClipRect(dc, ViewLeft(), BarPixels(), rc.right, BarPixels() + ViewHeight());
+            IntersectClipRect(dc, ViewLeft(), ContentTop(), rc.right, ContentTop() + ViewHeight());
             int first = layout.PageAt(scroll), last = layout.PageAt(scroll + ViewHeight());
             SetStretchBltMode(dc, COLORONCOLOR); // Quick preview while a new zoom is rendered.
             for (int i = first; i <= last; ++i) {
                 int width = layout.Width(i), height = layout.Height(i);
                 int x = ViewLeft() + layout.Left(i, ViewWidth(), horizontal);
-                int y = BarPixels() + static_cast<int>(layout.Top(i) - scroll);
+                int y = ContentTop() + static_cast<int>(layout.Top(i) - scroll);
                 RECT sheet{x, y, x + width, y + height};
                 RECT shadow{x + D(2), y + D(3), x + width + D(2), y + height + D(3)};
                 SetDCBrushColor(dc, UiTheme().shadow); FillRect(dc, &shadow, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
@@ -1995,7 +2135,7 @@ public:
             }
             SelectClipRgn(dc, nullptr);
         } else if (!pages) {
-            RECT empty{0, BarPixels(), rc.right, rc.bottom - D(26)};
+            RECT empty{0, ContentTop(), rc.right, rc.bottom - D(26)};
             SetDCBrushColor(dc, UiTheme().bar);
             FillRect(dc, &empty, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
             if (!welcomeImage) welcomeImage = static_cast<HBITMAP>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDB_CHUCAO_HOME), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION));
@@ -2025,6 +2165,7 @@ public:
         HPEN separator = CreatePen(PS_SOLID, 1, UiTheme().line); auto oldPen = SelectObject(dc, separator);
         MoveToEx(dc, 0, BarPixels() - 1, nullptr); LineTo(dc, rc.right, BarPixels() - 1);
         SelectObject(dc, oldPen); DeleteObject(separator);
+        DrawTabs(dc, rc);
         SelectObject(dc, font); SetTextColor(dc, UiTheme().ink);
         for (int x : {D(124), D(228), D(448), D(652)}) {
             RECT rule{x, D(17), x + std::max(1, D(1)), D(35)}; SetDCBrushColor(dc, UiTheme().line);
@@ -2042,7 +2183,7 @@ public:
         SelectObject(dc, font); SetTextColor(dc, UiTheme().muted);
         DrawTextW(dc, zoomLabel.c_str(), -1, &zoomField, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         if (searchVisible) {
-            RECT findBar{ViewLeft(), BarPixels() + ViewHeight(), rc.right, rc.bottom - D(26)};
+            RECT findBar{ViewLeft(), ContentTop() + ViewHeight(), rc.right, rc.bottom - D(26)};
             SetDCBrushColor(dc, UiTheme().bar);
             FillRect(dc, &findBar, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
             int width = std::max(D(120), std::min(D(320), static_cast<int>(rc.right) - ViewLeft() - D(320)));
@@ -2229,7 +2370,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->IconButton(window, About, L"Acerca de Chucao (F1)");
         app->IconButton(window, OutlineRail, L"Desplegar el índice");
         app->outlineWindow = CreateWindowExW(WS_EX_CONTROLPARENT, L"ChucaoOutline", L"Contenido del documento", WS_CHILD | WS_CLIPCHILDREN,
-            0, app->BarPixels(), app->D(260), app->D(500), window, nullptr, GetModuleHandleW(nullptr), app);
+            0, app->ContentTop(), app->D(260), app->D(500), window, nullptr, GetModuleHandleW(nullptr), app);
         app->query = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL, 0, 0, app->D(220), app->D(26), window, reinterpret_cast<HMENU>(Query), nullptr, nullptr);
         SendMessageW(app->query, EM_SETCUEBANNER, FALSE, reinterpret_cast<LPARAM>(L"Buscar en el documento"));
         SetAccessibleName(app->query, L"Buscar en el documento");
@@ -2293,11 +2434,23 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         }
         break;
     case ChromeHover: app->PeekOutline(); return 0;
-    case WM_LBUTTONDOWN: app->BeginSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
-    case WM_MOUSEMOVE:
-        app->MoveSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); app->HoverLinks(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
-        if (GET_X_LPARAM(lp) < app->D(18) && GET_Y_LPARAM(lp) >= app->BarPixels()) app->PeekOutline();
+    case WM_LBUTTONDOWN:
+        if (app->TabClick(GET_X_LPARAM(lp), GET_Y_LPARAM(lp))) return 0;
+        app->BeginSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
+    case WM_MBUTTONDOWN: {
+        bool close = false;
+        int index = app->TabHitTest(GET_X_LPARAM(lp), GET_Y_LPARAM(lp), close);
+        if (index >= 0) { app->CloseTab(index); return 0; }
         return 0;
+    }
+    case WM_MOUSEMOVE: {
+        app->MoveSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); app->HoverLinks(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
+        if (GET_X_LPARAM(lp) < app->D(18) && GET_Y_LPARAM(lp) >= app->ContentTop()) app->PeekOutline();
+        bool close = false;
+        int index = app->TabHitTest(GET_X_LPARAM(lp), GET_Y_LPARAM(lp), close);
+        if (app->hoverTab != index || app->hoverTabClose != close) { app->hoverTab = index; app->hoverTabClose = close; app->Redraw(); }
+        return 0;
+    }
     case WM_LBUTTONUP: app->FinishSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
     case WM_CAPTURECHANGED:
         if (reinterpret_cast<HWND>(lp) != window) app->EndSelection(false);
@@ -2310,7 +2463,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         break;
     case WM_DROPFILES: {
         wchar_t path[32768]{}; HDROP drop = reinterpret_cast<HDROP>(wp);
-        if (DragQueryFileW(drop, 0, path, 32768)) app->Load(path);
+        if (DragQueryFileW(drop, 0, path, 32768)) app->OpenDocument(path);
         DragFinish(drop); return 0;
     }
     case Ready: app->Receive(std::unique_ptr<Result>(reinterpret_cast<Result*>(lp))); return 0;
@@ -2318,8 +2471,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     case WM_TIMER:
         if (wp == 4 && app->dragging) {
             POINT pointer{}; GetCursorPos(&pointer); ScreenToClient(window, &pointer);
-            if (pointer.y < app->BarPixels() + app->D(20)) { app->ScrollTo(app->scroll - app->D(28)); app->MoveSelection(pointer.x, pointer.y); }
-            else if (pointer.y > app->BarPixels() + app->ViewHeight() - app->D(20)) { app->ScrollTo(app->scroll + app->D(28)); app->MoveSelection(pointer.x, pointer.y); }
+            if (pointer.y < app->ContentTop() + app->D(20)) { app->ScrollTo(app->scroll - app->D(28)); app->MoveSelection(pointer.x, pointer.y); }
+            else if (pointer.y > app->ContentTop() + app->ViewHeight() - app->D(20)) { app->ScrollTo(app->scroll + app->D(28)); app->MoveSelection(pointer.x, pointer.y); }
             if (pointer.x < app->ViewLeft() + app->D(20)) { app->ScrollHorizontal(app->horizontal - app->D(28)); app->MoveSelection(pointer.x, pointer.y); }
             else if (pointer.x > app->ViewLeft() + app->ViewWidth() - app->D(20)) { app->ScrollHorizontal(app->horizontal + app->D(28)); app->MoveSelection(pointer.x, pointer.y); }
         }
@@ -2406,8 +2559,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool keysTest = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-keys";
     bool hcTest = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-highcontrast";
     bool rapidTest = argv && argc == 5 && std::wstring(argv[1]) == L"--benchmark-rapid";
+    bool tabsTest = argv && argc == 5 && std::wstring(argv[1]) == L"--benchmark-tabs";
     bool interfaceTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-interface";
-    bool benchmark = interfaceTest || recentTest || themeTest || startupTest || dpiTest || keysTest || hcTest || rapidTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
+    bool benchmark = interfaceTest || recentTest || themeTest || startupTest || dpiTest || keysTest || hcTest || rapidTest || tabsTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
     bool previewHome = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-home";
     bool previewAbout = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-about";
     bool forceDark = false;
@@ -2443,6 +2597,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.keysTest = keysTest;
     app.hcTest = hcTest;
     app.rapidTest = rapidTest;
+    app.tabsTest = tabsTest;
     app.readingStateEnabled = !benchmark && !shellBenchmark;
     app.settingsEnabled = !benchmark && !shellBenchmark;
     if (dpiTest || keysTest || hcTest) app.benchmarkReport = argv[2];
@@ -2455,8 +2610,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         app.readingStateEnabled = true; app.readingStateWrites = stateTest == 1;
     }
     if (passwordTest) { std::wstring file = argv[2]; app.passwordTestRoot = file.substr(0, file.find_last_of(L"\\/") + 1); }
-    if (benchmark && !dpiTest && !keysTest && !hcTest && !rapidTest) app.benchmarkReport = argv[3];
+    if (benchmark && !dpiTest && !keysTest && !hcTest && !rapidTest && !tabsTest) app.benchmarkReport = argv[3];
     if (rapidTest) app.benchmarkReport = argv[4];
+    if (tabsTest) { app.tabsTestA = argv[2]; app.tabsTestB = argv[3]; app.benchmarkReport = argv[4]; }
     if (shellBenchmark) app.benchmarkReport = argv[2];
     HWND window = CreateWindowExW(WS_EX_CONTROLPARENT, L"ChucaoReader", L"Chucao PDF Reader",
         WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_HSCROLL | WS_CLIPCHILDREN,
@@ -2483,12 +2639,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     else if (keysTest) app.RunKeysTest();
     else if (hcTest) app.RunHcTest();
     else if (rapidTest) { app.Load(argv[2]); app.Load(argv[3]); SetTimer(window, 2, 30000, nullptr); }
+    else if (tabsTest) app.RunTabsTest();
     else if (benchmark) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
     else if (argv && argc > 1) {
-        // Diagnostic switches are not document paths.
+        // Diagnostic switches are not document paths; every other argument opens a tab.
         for (int i = 1; i < argc; ++i) {
             std::wstring argument = argv[i];
-            if (argument != L"--theme-dark" && argument != L"--force-highcontrast") { app.Load(argument); break; }
+            if (argument != L"--theme-dark" && argument != L"--force-highcontrast") app.OpenDocument(argument);
         }
     }
     if (argv) LocalFree(argv);
@@ -2539,6 +2696,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
             else if (ctrl && !edit && msg.wParam == 'C') command = Copy;
             else if (ctrl && msg.wParam == 'D') command = Theme;
             else if (ctrl && msg.wParam == '0') command = Fit;
+            else if (ctrl && msg.wParam == VK_TAB) command = GetKeyState(VK_SHIFT) < 0 ? PrevTabCmd : NextTabCmd;
+            else if (ctrl && !edit && msg.wParam == 'W') command = CloseTabCmd;
+            else if (ctrl && !edit && msg.wParam == 'T') command = NewTabCmd;
             else if (msg.wParam == VK_F3 || (edit && msg.wParam == VK_RETURN)) command = GetKeyState(VK_SHIFT) < 0 ? FindPrevious : FindNext;
             else if (!edit && msg.wParam == VK_RIGHT) command = Next;
             else if (!edit && msg.wParam == VK_LEFT) command = Previous;
