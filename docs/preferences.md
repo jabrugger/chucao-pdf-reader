@@ -20,7 +20,8 @@ Ctrl+D sigue alternando el tema directamente.
 - `last-session.dat`: cabecera `ChucaoSession 1`, índice de la pestaña activa y
   una ruta UTF-8 por línea. Máximo 64 rutas y 1 MiB; escritura atómica.
   Un archivo dañado se ignora por completo. La sesión se guarda al cerrar, al
-  terminar la sesión de Windows y al cambiar las opciones.
+  terminar la sesión de Windows, al cambiar las opciones y al abrir, activar o
+  cerrar pestañas.
 
 ## Verificación
 

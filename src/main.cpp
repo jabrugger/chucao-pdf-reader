@@ -1798,24 +1798,24 @@ public:
             if (SameTab(tabs[i].path, file)) { ActivateTab(i); return; }
         tabs.push_back({file, {}});
         activeTab = static_cast<int>(tabs.size()) - 1;
-        Load(file);
+        SaveSession(); Load(file);
     }
     void ActivateTab(int index) {
         if (index < 0 || index >= static_cast<int>(tabs.size())) return;
         if (index == activeTab && (pages || openingDocument)) return;
         activeTab = index;
-        Load(tabs[index].path);
+        SaveSession(); Load(tabs[index].path);
     }
     void CloseTab(int index) {
         if (index < 0 || index >= static_cast<int>(tabs.size())) return;
         bool wasActive = index == activeTab;
         tabs.erase(tabs.begin() + index);
-        if (tabs.empty()) { activeTab = -1; CloseDocument(); return; }
+        if (tabs.empty()) { activeTab = -1; SaveSession(); CloseDocument(); return; }
         if (wasActive) {
             int next = std::min(index, static_cast<int>(tabs.size()) - 1);
             activeTab = next;
-            Load(tabs[next].path);
-        } else if (index < activeTab) --activeTab;
+            SaveSession(); Load(tabs[next].path);
+        } else { if (index < activeTab) --activeTab; SaveSession(); }
         ArrangeChrome(); Redraw();
     }
     void NextTab(int delta) {
