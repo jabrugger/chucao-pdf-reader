@@ -78,6 +78,9 @@ documento. Ver [alcance y pruebas](docs/reading-state.md).
 - Seleccionar: arrastrar sobre el texto, incluso entre páginas. Ctrl+C copia;
   Escape limpia la selección. Al arrastrar cerca de un borde la vista se desplaza.
 - Imprimir: Ctrl+P (diálogo de Windows, documento completo o rango de páginas).
+- Tema claro u oscuro: el botón de luna/sol o Ctrl+D. La elección se recuerda en
+  `%LOCALAPPDATA%\ChucaoPDFReader\settings.dat`; ver [temas](docs/themes.md).
+  Las páginas del PDF se mantienen blancas.
 - Los documentos cifrados solicitan contraseña y avisan si es incorrecta; no se
   guarda en disco ni en logs. Los permisos de copia e impresión se comprueban al abrir.
 - El zoom conserva la página y la posición de lectura; la imagen anterior sirve de

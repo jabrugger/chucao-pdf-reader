@@ -32,7 +32,8 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
 - [x] Primera pasada de pulido visual: barra agrupada, acción Abrir con etiqueta,
   indicador de página y zoom, acento cálido, índice sin líneas y búsqueda plana.
   Compilación y regresión aprobadas; pendiente la devolución visual del usuario.
-- [ ] Incorporar temas claro y oscuro.
+- [x] Incorporar temas claro y oscuro, con botón, Ctrl+D y preferencia local.
+  Evidencia: [themes.md](themes.md).
 - [ ] Incorporar pestañas para varios documentos.
 - [x] Recordar página, zoom y posición vertical/horizontal por documento, al cerrar
   o cambiar de PDF. Evidencia: [reading-state.md](reading-state.md).
@@ -78,6 +79,11 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   simultáneos para el estado de lectura.
 - [ ] Validar manualmente cerrar/reabrir documentos reales en distintas ventanas
   y tamaños de pantalla, incluidos archivos remotos y protegidos.
+
+- [x] Validar automáticamente el cambio de tema, la persistencia, la caída a claro
+  con un perfil corrupto y las capturas oscuras. Evidencia: [themes.md](themes.md).
+- [ ] Validar manualmente el contraste de ambos temas a distintos DPI, el alto
+  contraste de Windows y el cambio de tema con varias ventanas abiertas.
 
 - [ ] Revisar el icono en Explorer/barra de tareas y la bienvenida a distintos DPI.
 

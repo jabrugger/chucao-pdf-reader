@@ -16,6 +16,14 @@ foreach ($name in @('aes256-ascii.pdf', 'aes256-unicode.pdf', 'aes128.pdf', 'rc4
 & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Executable $Executable -Pdf ([IO.Path]::Combine($passwordOutput, 'aes256-ascii.pdf')) -Runs 1 -Passwords
 & ([IO.Path]::Combine($root, 'build', 'messages-test.exe'))
 if ($LASTEXITCODE -ne 0) { throw 'Fallaron los mensajes de error.' }
+$results = [IO.Path]::Combine($root, 'test-results')
+$themeReport = [IO.Path]::Combine($results, 'theme.json')
+$themeProfile = [IO.Path]::Combine($results, 'theme-settings.dat')
+$themeProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', 'Chucao.exe')) -ArgumentList @('--benchmark-theme', 'test-results\theme-settings.dat', 'test-results\theme.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
+if (!$themeProcess.WaitForExit(15000)) { $themeProcess.Kill(); throw 'La prueba de temas excedió 15 segundos.' }
+if ($themeProcess.ExitCode -ne 0) { throw 'Falló la prueba de temas.' }
+$themeResult = [IO.File]::ReadAllText($themeReport) | ConvertFrom-Json
+if (!$themeResult.success) { throw 'El cambio de tema o su persistencia no coincidió.' }
 & ([IO.Path]::Combine($root, 'build', 'layout-test.exe'))
 if ($LASTEXITCODE -ne 0) { throw 'Falló la geometría del documento.' }
 & ([IO.Path]::Combine($root, 'build', 'outline-test.exe')) ([IO.Path]::Combine($root, 'test-results'))

@@ -5,6 +5,7 @@
 #include <uxtheme.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <dwmapi.h>
 #include <fpdfview.h>
 #include <fpdf_text.h>
 #include <fpdf_progressive.h>
@@ -17,6 +18,7 @@
 #include "ui-icons.h"
 #include "reading-state.h"
 #include "recent-files.h"
+#include "settings.h"
 #include "pdf-errors.h"
 #include <algorithm>
 #include <atomic>
@@ -42,16 +44,25 @@ constexpr UINT ChromeHover = WM_APP + 2;
 constexpr int BarHeight = 52;
 constexpr int RecentBase = 4000;
 enum { Open = 100, Previous, Next, Smaller, Larger, Fit, Find, Print, Query, FindNext, FindPrevious, Copy, Outline, OpenMenu, ForgetHistory,
-    FindClose, OutlineClose, OutlinePin, OutlineRail, About };
+    FindClose, OutlineClose, OutlinePin, OutlineRail, About, Theme };
+
+// Best-effort dark title bar. Older Windows builds ignore both attributes.
+void ApplyWindowTheme(HWND window, bool dark) {
+    BOOL value = dark ? TRUE : FALSE;
+    DwmSetWindowAttribute(window, 20, &value, sizeof(value));
+    DwmSetWindowAttribute(window, 19, &value, sizeof(value));
+    if (window) SetWindowPos(window, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+}
 
 INT_PTR CALLBACK AboutProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
-    if (message == WM_CTLCOLORDLG) return reinterpret_cast<INT_PTR>(GetStockObject(WHITE_BRUSH));
+    if (message == WM_CTLCOLORDLG) return reinterpret_cast<INT_PTR>(UiBackgroundBrush());
     if (message == WM_CTLCOLORSTATIC) {
         SetBkMode(reinterpret_cast<HDC>(wp), TRANSPARENT);
-        SetTextColor(reinterpret_cast<HDC>(wp), RGB(57, 71, 90));
-        return reinterpret_cast<INT_PTR>(GetStockObject(WHITE_BRUSH));
+        SetTextColor(reinterpret_cast<HDC>(wp), UiTheme().ink);
+        return reinterpret_cast<INT_PTR>(UiBackgroundBrush());
     }
     if (message == WM_INITDIALOG) {
+        ApplyWindowTheme(dialog, UiDark());
         SetDlgItemTextW(dialog, IDC_ABOUT_VERSION, L"Versión " CHUCAO_WIDE(CHUCAO_VERSION_STRING));
         SetDlgItemTextW(dialog, IDC_ABOUT_AUTHOR, CHUCAO_WIDE(CHUCAO_AUTHOR));
         SetDlgItemTextW(dialog, IDC_ABOUT_EMAIL, CHUCAO_WIDE(CHUCAO_EMAIL));
@@ -500,6 +511,8 @@ public:
     HICON brandIcon = nullptr;
     bool readingStateEnabled = true, readingStateWrites = true, stateConfigured = false, viewReady = false;
     std::wstring readingStateFile;
+    bool settingsEnabled = true, settingsConfigured = false, forceDarkTheme = false;
+    std::wstring settingsFile;
     std::optional<ReadingState> pendingReadingState;
     int readingStateTest = 0, readingStateStep = 0, readingStateChecks = 0;
     bool readingStateFound = false;
@@ -508,6 +521,7 @@ public:
     bool suppressCurrentState = false;
     std::vector<ReadingState> recentEntries;
     bool recentTest = false;
+    bool themeTest = false;
     int recentStep = 0, recentChecks = 0;
     std::wstring recentOther, recentMissing;
     std::unique_ptr<PdfWorker> worker;
@@ -568,25 +582,31 @@ public:
         if (item.CtlID == OpenMenu) {
             POINT mouse{}; GetCursorPos(&mouse); RECT screen{}; GetWindowRect(item.hwndItem, &screen);
             bool pressed = (item.itemState & ODS_SELECTED) != 0;
-            COLORREF color = pressed ? RGB(247, 224, 204) : PtInRect(&screen, mouse) ? RGB(255, 239, 224) : RGB(255, 247, 239);
-            FillRect(item.hDC, &item.rcItem, reinterpret_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
+            COLORREF color = pressed ? UiTheme().pressed : PtInRect(&screen, mouse) ? UiTheme().hover : UiTheme().active;
+            SetDCBrushColor(item.hDC, UiTheme().bar);
+            FillRect(item.hDC, &item.rcItem, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
             RECT box = item.rcItem; InflateRect(&box, -1, -1); UiRoundRect(item.hDC, box, color, color);
             RECT icon{item.rcItem.left + 4, item.rcItem.top + 3, item.rcItem.left + 32, item.rcItem.bottom - 3};
             // The folder glyph shares the same palette; the label makes the primary action discoverable.
             int saved = SaveDC(item.hDC);
-            HPEN pen = CreatePen(PS_SOLID, 2, UiColor::Accent); SelectObject(item.hDC, pen); SelectObject(item.hDC, GetStockObject(NULL_BRUSH));
+            HPEN pen = CreatePen(PS_SOLID, 2, UiTheme().accent); SelectObject(item.hDC, pen); SelectObject(item.hDC, GetStockObject(NULL_BRUSH));
             int x = icon.left + 4, y = icon.top + 5;
             MoveToEx(item.hDC, x, y + 3, nullptr); LineTo(item.hDC, x + 6, y + 3); LineTo(item.hDC, x + 9, y + 6);
             LineTo(item.hDC, x + 17, y + 6); LineTo(item.hDC, x + 15, y + 17); LineTo(item.hDC, x, y + 17); LineTo(item.hDC, x, y + 3);
             MoveToEx(item.hDC, x, y + 8, nullptr); LineTo(item.hDC, x + 16, y + 8);
             MoveToEx(item.hDC, box.right - 18, 16, nullptr); LineTo(item.hDC, box.right - 14, 20); LineTo(item.hDC, box.right - 10, 16);
-            SelectObject(item.hDC, strongFont); SetBkMode(item.hDC, TRANSPARENT); SetTextColor(item.hDC, UiColor::Accent);
+            SelectObject(item.hDC, strongFont); SetBkMode(item.hDC, TRANSPARENT); SetTextColor(item.hDC, UiTheme().accent);
             RECT text{34, 0, box.right - 22, item.rcItem.bottom}; DrawTextW(item.hDC, L"Abrir", -1, &text, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
             if ((item.itemState & (ODS_FOCUS | ODS_NOFOCUSRECT)) == ODS_FOCUS) DrawFocusRect(item.hDC, &box);
             RestoreDC(item.hDC, saved); DeleteObject(pen); return;
         }
         if (item.CtlID == About) {
-            FillRect(item.hDC, &item.rcItem, reinterpret_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
+            SetDCBrushColor(item.hDC, UiTheme().bar);
+            FillRect(item.hDC, &item.rcItem, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+            // The supplied icon has a white background; a matching card keeps it
+            // looking deliberate in the dark theme.
+            RECT card = item.rcItem; InflateRect(&card, -2, -2);
+            UiRoundRect(item.hDC, card, UiTheme().sheet, UiTheme().sheet, 8);
             if (!brandIcon) brandIcon = static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_CHUCAO), IMAGE_ICON, 32, 32, LR_SHARED));
             if (brandIcon) DrawIconEx(item.hDC, item.rcItem.left + 2, item.rcItem.top + 2, brandIcon, 32, 32, 0, nullptr, DI_NORMAL);
             if ((item.itemState & (ODS_FOCUS | ODS_NOFOCUSRECT)) == ODS_FOCUS) DrawFocusRect(item.hDC, &item.rcItem);
@@ -604,6 +624,7 @@ public:
         case Print: icon = UiIcon::Printer; break;
         case FindClose: icon = UiIcon::Close; break;
         case OutlinePin: icon = UiIcon::Pin; active = outlinePinned; break;
+        case Theme: icon = UiDark() ? UiIcon::Sun : UiIcon::Moon; break;
         }
         POINT mouse{}; GetCursorPos(&mouse); RECT rect{}; GetWindowRect(item.hwndItem, &rect);
         DrawUiIcon(item.hDC, item.rcItem, icon, active, PtInRect(&rect, mouse) != FALSE,
@@ -649,6 +670,58 @@ public:
     void SetOutlinePinned(bool value) {
         outlinePinned = value; outlinePeek = false; outlineAutoShow = false; KillTimer(window, 7);
         ArrangeChrome(); Render();
+    }
+    bool ConfigureSettings() {
+        if (!settingsEnabled) return false;
+        if (settingsConfigured) return !settingsFile.empty();
+        settingsConfigured = true;
+        if (!settingsFile.empty()) return true;
+        PWSTR folder = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &folder))) {
+            settingsFile = std::wstring(folder) + L"\\ChucaoPDFReader\\settings.dat"; CoTaskMemFree(folder);
+        }
+        return !settingsFile.empty();
+    }
+    void ApplyPalette(bool dark, bool persist) {
+        SetUiTheme(dark);
+        if (window) { ApplyWindowTheme(window, dark); SetWindowTheme(window, dark ? L"DarkMode_Explorer" : L"Explorer", nullptr); }
+        if (outlineWindow) { ApplyWindowTheme(outlineWindow, dark); SetWindowTheme(outlineWindow, dark ? L"DarkMode_Explorer" : L"Explorer", nullptr); }
+        if (outlineTree) {
+            TreeView_SetBkColor(outlineTree, UiTheme().bar);
+            TreeView_SetTextColor(outlineTree, UiTheme().ink);
+            SetWindowTheme(outlineTree, dark ? L"DarkMode_Explorer" : L"Explorer", nullptr);
+        }
+        if (persist && ConfigureSettings()) SettingsStore(settingsFile).Write({dark});
+        if (!window) return;
+        RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+        for (HWND control : {outlineWindow, query, findFeedback, findLabel}) if (control) InvalidateRect(control, nullptr, TRUE);
+    }
+    void LoadTheme() {
+        if (forceDarkTheme) { ApplyPalette(true, false); return; }
+        if (ConfigureSettings()) {
+            if (auto settings = SettingsStore(settingsFile).Read()) { ApplyPalette(settings->dark, false); return; }
+        }
+        ApplyPalette(false, false);
+    }
+    void ToggleTheme() { ApplyPalette(!UiDark(), true); }
+    void RunThemeTest() {
+        const char junk[] = "not a settings file\n"; DWORD written = 0;
+        HANDLE file = CreateFileW(settingsFile.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        bool ok = file != INVALID_HANDLE_VALUE &&
+            WriteFile(file, junk, sizeof(junk) - 1, &written, nullptr) && written == sizeof(junk) - 1;
+        if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
+        LoadTheme(); // Corrupt profile falls back to the light theme without throwing.
+        ok = ok && !UiDark();
+        ToggleTheme();
+        ok = ok && UiDark();
+        auto settings = SettingsStore(settingsFile).Read();
+        ok = ok && settings.has_value() && settings->dark;
+        SaveTestImage(benchmarkReport + L".dark.bmp");
+        ToggleTheme();
+        ok = ok && !UiDark();
+        settings = SettingsStore(settingsFile).Read();
+        ok = ok && settings.has_value() && !settings->dark;
+        BenchmarkResult(ok);
     }
     void PeekOutline() {
         if (outlinePinned || outlinePeek || dragging || GetCapture() == window || outline.entries.empty()) return;
@@ -1452,6 +1525,7 @@ public:
             else SetOutlinePinned(true);
             break;
         case Print: PrintFile(); break;
+        case Theme: ToggleTheme(); break;
         }
     }
     void Receive(std::unique_ptr<Result> result) {
@@ -1635,9 +1709,10 @@ public:
         HDC dc = CreateCompatibleDC(target);
         HBITMAP buffer = CreateCompatibleBitmap(target, std::max<LONG>(1, rc.right), std::max<LONG>(1, rc.bottom));
         HGDIOBJ oldBuffer = SelectObject(dc, buffer);
-        HBRUSH background = CreateSolidBrush(UiColor::Canvas); FillRect(dc, &rc, background); DeleteObject(background);
-        RECT bar{0, 0, rc.right, BarHeight}; FillRect(dc, &bar, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
-        SelectObject(dc, font); SetBkMode(dc, TRANSPARENT); SetTextColor(dc, RGB(72, 79, 92));
+        HBRUSH background = CreateSolidBrush(UiTheme().canvas); FillRect(dc, &rc, background); DeleteObject(background);
+        SetDCBrushColor(dc, UiTheme().bar);
+        RECT bar{0, 0, rc.right, BarHeight}; FillRect(dc, &bar, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+        SelectObject(dc, font); SetBkMode(dc, TRANSPARENT); SetTextColor(dc, UiTheme().muted);
         if (pages) {
             IntersectClipRect(dc, ViewLeft(), BarHeight, rc.right, BarHeight + ViewHeight());
             int first = layout.PageAt(scroll), last = layout.PageAt(scroll + ViewHeight());
@@ -1648,8 +1723,8 @@ public:
                 int y = BarHeight + static_cast<int>(layout.Top(i) - scroll);
                 RECT sheet{x, y, x + width, y + height};
                 RECT shadow{x + 2, y + 3, x + width + 2, y + height + 3};
-                SetDCBrushColor(dc, RGB(223, 228, 234)); FillRect(dc, &shadow, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
-                FillRect(dc, &sheet, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
+                SetDCBrushColor(dc, UiTheme().shadow); FillRect(dc, &shadow, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+                SetDCBrushColor(dc, UiTheme().sheet); FillRect(dc, &sheet, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
                 auto found = cache.find(i);
                 if (found != cache.end()) {
                     const auto& image = found->second.image;
@@ -1674,11 +1749,16 @@ public:
             SelectClipRgn(dc, nullptr);
         } else if (!pages) {
             RECT empty{0, BarHeight, rc.right, rc.bottom - 26};
-            FillRect(dc, &empty, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
+            SetDCBrushColor(dc, UiTheme().bar);
+            FillRect(dc, &empty, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
             if (!welcomeImage) welcomeImage = static_cast<HBITMAP>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDB_CHUCAO_HOME), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION));
             int available = std::max<LONG>(1, empty.bottom - empty.top);
             int size = std::min(224, std::max(100, available - 130));
             int top = empty.top + std::max(8, (available - size - 108) / 2);
+            // The artwork is a white-background bitmap; a matching rounded card keeps
+            // it intentional in the dark theme instead of a stray white square.
+            RECT card{(rc.right - size) / 2 - 10, top - 10, (rc.right + size) / 2 + 10, top + size + 10};
+            UiRoundRect(dc, card, UiTheme().sheet, UiTheme().sheet, 20);
             if (welcomeImage) {
                 HDC picture = CreateCompatibleDC(dc); auto oldPicture = SelectObject(picture, welcomeImage);
                 BITMAP bitmap{}; GetObjectW(welcomeImage, sizeof(bitmap), &bitmap);
@@ -1687,46 +1767,48 @@ public:
                 SelectObject(picture, oldPicture); DeleteDC(picture);
             }
             RECT title{24, top + size + 8, rc.right - 24, top + size + 42};
-            SelectObject(dc, welcomeFont); SetTextColor(dc, RGB(22, 34, 49));
+            SelectObject(dc, welcomeFont); SetTextColor(dc, UiTheme().welcomeTitle);
             DrawTextW(dc, L"Chucao", -1, &title, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-            SelectObject(dc, font); SetTextColor(dc, RGB(86, 97, 112));
+            SelectObject(dc, font); SetTextColor(dc, UiTheme().welcomeText);
             RECT tagline{24, title.bottom + 2, rc.right - 24, title.bottom + 28};
             DrawTextW(dc, L"Tu documento, sin distracciones.", -1, &tagline, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
             RECT action{24, tagline.bottom + 12, rc.right - 24, tagline.bottom + 38};
             DrawTextW(dc, L"Abrir PDF · Ctrl+O", -1, &action, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         }
-        HPEN separator = CreatePen(PS_SOLID, 1, RGB(226, 231, 237)); auto oldPen = SelectObject(dc, separator);
+        HPEN separator = CreatePen(PS_SOLID, 1, UiTheme().line); auto oldPen = SelectObject(dc, separator);
         MoveToEx(dc, 0, BarHeight - 1, nullptr); LineTo(dc, rc.right, BarHeight - 1);
         SelectObject(dc, oldPen); DeleteObject(separator);
-        SelectObject(dc, font); SetTextColor(dc, UiColor::Ink);
+        SelectObject(dc, font); SetTextColor(dc, UiTheme().ink);
         for (int x : {124, 228, 448, 652}) {
-            RECT rule{x, 17, x + 1, 35}; SetDCBrushColor(dc, UiColor::Line);
+            RECT rule{x, 17, x + 1, 35}; SetDCBrushColor(dc, UiTheme().line);
             FillRect(dc, &rule, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         }
-        RECT pageField{290, 11, 388, 41}; UiRoundRect(dc, pageField, UiColor::Field, UiColor::Field);
+        RECT pageField{290, 11, 388, 41}; UiRoundRect(dc, pageField, UiTheme().field, UiTheme().field);
         auto pageLabel = pages ? std::to_wstring(page + 1) + L" / " + std::to_wstring(pages) : L"— / —";
         SelectObject(dc, strongFont); DrawTextW(dc, pageLabel.c_str(), -1, &pageField, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
         RECT zoomField{498, 0, 558, BarHeight};
         auto zoomLabel = zoom > 0 ? std::to_wstring(static_cast<int>(std::round(zoom * 100))) + L"%" : L"Ancho";
-        SelectObject(dc, font); SetTextColor(dc, UiColor::Muted);
+        SelectObject(dc, font); SetTextColor(dc, UiTheme().muted);
         DrawTextW(dc, zoomLabel.c_str(), -1, &zoomField, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         if (searchVisible) {
             RECT findBar{ViewLeft(), BarHeight + ViewHeight(), rc.right, rc.bottom - 26};
-            FillRect(dc, &findBar, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
+            SetDCBrushColor(dc, UiTheme().bar);
+            FillRect(dc, &findBar, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
             int width = std::max(120, std::min(320, static_cast<int>(rc.right) - ViewLeft() - 320));
             RECT field{ViewLeft() + 12, findBar.top + 6, ViewLeft() + 60 + width, findBar.top + 38};
-            UiRoundRect(dc, field, UiColor::Field, GetFocus() == query ? RGB(209, 151, 105) : UiColor::Line);
-            int saved = SaveDC(dc); HPEN iconPen = CreatePen(PS_SOLID, 2, UiColor::Muted);
+            UiRoundRect(dc, field, UiTheme().field, GetFocus() == query ? UiTheme().accent : UiTheme().line);
+            int saved = SaveDC(dc); HPEN iconPen = CreatePen(PS_SOLID, 2, UiTheme().muted);
             SelectObject(dc, iconPen); SelectObject(dc, GetStockObject(NULL_BRUSH));
             int x = field.left + 12, y = field.top + 8;
             Ellipse(dc, x, y, x + 12, y + 12); MoveToEx(dc, x + 10, y + 10, nullptr); LineTo(dc, x + 17, y + 17);
             RestoreDC(dc, saved); DeleteObject(iconPen);
             RECT rule{findBar.left, findBar.top, findBar.right, findBar.top + 1};
-            SetDCBrushColor(dc, UiColor::Line); FillRect(dc, &rule, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+            SetDCBrushColor(dc, UiTheme().line); FillRect(dc, &rule, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         }
-        RECT footerBar{0, rc.bottom - 26, rc.right, rc.bottom}; FillRect(dc, &footerBar, reinterpret_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
+        RECT footerBar{0, rc.bottom - 26, rc.right, rc.bottom};
+        SetDCBrushColor(dc, UiTheme().bar); FillRect(dc, &footerBar, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         RECT footer{16, rc.bottom - 24, rc.right - 16, rc.bottom};
-        SelectObject(dc, font); SetTextColor(dc, UiColor::Muted);
+        SelectObject(dc, font); SetTextColor(dc, UiTheme().muted);
         DrawTextW(dc, status.c_str(), -1, &footer, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
         BitBlt(target, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
         SelectObject(dc, oldBuffer); DeleteObject(buffer); DeleteDC(dc);
@@ -1744,12 +1826,25 @@ public:
         HBITMAP bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
         if (!dc || !bitmap) { if (dc) DeleteDC(dc); if (bitmap) DeleteObject(bitmap); return; }
         auto old = SelectObject(dc, bitmap);
+        // Owner-drawn buttons ignore WM_PRINT; render them explicitly so the
+        // preview images show the same chrome as the visible window.
+        auto drawButtons = [&](HDC target) {
+            for (HWND child = GetWindow(window, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
+                LONG style = static_cast<LONG>(GetWindowLongPtrW(child, GWL_STYLE));
+                if ((style & WS_VISIBLE) == 0 || (style & BS_TYPEMASK) != BS_OWNERDRAW) continue;
+                RECT bounds{}; GetWindowRect(child, &bounds); MapWindowPoints(nullptr, window, reinterpret_cast<POINT*>(&bounds), 2);
+                DRAWITEMSTRUCT item{}; item.CtlID = GetDlgCtrlID(child); item.hwndItem = child;
+                item.rcItem = bounds; item.hDC = target;
+                PaintButton(item);
+            }
+        };
         if (control) {
             if (control == window) Draw(dc, rc);
-            else FillRect(dc, &rc, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
+            else { SetDCBrushColor(dc, UiTheme().bar); FillRect(dc, &rc, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH))); }
             PaintUiChildren(dc, control);
+            if (control == window) drawButtons(dc);
         }
-        else Draw(dc, rc);
+        else { Draw(dc, rc); drawButtons(dc); }
         GdiFlush();
         BITMAPFILEHEADER header{}; header.bfType = 0x4d42;
         header.bfOffBits = sizeof(header) + sizeof(BITMAPINFOHEADER);
@@ -1772,10 +1867,11 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     }
     if (!app) return DefWindowProcW(window, message, wp, lp);
     auto paint = [&](HDC dc) {
-        RECT rc{}; GetClientRect(window, &rc); FillRect(dc, &rc, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
-        SelectObject(dc, app->strongFont); SetBkMode(dc, TRANSPARENT); SetTextColor(dc, UiColor::Ink);
+        RECT rc{}; GetClientRect(window, &rc);
+        SetDCBrushColor(dc, UiTheme().bar); FillRect(dc, &rc, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+        SelectObject(dc, app->strongFont); SetBkMode(dc, TRANSPARENT); SetTextColor(dc, UiTheme().ink);
         RECT title{20, 0, rc.right - 80, 48}; DrawTextW(dc, L"Contenido", -1, &title, DT_SINGLELINE | DT_VCENTER);
-        RECT rule{rc.right - 1, 0, rc.right, rc.bottom}; SetDCBrushColor(dc, UiColor::Line);
+        RECT rule{rc.right - 1, 0, rc.right, rc.bottom}; SetDCBrushColor(dc, UiTheme().line);
         FillRect(dc, &rule, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
     };
     switch (message) {
@@ -1785,7 +1881,7 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->outlineTree = CreateWindowExW(0, WC_TREEVIEWW, L"Índice del documento", WS_CHILD | WS_VISIBLE | WS_TABSTOP |
             TVS_LINESATROOT | TVS_HASBUTTONS | TVS_SHOWSELALWAYS | TVS_FULLROWSELECT, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
         app->outlineLabel = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 8, 0, 1, 1, window, nullptr, nullptr, nullptr);
-        TreeView_SetBkColor(app->outlineTree, RGB(255, 255, 255)); TreeView_SetTextColor(app->outlineTree, RGB(57, 71, 90));
+        TreeView_SetBkColor(app->outlineTree, UiTheme().bar); TreeView_SetTextColor(app->outlineTree, UiTheme().ink);
         SetWindowTheme(app->outlineTree, L"Explorer", nullptr);
         TreeView_SetItemHeight(app->outlineTree, 32); TreeView_SetIndent(app->outlineTree, 16);
         SendMessageW(app->outlineTree, WM_SETFONT, reinterpret_cast<WPARAM>(app->font), TRUE);
@@ -1800,8 +1896,8 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     case WM_COMMAND: app->Command(LOWORD(wp)); return 0;
     case WM_DRAWITEM: app->PaintButton(*reinterpret_cast<DRAWITEMSTRUCT*>(lp)); return TRUE;
     case WM_CTLCOLORSTATIC:
-        SetTextColor(reinterpret_cast<HDC>(wp), RGB(114, 127, 145)); SetBkColor(reinterpret_cast<HDC>(wp), RGB(255, 255, 255));
-        return reinterpret_cast<LRESULT>(GetStockObject(WHITE_BRUSH));
+        SetTextColor(reinterpret_cast<HDC>(wp), UiTheme().muted); SetBkColor(reinterpret_cast<HDC>(wp), UiTheme().bar);
+        return reinterpret_cast<LRESULT>(UiBackgroundBrush());
     case WM_PAINT: { PAINTSTRUCT ps{}; HDC dc = BeginPaint(window, &ps); paint(dc); EndPaint(window, &ps); return 0; }
     case WM_PRINTCLIENT: paint(reinterpret_cast<HDC>(wp)); return 0;
     case WM_NOTIFY: {
@@ -1855,6 +1951,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
             {L"Página anterior", Previous, 248}, {L"Página siguiente", Next, 396}, {L"Alejar", Smaller, 460},
             {L"Acercar", Larger, 564}, {L"Ajustar al ancho (Ctrl+0)", Fit, 604}, {L"Imprimir (Ctrl+P)", Print, 664}};
         for (const auto& button : buttons) MoveWindow(app->IconButton(window, button.id, button.text), button.x, 8, button.id == OpenMenu ? 96 : 36, 36, TRUE);
+        MoveWindow(app->IconButton(window, Theme, L"Tema claro u oscuro (Ctrl+D)"), 708, 8, 36, 36, TRUE);
         app->IconButton(window, About, L"Acerca de Chucao (F1)");
         app->IconButton(window, OutlineRail, L"Desplegar el índice");
         app->outlineWindow = CreateWindowExW(WS_EX_CONTROLPARENT, L"ChucaoOutline", L"Contenido del documento", WS_CHILD | WS_CLIPCHILDREN,
@@ -1869,6 +1966,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->IconButton(window, FindNext, L"Coincidencia siguiente (Enter / F3)");
         app->IconButton(window, FindClose, L"Cerrar búsqueda (Escape)");
         SendMessageW(app->query, WM_SETFONT, reinterpret_cast<WPARAM>(app->font), TRUE); SendMessageW(app->query, EM_SETLIMITTEXT, 256, 0);
+        app->LoadTheme();
         app->ArrangeChrome(); DragAcceptFiles(window, TRUE); return 0;
     }
     case WM_COMMAND:
@@ -1883,12 +1981,12 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_DRAWITEM: app->PaintButton(*reinterpret_cast<DRAWITEMSTRUCT*>(lp)); return TRUE;
     case WM_CTLCOLORSTATIC:
-        SetTextColor(reinterpret_cast<HDC>(wp), RGB(95, 109, 128)); SetBkColor(reinterpret_cast<HDC>(wp), RGB(255, 255, 255));
-        return reinterpret_cast<LRESULT>(GetStockObject(WHITE_BRUSH));
+        SetTextColor(reinterpret_cast<HDC>(wp), UiTheme().muted); SetBkColor(reinterpret_cast<HDC>(wp), UiTheme().bar);
+        return reinterpret_cast<LRESULT>(UiBackgroundBrush());
     case WM_CTLCOLOREDIT:
         if (reinterpret_cast<HWND>(lp) == app->query) {
-            SetTextColor(reinterpret_cast<HDC>(wp), UiColor::Ink); SetBkColor(reinterpret_cast<HDC>(wp), UiColor::Field);
-            SetDCBrushColor(reinterpret_cast<HDC>(wp), UiColor::Field);
+            SetTextColor(reinterpret_cast<HDC>(wp), UiTheme().ink); SetBkColor(reinterpret_cast<HDC>(wp), UiTheme().field);
+            SetDCBrushColor(reinterpret_cast<HDC>(wp), UiTheme().field);
             return reinterpret_cast<LRESULT>(GetStockObject(DC_BRUSH));
         }
         break;
@@ -1987,19 +2085,22 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     auto started = std::chrono::steady_clock::now();
     int argc = 0; LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    bool navigationTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-navigation";
-    bool textTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-text";
-    bool destinationsTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-destinations";
-    bool outlineTest = destinationsTest || (argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-outline");
-    bool linksTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-links";
-    bool passwordTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-passwords";
+    bool navigationTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-navigation";
+    bool textTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-text";
+    bool destinationsTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-destinations";
+    bool outlineTest = destinationsTest || (argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-outline");
+    bool linksTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-links";
+    bool passwordTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-passwords";
     int stateTest = argv && argc == 5 ? (std::wstring(argv[1]) == L"--benchmark-state-write" ? 1 : std::wstring(argv[1]) == L"--benchmark-state-read" ? 2 : 0) : 0;
     bool recentTest = argv && argc == 5 && std::wstring(argv[1]) == L"--benchmark-recents";
-    bool interfaceTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-interface";
-    bool benchmark = interfaceTest || recentTest || stateTest || (argv && argc == 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
-    bool previewHome = argv && argc == 3 && std::wstring(argv[1]) == L"--preview-home";
-    bool previewAbout = argv && argc == 3 && std::wstring(argv[1]) == L"--preview-about";
-    bool shellBenchmark = argv && argc == 3 && (std::wstring(argv[1]) == L"--benchmark-shell" || previewHome || previewAbout);
+    bool themeTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-theme";
+    bool interfaceTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-interface";
+    bool benchmark = interfaceTest || recentTest || themeTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
+    bool previewHome = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-home";
+    bool previewAbout = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-about";
+    bool forceDark = false;
+    for (int i = 1; argv && i < argc; ++i) if (std::wstring(argv[i]) == L"--theme-dark") forceDark = true;
+    bool shellBenchmark = argv && argc >= 3 && (std::wstring(argv[1]) == L"--benchmark-shell" || previewHome || previewAbout);
     SetProcessDPIAware();
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_TREEVIEW_CLASSES | ICC_LINK_CLASS}; InitCommonControlsEx(&controls);
     WNDCLASSW wc{}; wc.hInstance = instance; wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
@@ -2017,7 +2118,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.destinationsTest = destinationsTest;
     app.linksTest = linksTest;
     app.passwordTest = passwordTest;
+    app.themeTest = themeTest;
     app.readingStateEnabled = !benchmark && !shellBenchmark;
+    app.settingsEnabled = !benchmark && !shellBenchmark;
+    if (themeTest) { app.settingsFile = argv[2]; app.settingsConfigured = true; app.settingsEnabled = true; }
+    if (forceDark) { app.forceDarkTheme = true; app.settingsEnabled = false; }
     if (recentTest) { app.recentTest = true; app.readingStateFile = argv[4]; app.readingStateEnabled = true; }
     if (stateTest) {
         app.readingStateTest = stateTest; app.readingStateFile = argv[4];
@@ -2041,6 +2146,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         }
         app.BenchmarkResult(success);
     }
+    else if (themeTest) app.RunThemeTest();
     else if (benchmark) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
     else if (argv && argc > 1) app.Load(argv[1]);
     if (argv) LocalFree(argv);
@@ -2076,6 +2182,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
             else if (ctrl && msg.wParam == 'F') command = Find;
             else if (ctrl && msg.wParam == 'P') command = Print;
             else if (ctrl && !edit && msg.wParam == 'C') command = Copy;
+            else if (ctrl && msg.wParam == 'D') command = Theme;
             else if (ctrl && msg.wParam == '0') command = Fit;
             else if (msg.wParam == VK_F3 || (edit && msg.wParam == VK_RETURN)) command = GetKeyState(VK_SHIFT) < 0 ? FindPrevious : FindNext;
             else if (!edit && msg.wParam == VK_RIGHT) command = Next;

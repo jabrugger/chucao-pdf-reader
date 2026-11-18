@@ -11,7 +11,7 @@ target_include_directories(Chucao PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE
 target_compile_features(Chucao PRIVATE cxx_std_17)
 target_compile_definitions(Chucao PRIVATE UNICODE _UNICODE NOMINMAX)
 target_compile_options(Chucao PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:/W4>" "$<$<COMPILE_LANGUAGE:CXX>:/utf-8>")
-target_link_libraries(Chucao PRIVATE pdfium delayimp user32 gdi32 msimg32 comdlg32 comctl32 uxtheme shell32 ole32 uuid)
+target_link_libraries(Chucao PRIVATE pdfium delayimp user32 gdi32 msimg32 comdlg32 comctl32 uxtheme shell32 ole32 uuid dwmapi)
 target_link_options(Chucao PRIVATE /DELAYLOAD:pdfium.dll)
 add_custom_command(TARGET Chucao POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:pdfium>" "$<TARGET_FILE_DIR:Chucao>")
 add_executable(pdf-smoke tools/pdf-smoke.cpp)
