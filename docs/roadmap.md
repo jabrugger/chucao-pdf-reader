@@ -24,6 +24,8 @@ cotidiano/rendimiento y recién después preparar otra entrega portable.
    opcional, temas claro/oscuro, DPI por monitor, pestañas y navegación por
    teclado con nombres accesibles. Pendientes los anuncios para lectores de
    pantalla, el alto contraste real y la validación visual con el usuario.
+   Siguiente mejora del índice: filtro de búsqueda sobre el árbol (ver TODO.md);
+   ya sombrea la sección en lectura.
 4. **Validación de motor**: corpus y métricas reproducibles contra Sumatra/KillerPDF.
    Comparar MuPDF si hay fallos que justifiquen el coste; motor KillerPDF aislado
    si aporta ventajas medibles. No asumir que un lenguaje determina el resultado.
