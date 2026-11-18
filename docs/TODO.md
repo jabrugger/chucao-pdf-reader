@@ -57,8 +57,10 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
 - [x] Mejorar accesibilidad y navegación por teclado: orden de tabulación, foco
   entre documento/índice/barra, F6, Espacio, +/−, Escape y nombres MSAA de los
   controles. Evidencia: [accessibility.md](accessibility.md).
-- [ ] Anuncios para lectores de pantalla (barra de estado como región viva) y
-  paleta de alto contraste de Windows.
+- [x] Paleta de alto contraste de Windows: se sustituye la paleta propia por los
+  colores del sistema y se reevalúa ante cambios. Evidencia:
+  [accessibility.md](accessibility.md).
+- [ ] Anuncios para lectores de pantalla (barra de estado como región viva).
 - [x] Adaptar la interfaz a distintos DPI por monitor, con fuentes, iconos,
   márgenes y controles reescalados y `WM_DPICHANGED`. Evidencia: [dpi.md](dpi.md).
 - [x] Revisar y pulir los mensajes de error.
@@ -98,6 +100,8 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
 - [x] Validar automáticamente el orden de tabulación, el ciclo de foco, los atajos
   de paneo y los nombres accesibles de los controles. Evidencia:
   [accessibility.md](accessibility.md).
+- [x] Validar automáticamente que la paleta de alto contraste use los colores del
+  sistema y guarde captura. Evidencia: [accessibility.md](accessibility.md).
 - [ ] Validar manualmente con Narrator/NVDA, alto contraste, IME y navegación
   completa solo con teclado en documentos reales.
 

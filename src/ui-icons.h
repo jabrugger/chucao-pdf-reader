@@ -29,6 +29,25 @@ inline const UiPalette& DarkPalette() {
         RGB(92, 60, 36), RGB(110, 72, 42), RGB(236, 241, 247), RGB(168, 181, 196)};
     return palette;
 }
+// Windows high contrast replaces the custom palette with system colors. The
+// hover/active fills stay flat (COLOR_WINDOW) so the accent stroke (the highlight
+// color) remains the only indicator and never loses contrast.
+inline const UiPalette& HighContrastPalette() {
+    static UiPalette palette = LightPalette();
+    palette = UiPalette{
+        GetSysColor(COLOR_WINDOWTEXT), GetSysColor(COLOR_WINDOWTEXT), GetSysColor(COLOR_3DSHADOW),
+        GetSysColor(COLOR_WINDOW), GetSysColor(COLOR_WINDOW), GetSysColor(COLOR_WINDOW),
+        GetSysColor(COLOR_HIGHLIGHT),
+        GetSysColor(COLOR_WINDOW), GetSysColor(COLOR_WINDOW), GetSysColor(COLOR_WINDOW),
+        GetSysColor(COLOR_WINDOW), GetSysColor(COLOR_WINDOW),
+        GetSysColor(COLOR_WINDOWTEXT), GetSysColor(COLOR_WINDOWTEXT)};
+    return palette;
+}
+inline bool HighContrastActive() {
+    HIGHCONTRASTW info{sizeof(info)};
+    return SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(info), &info, 0) &&
+        (info.dwFlags & HCF_HIGHCONTRASTON) != 0;
+}
 inline const UiPalette*& CurrentPalette() {
     static const UiPalette* palette = &LightPalette();
     return palette;

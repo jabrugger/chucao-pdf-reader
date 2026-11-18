@@ -36,6 +36,12 @@ if (!$keysProcess.WaitForExit(15000)) { $keysProcess.Kill(); throw 'La prueba de
 if ($keysProcess.ExitCode -ne 0) { throw 'Falló la prueba de teclado.' }
 $keysResult = [IO.File]::ReadAllText($keysReport) | ConvertFrom-Json
 if (!$keysResult.success) { throw 'El orden de tabulación, el foco o los nombres accesibles no coincidieron.' }
+$hcReport = [IO.Path]::Combine($results, 'highcontrast.json')
+$hcProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', 'Chucao.exe')) -ArgumentList @('--benchmark-highcontrast', 'test-results\highcontrast.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
+if (!$hcProcess.WaitForExit(15000)) { $hcProcess.Kill(); throw 'La prueba de alto contraste excedió 15 segundos.' }
+if ($hcProcess.ExitCode -ne 0) { throw 'Falló la prueba de alto contraste.' }
+$hcResult = [IO.File]::ReadAllText($hcReport) | ConvertFrom-Json
+if (!$hcResult.success) { throw 'La paleta de alto contraste no usó los colores del sistema.' }
 & ([IO.Path]::Combine($root, 'build', 'layout-test.exe'))
 if ($LASTEXITCODE -ne 0) { throw 'Falló la geometría del documento.' }
 $startup = & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Executable $Executable -Pdf ([IO.Path]::Combine($root, 'test-results', 'sample.pdf')) -Runs 1 -Startup

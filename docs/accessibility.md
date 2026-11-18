@@ -52,6 +52,26 @@ de sugerencia no es un rótulo accesible.
 Si `IAccPropServices` no está disponible, el lector sigue funcionando: el nombre
 del campo de búsqueda simplemente queda vacío.
 
+## Alto contraste
+
+Cuando Windows tiene el **modo de alto contraste** activo, Chucao reemplaza su
+paleta clara/oscura por los colores del sistema (`COLOR_WINDOW`, `COLOR_WINDOWTEXT`,
+`COLOR_HIGHLIGHT`, `COLOR_3DSHADOW`). Los fondos de hover/activo se aplanan para
+que el acento siga siendo el único indicador y nunca pierda contraste, y se
+desactivan la barra de título oscura y el tema `DarkMode_Explorer`, que no aplican
+en ese modo.
+
+- La detección usa `SPI_GETHIGHCONTRAST` y se reevalúa al recibir
+  `WM_SETTINGCHANGE`, `WM_SYSCOLORCHANGE` o `WM_THEMECHANGED`, sin cambiar la
+  preferencia guardada del usuario.
+- El indicador de alto contraste se protege contra reentrada (`applyingPalette`)
+  porque cambiar el tema de una ventana puede devolver `WM_THEMECHANGED`.
+
+`--benchmark-highcontrast <informe>` (integrado en `test-reader.ps1`) fuerza la
+paleta de alto contraste, comprueba que barra, texto, acento, lienzo y hoja usen
+los colores del sistema y guarda una captura. `--force-highcontrast` permite
+generar capturas para revisión visual sin alterar el perfil.
+
 ## Verificación
 
 `--benchmark-keys <informe>` (integrado en `test-reader.ps1`) comprueba:
@@ -75,8 +95,8 @@ tema oscuro. El estado presionado, el foco y el hover se calculan en el subclass
 
 - Narrator/NVDA: anuncio del nombre de los botones, del campo de búsqueda y del
   cambio de documento.
-- Modo de alto contraste de Windows: la paleta propia todavía no se reemplaza por
-  los colores del sistema.
+- Modo de alto contraste real del sistema: legibilidad con cada tema de alto
+  contraste de Windows y con el modo de alto contraste activo desde el arranque.
 - Anuncios de la barra de estado (resultado de búsqueda, página, errores) como
   región viva.
 - IME, teclados alternativos, touch y navegación completa solo con teclado en

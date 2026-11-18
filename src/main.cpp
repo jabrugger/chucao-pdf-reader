@@ -583,6 +583,7 @@ public:
     bool readingStateEnabled = true, readingStateWrites = true, stateConfigured = false, viewReady = false;
     std::wstring readingStateFile;
     bool settingsEnabled = true, settingsConfigured = false, forceDarkTheme = false;
+    bool forceHighContrast = false, darkTheme = false, applyingPalette = false;
     std::wstring settingsFile;
     std::optional<ReadingState> pendingReadingState;
     int readingStateTest = 0, readingStateStep = 0, readingStateChecks = 0;
@@ -596,6 +597,7 @@ public:
     bool startupTest = false;
     bool dpiTest = false;
     bool keysTest = false;
+    bool hcTest = false;
     int startupStage = 0, startupPage = -1;
     double startupRenderMs = 0, startupBitmapMs = 0, startupComposeMs = 0;
     int recentStep = 0, recentChecks = 0;
@@ -740,13 +742,14 @@ public:
         outlinePinned = value; outlinePeek = false; outlineAutoShow = false; KillTimer(window, 7);
         ArrangeChrome(); Render();
     }
+    bool UsingHighContrast() const { return forceHighContrast || HighContrastActive(); }
     void StyleOutline() {
         if (!outlineTree) return;
         SendMessageW(outlineTree, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         if (outlineLabel) SendMessageW(outlineLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         TreeView_SetBkColor(outlineTree, UiTheme().bar);
         TreeView_SetTextColor(outlineTree, UiTheme().ink);
-        SetWindowTheme(outlineTree, UiDark() ? L"DarkMode_Explorer" : L"Explorer", nullptr);
+        SetWindowTheme(outlineTree, UsingHighContrast() ? L"" : (UiDark() ? L"DarkMode_Explorer" : L"Explorer"), nullptr);
         TreeView_SetItemHeight(outlineTree, D(32));
         TreeView_SetIndent(outlineTree, D(16));
     }
@@ -786,23 +789,46 @@ public:
         return !settingsFile.empty();
     }
     void ApplyPalette(bool dark, bool persist) {
-        SetUiTheme(dark);
-        if (window) { ApplyWindowTheme(window, dark); SetWindowTheme(window, dark ? L"DarkMode_Explorer" : L"Explorer", nullptr); }
-        if (outlineWindow) { ApplyWindowTheme(outlineWindow, dark); SetWindowTheme(outlineWindow, dark ? L"DarkMode_Explorer" : L"Explorer", nullptr); }
+        if (applyingPalette) return;
+        applyingPalette = true;
+        darkTheme = dark;
+        bool highContrast = UsingHighContrast();
+        if (highContrast) CurrentPalette() = &HighContrastPalette();
+        else SetUiTheme(dark);
+        if (window) {
+            if (!highContrast) ApplyWindowTheme(window, dark);
+            SetWindowTheme(window, highContrast ? L"" : (dark ? L"DarkMode_Explorer" : L"Explorer"), nullptr);
+        }
+        if (outlineWindow) {
+            if (!highContrast) ApplyWindowTheme(outlineWindow, dark);
+            SetWindowTheme(outlineWindow, highContrast ? L"" : (dark ? L"DarkMode_Explorer" : L"Explorer"), nullptr);
+        }
         if (outlineTree) StyleOutline();
         if (persist && ConfigureSettings()) SettingsStore(settingsFile).Write({dark});
-        if (!window) return;
+        if (!window) { applyingPalette = false; return; }
         RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
         for (HWND control : {outlineWindow, query, findFeedback, findLabel}) if (control) InvalidateRect(control, nullptr, TRUE);
+        applyingPalette = false;
     }
     void LoadTheme() {
+        if (forceHighContrast) { ApplyPalette(false, false); return; }
         if (forceDarkTheme) { ApplyPalette(true, false); return; }
         if (ConfigureSettings()) {
             if (auto settings = SettingsStore(settingsFile).Read()) { ApplyPalette(settings->dark, false); return; }
         }
         ApplyPalette(false, false);
     }
-    void ToggleTheme() { ApplyPalette(!UiDark(), true); }
+    void ToggleTheme() { ApplyPalette(!darkTheme, true); }
+    void RunHcTest() {
+        forceHighContrast = true;
+        ApplyPalette(false, false);
+        const auto& palette = UiTheme();
+        bool ok = palette.bar == GetSysColor(COLOR_WINDOW) && palette.ink == GetSysColor(COLOR_WINDOWTEXT) &&
+            palette.accent == GetSysColor(COLOR_HIGHLIGHT) && palette.canvas == GetSysColor(COLOR_WINDOW) &&
+            palette.sheet == GetSysColor(COLOR_WINDOW) && !UiDark();
+        SaveTestImage(benchmarkReport + L".hc.bmp");
+        BenchmarkResult(ok);
+    }
     void CycleFocus() {
         if (GetFocus() == window) {
             if (outlinePinned && outlineTree) SetFocus(outlineTree);
@@ -2228,6 +2254,12 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         InvalidateRect(window, nullptr, TRUE);
         return 0;
     }
+    case WM_SETTINGCHANGE:
+    case WM_SYSCOLORCHANGE:
+    case WM_THEMECHANGED:
+        // Re-read high contrast and system colors; the saved theme choice is kept.
+        app->ApplyPalette(app->darkTheme, false);
+        return 0;
     case WM_COMMAND:
         if (LOWORD(wp) == Query && (HIWORD(wp) == EN_SETFOCUS || HIWORD(wp) == EN_KILLFOCUS)) { app->Redraw(); }
         else if (LOWORD(wp) == Query && HIWORD(wp) == EN_CHANGE) {
@@ -2361,12 +2393,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool startupTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-startup";
     bool dpiTest = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-dpi";
     bool keysTest = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-keys";
+    bool hcTest = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-highcontrast";
     bool interfaceTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-interface";
-    bool benchmark = interfaceTest || recentTest || themeTest || startupTest || dpiTest || keysTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
+    bool benchmark = interfaceTest || recentTest || themeTest || startupTest || dpiTest || keysTest || hcTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
     bool previewHome = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-home";
     bool previewAbout = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-about";
     bool forceDark = false;
     for (int i = 1; argv && i < argc; ++i) if (std::wstring(argv[i]) == L"--theme-dark") forceDark = true;
+    bool forceHighContrast = false;
+    for (int i = 1; argv && i < argc; ++i) if (std::wstring(argv[i]) == L"--force-highcontrast") forceHighContrast = true;
     bool shellBenchmark = argv && argc >= 3 && (std::wstring(argv[1]) == L"--benchmark-shell" || previewHome || previewAbout);
     EnablePerMonitorDpi();
     HRESULT comResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
@@ -2394,18 +2429,20 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.startupTest = startupTest;
     app.dpiTest = dpiTest;
     app.keysTest = keysTest;
+    app.hcTest = hcTest;
     app.readingStateEnabled = !benchmark && !shellBenchmark;
     app.settingsEnabled = !benchmark && !shellBenchmark;
-    if (dpiTest || keysTest) app.benchmarkReport = argv[2];
+    if (dpiTest || keysTest || hcTest) app.benchmarkReport = argv[2];
     if (themeTest) { app.settingsFile = argv[2]; app.settingsConfigured = true; app.settingsEnabled = true; }
     if (forceDark) { app.forceDarkTheme = true; app.settingsEnabled = false; }
+    if (forceHighContrast) { app.forceHighContrast = true; app.settingsEnabled = false; }
     if (recentTest) { app.recentTest = true; app.readingStateFile = argv[4]; app.readingStateEnabled = true; }
     if (stateTest) {
         app.readingStateTest = stateTest; app.readingStateFile = argv[4];
         app.readingStateEnabled = true; app.readingStateWrites = stateTest == 1;
     }
     if (passwordTest) { std::wstring file = argv[2]; app.passwordTestRoot = file.substr(0, file.find_last_of(L"\\/") + 1); }
-    if (benchmark && !dpiTest && !keysTest) app.benchmarkReport = argv[3];
+    if (benchmark && !dpiTest && !keysTest && !hcTest) app.benchmarkReport = argv[3];
     if (shellBenchmark) app.benchmarkReport = argv[2];
     HWND window = CreateWindowExW(WS_EX_CONTROLPARENT, L"ChucaoReader", L"Chucao PDF Reader",
         WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_HSCROLL | WS_CLIPCHILDREN,
@@ -2430,12 +2467,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     else if (themeTest) app.RunThemeTest();
     else if (dpiTest) app.RunDpiTest();
     else if (keysTest) app.RunKeysTest();
+    else if (hcTest) app.RunHcTest();
     else if (benchmark) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
     else if (argv && argc > 1) {
-        // --theme-dark is a diagnostic flag, not a document path.
+        // Diagnostic switches are not document paths.
         for (int i = 1; i < argc; ++i) {
             std::wstring argument = argv[i];
-            if (argument != L"--theme-dark") { app.Load(argument); break; }
+            if (argument != L"--theme-dark" && argument != L"--force-highcontrast") { app.Load(argument); break; }
         }
     }
     if (argv) LocalFree(argv);
