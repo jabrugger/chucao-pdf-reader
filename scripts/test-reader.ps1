@@ -19,37 +19,37 @@ if ($LASTEXITCODE -ne 0) { throw 'Fallaron los mensajes de error.' }
 $results = [IO.Path]::Combine($root, 'test-results')
 $themeReport = [IO.Path]::Combine($results, 'theme.json')
 $themeProfile = [IO.Path]::Combine($results, 'theme-settings.dat')
-$themeProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', 'Chucao.exe')) -ArgumentList @('--benchmark-theme', 'test-results\theme-settings.dat', 'test-results\theme.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
+$themeProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', $Executable)) -ArgumentList @('--benchmark-theme', 'test-results\theme-settings.dat', 'test-results\theme.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
 if (!$themeProcess.WaitForExit(15000)) { $themeProcess.Kill(); throw 'La prueba de temas excedió 15 segundos.' }
 if ($themeProcess.ExitCode -ne 0) { throw 'Falló la prueba de temas.' }
 $themeResult = [IO.File]::ReadAllText($themeReport) | ConvertFrom-Json
 if (!$themeResult.success) { throw 'El cambio de tema o su persistencia no coincidió.' }
 $dpiReport = [IO.Path]::Combine($results, 'dpi.json')
-$dpiProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', 'Chucao.exe')) -ArgumentList @('--benchmark-dpi', 'test-results\dpi.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
+$dpiProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', $Executable)) -ArgumentList @('--benchmark-dpi', 'test-results\dpi.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
 if (!$dpiProcess.WaitForExit(15000)) { $dpiProcess.Kill(); throw 'La prueba de DPI excedió 15 segundos.' }
 if ($dpiProcess.ExitCode -ne 0) { throw 'Falló la prueba de DPI.' }
 $dpiResult = [IO.File]::ReadAllText($dpiReport) | ConvertFrom-Json
 if (!$dpiResult.success) { throw 'Las métricas de interfaz no se adaptaron a 144/192 DPI.' }
 $keysReport = [IO.Path]::Combine($results, 'keys.json')
-$keysProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', 'Chucao.exe')) -ArgumentList @('--benchmark-keys', 'test-results\keys.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
+$keysProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', $Executable)) -ArgumentList @('--benchmark-keys', 'test-results\keys.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
 if (!$keysProcess.WaitForExit(15000)) { $keysProcess.Kill(); throw 'La prueba de teclado excedió 15 segundos.' }
 if ($keysProcess.ExitCode -ne 0) { throw 'Falló la prueba de teclado.' }
 $keysResult = [IO.File]::ReadAllText($keysReport) | ConvertFrom-Json
 if (!$keysResult.success) { throw 'El orden de tabulación, el foco o los nombres accesibles no coincidieron.' }
 $hcReport = [IO.Path]::Combine($results, 'highcontrast.json')
-$hcProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', 'Chucao.exe')) -ArgumentList @('--benchmark-highcontrast', 'test-results\highcontrast.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
+$hcProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', $Executable)) -ArgumentList @('--benchmark-highcontrast', 'test-results\highcontrast.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
 if (!$hcProcess.WaitForExit(15000)) { $hcProcess.Kill(); throw 'La prueba de alto contraste excedió 15 segundos.' }
 if ($hcProcess.ExitCode -ne 0) { throw 'Falló la prueba de alto contraste.' }
 $hcResult = [IO.File]::ReadAllText($hcReport) | ConvertFrom-Json
 if (!$hcResult.success) { throw 'La paleta de alto contraste no usó los colores del sistema.' }
 $rapidReport = [IO.Path]::Combine($results, 'rapid.json')
-$rapidProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', 'Chucao.exe')) -ArgumentList @('--benchmark-rapid', 'test-results\sample.pdf', 'test-results\mixed-pages.pdf', 'test-results\rapid.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
+$rapidProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', $Executable)) -ArgumentList @('--benchmark-rapid', 'test-results\sample.pdf', 'test-results\mixed-pages.pdf', 'test-results\rapid.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
 if (!$rapidProcess.WaitForExit(15000)) { $rapidProcess.Kill(); throw 'La prueba de apertura consecutiva excedió 15 segundos.' }
 if ($rapidProcess.ExitCode -ne 0) { throw 'Falló la prueba de apertura consecutiva.' }
 $rapidResult = [IO.File]::ReadAllText($rapidReport) | ConvertFrom-Json
 if (!$rapidResult.success -or $rapidResult.pages -ne 4) { throw 'La apertura consecutiva no conservó el segundo documento.' }
 $tabsReport = [IO.Path]::Combine($results, 'tabs.json')
-$tabsProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', 'Chucao.exe')) -ArgumentList @('--benchmark-tabs', 'test-results\sample.pdf', 'test-results\mixed-pages.pdf', 'test-results\tabs.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
+$tabsProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', $Executable)) -ArgumentList @('--benchmark-tabs', 'test-results\sample.pdf', 'test-results\mixed-pages.pdf', 'test-results\tabs.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
 if (!$tabsProcess.WaitForExit(15000)) { $tabsProcess.Kill(); throw 'La prueba de pestañas excedió 15 segundos.' }
 if ($tabsProcess.ExitCode -ne 0) { throw 'Falló la prueba de pestañas.' }
 $tabsResult = [IO.File]::ReadAllText($tabsReport) | ConvertFrom-Json

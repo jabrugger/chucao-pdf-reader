@@ -56,7 +56,7 @@ instalador todavía; ver [distribución](docs/distribution.md).
 
 ## Uso del prototipo
 
-El pajarito de la esquina superior derecha o F1 abre **Acerca de**, con versión,
+El icono de información de la esquina superior derecha o F1 abre **Acerca de**, con versión,
 autor, contacto, fecha de release y un enlace al repositorio de GitHub.
 
 El lector recuerda la página, el zoom y la posición al cerrar o cambiar de PDF.

@@ -6,6 +6,19 @@ Lista consolidada de trabajo pendiente. Las casillas se marcan cuando el resulta
 está implementado y verificado; las validaciones manuales se registran por separado.
 El contexto de las etapas está en [roadmap.md](roadmap.md).
 
+## Próxima tanda, en orden
+
+Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.md).
+
+1. [ ] Estabilizar pestañas con cargas reales A→B→A y recuperación de posición;
+   verificar errores y contraseña cancelada.
+2. [ ] Liberar el PDF en el worker al cerrar la última pestaña y descartar sus
+   trabajos pendientes; hoy el cierre explícito del motor ocurre al abrir otro o salir.
+3. [ ] Validar uso cotidiano y rendimiento con documentos reales antes de agregar
+   nuevas funciones grandes.
+4. [ ] Preparar la próxima entrega portable con versión/fecha y binario coherentes,
+   y probarla en otra PC antes de hacer un instalador.
+
 ## Funciones y diseño
 
 - [x] Incorporar el chucao aportado por el usuario como icono del EXE y las ventanas,
@@ -22,7 +35,7 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
 - [x] Usar el icono del chucao en lugar del texto de marca de la esquina superior
   derecha de la barra de lectura. En 2026-11-18 ese acceso se unificó como icono
   vectorial de información; el chucao queda en la ventana, el EXE y Acerca de.
-- [x] Agregar Acerca de desde el pajarito o F1, con versión, autor/contacto,
+- [x] Agregar Acerca de desde su icono o F1, con versión, autor/contacto,
   fecha de release y acceso al repositorio de GitHub.
 - [x] Simplificar Acerca de: repositorio como enlace nativo, sin botones;
   cierre con Escape o la X del diálogo.
@@ -71,6 +84,11 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
     página cuando corresponde. Evidencia: [error-messages.md](error-messages.md).
 
 ## Validación de funciones implementadas
+
+- [x] Corregir la suite para que todos los modos nuevos respeten `-Executable`,
+  sin mezclar pruebas de otra compilación de Chucao.
+- [x] Recompilar `3f55ece` y completar la regresión del 2026-11-18 con el ejecutable
+  elegido. Alcance y próximo trabajo: [continuation-plan.md](continuation-plan.md).
 
 - [x] Recompilar en esta PC la interfaz integrada de `8e46ece` y ejecutar la suite
   completa el 2026-11-16. Revisadas las capturas con/sin índice y búsqueda inferior.
@@ -209,7 +227,9 @@ validación manual.
 Apertura de archivos, contraseña e impresión; lectura continua; zoom con ancla;
 caché acotada y precarga de páginas vecinas; selección/copia entre páginas;
 búsqueda resaltada con navegación; desplazamiento horizontal; índice jerárquico
-bajo demanda; enlaces internos y regreso al punto anterior. Algunas de estas
+bajo demanda; enlaces internos y regreso al punto anterior; temas, DPI por monitor,
+teclado/accesibilidad básica, alto contraste y primera versión de pestañas.
+Algunas de estas
 funciones todavía requieren las validaciones manuales indicadas arriba.
 
 ## Fuera de alcance permanente

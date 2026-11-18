@@ -1,6 +1,9 @@
 # Plan de trabajo
 
 La lista consolidada y verificable de pendientes está en [TODO.md](TODO.md).
+El orden de continuación tras la revisión del 2026-11-18 está en
+[continuation-plan.md](continuation-plan.md): estabilizar pestañas, validar uso
+cotidiano/rendimiento y recién después preparar otra entrega portable.
 
 1. **Base funcional (implementada)**: C++, PDFium, abrir, zoom,
    contraseña, búsqueda e impresión. Compilar y verificar el motor con fixtures
@@ -12,7 +15,8 @@ La lista consolidada y verificable de pendientes está en [TODO.md](TODO.md).
    prioridad de página visible, selección/copia entre páginas y búsqueda con
    resaltado y salto preciso, y desplazamiento horizontal con zoom alto.
    Índice jerárquico bajo demanda con navegación a coordenadas XYZ y regreso;
-   Fit/FitH/FitV y zoom XYZ compartidos con enlaces internos.
+   Fit/FitH/FitV/FitR y modos de caja de contenido, además de zoom XYZ,
+   compartidos con enlaces internos.
    Enlaces internos con
    destinos directos/nombrados y regreso al punto de lectura. Persistencia local de
    página, zoom y posición por documento. Enlaces web HTTP/HTTPS por clic explícito.
