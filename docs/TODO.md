@@ -64,6 +64,11 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
 - [ ] Validar manualmente el menú de recientes con mouse y teclado, su confirmación
   de borrado y la reapertura de archivos remotos/protegidos.
 
+- [x] Generar el paquete portable y verificar automáticamente su contenido y la
+  apertura/renderizado del ejecutable empaquetado. Evidencia:
+  [distribution.md](distribution.md). Queda pendiente probarlo en otra PC y a
+  distintos DPI antes de preparar un instalador.
+
 - [x] Comprobar la recuperación de posición entre procesos, rutas Unicode, dos
   documentos distintos y PDF protegido, sin guardar la contraseña.
 - [x] Comprobar límites, perfiles dañados, fallo de escritura y escritores
@@ -131,16 +136,23 @@ lectura por bloques permanece fuera del visor hasta que haya evidencia favorable
 
 ## Distribución
 
-- [ ] Preparar un paquete portable con dependencias y avisos necesarios.
+- [x] Preparar un paquete portable con dependencias y avisos necesarios.
+  Evidencia: [distribution.md](distribution.md). `package.ps1` genera el ZIP y
+  `test-package.ps1` lo descomprime y lo ejecuta.
 - [ ] Preparar un instalador después de validar la versión portable.
-- [ ] Definir la licencia del código propio.
-- [ ] Revisar e incluir los avisos y licencias de PDFium y sus dependencias.
-- [ ] Definir y documentar el proceso de actualización de PDFium.
+- [x] Definir la licencia del código propio: MIT en [LICENSE](../LICENSE).
+- [x] Revisar e incluir los avisos y licencias de PDFium y sus dependencias.
+  Evidencia: [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) y `licenses/`
+  del paquete.
+- [x] Definir y documentar el proceso de actualización de PDFium.
+  Evidencia: [pdfium-update.md](pdfium-update.md).
 
 ## Documentación
 
 - [x] Corregir el README y distinguir el registro inicial de validación de las
   comprobaciones actuales de contraseñas y enlaces internos.
+- [x] Documentar el paquete portable, la licencia MIT y el procedimiento de
+  actualización de PDFium.
 
 Mantener esta lista al cerrar cada hito y dejar evidencia de las pruebas en la
 documentación correspondiente. Una prueba automatizada no cierra por sí sola una

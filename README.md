@@ -28,6 +28,19 @@ La descarga fija PDFium `chromium/8152` para x64, sin V8, y comprueba su SHA-256
 Los binarios proceden de la distribución comunitaria `bblanchon/pdfium-binaries`.
 El motor y sus avisos de terceros se conservan en `deps/pdfium`; no se suben al repo.
 
+## Paquete portable
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/package.ps1
+powershell -ExecutionPolicy Bypass -File scripts/test-package.ps1
+```
+
+El primero compila y genera `dist/Chucao-0.1.0-win-x64.zip` con el ejecutable,
+`pdfium.dll`, el LEEME, la licencia MIT y los avisos de PDFium y sus
+dependencias. El segundo descomprime el paquete, comprueba los archivos
+obligatorios y ejecuta el lector empaquetado contra un PDF sintético. No hay
+instalador todavía; ver [distribución](docs/distribution.md).
+
 ## Uso del prototipo
 
 El pajarito de la esquina superior derecha o F1 abre **Acerca de**, con versión,
@@ -134,11 +147,12 @@ manuales; ver [plan de trabajo](docs/roadmap.md).
 
 ## Distribución y licencia
 
-Repositorio privado durante el desarrollo. No se ha elegido todavía una licencia
-para el código propio. No se incorpora código de SumatraPDF, KillerPDF o MarkPad.
-Antes de distribuir: revisar los avisos de PDFium y de sus dependencias y establecer
-el proceso de actualización del motor. No hay telemetría ni conexión de red en el visor;
-el navegador puede conectarse al sitio elegido al hacer clic en un enlace web.
+El código propio se distribuye con la licencia [MIT](LICENSE). No se incorpora
+código de SumatraPDF, KillerPDF o MarkPad. PDFium y sus dependencias conservan sus
+licencias: ver [avisos de terceros](THIRD-PARTY-NOTICES.md). El proceso de
+actualización del motor está en [pdfium-update.md](docs/pdfium-update.md). No hay
+telemetría ni conexión de red en el visor; el navegador puede conectarse al sitio
+elegido al hacer clic en un enlace web.
 
 La imagen elegida por el usuario está en [assets/branding](assets/branding/README.md).
 El icono y la bienvenida se incluyen en el EXE; no requieren imágenes externas al ejecutarlo.

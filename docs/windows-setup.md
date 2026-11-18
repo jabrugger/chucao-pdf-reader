@@ -17,3 +17,6 @@ Los fixtures, informes e imágenes permanecen en `test-results/`, ignorado por G
 Estas pruebas sintéticas no miden primera pintura visible ni demuestran mejoras
 de velocidad respecto de otra PC. Siguen pendientes las validaciones manuales de
 contraseñas, impresión, portapapeles y restricciones documentadas en el roadmap.
+
+Para distribuir en otra PC no hace falta el SDK: alcanza con el ZIP generado por
+`scripts/package.ps1` (ver [distribution.md](distribution.md)).
