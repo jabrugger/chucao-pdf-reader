@@ -41,7 +41,7 @@
 namespace {
 constexpr UINT Ready = WM_APP + 1;
 constexpr UINT ChromeHover = WM_APP + 2;
-constexpr int BarHeight = 52;
+
 constexpr int RecentBase = 4000;
 enum { Open = 100, Previous, Next, Smaller, Larger, Fit, Find, Print, Query, FindNext, FindPrevious, Copy, Outline, OpenMenu, ForgetHistory,
     FindClose, OutlineClose, OutlinePin, OutlineRail, About, Theme };
@@ -52,6 +52,47 @@ void ApplyWindowTheme(HWND window, bool dark) {
     DwmSetWindowAttribute(window, 20, &value, sizeof(value));
     DwmSetWindowAttribute(window, 19, &value, sizeof(value));
     if (window) SetWindowPos(window, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+}
+
+// Per-monitor v2 when available, then per-monitor v1, then system DPI awareness.
+void EnablePerMonitorDpi() {
+    auto user32 = GetModuleHandleW(L"user32.dll");
+    // Avoid depending on the DPI_AWARENESS_CONTEXT typedef so older SDKs still build.
+    using SetContextFn = BOOL(WINAPI*)(HANDLE);
+    auto setContext = user32 ? reinterpret_cast<SetContextFn>(GetProcAddress(user32, "SetProcessDpiAwarenessContext")) : nullptr;
+    constexpr LONG_PTR PerMonitorAwareV2 = -4;
+    if (setContext && setContext(reinterpret_cast<HANDLE>(PerMonitorAwareV2))) return;
+    using SetAwarenessFn = HRESULT(WINAPI*)(int);
+    if (auto shcore = LoadLibraryW(L"shcore.dll")) {
+        auto setAwareness = reinterpret_cast<SetAwarenessFn>(GetProcAddress(shcore, "SetProcessDpiAwareness"));
+        if (setAwareness && SUCCEEDED(setAwareness(2))) return;
+        FreeLibrary(shcore);
+    }
+    SetProcessDPIAware();
+}
+
+int SystemDpi() {
+    using GetDpiFn = UINT(WINAPI*)();
+    static auto getDpi = reinterpret_cast<GetDpiFn>(GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetDpiForSystem"));
+    UINT value = getDpi ? getDpi() : 0;
+    if (value < 48 || value > 768) {
+        HDC dc = GetDC(nullptr);
+        value = dc ? static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSX)) : 96;
+        if (dc) ReleaseDC(nullptr, dc);
+    }
+    return value >= 48 && value <= 768 ? static_cast<int>(value) : 96;
+}
+
+int WindowDpi(HWND window) {
+    using GetDpiFn = UINT(WINAPI*)(HWND);
+    static auto getDpi = reinterpret_cast<GetDpiFn>(GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetDpiForWindow"));
+    UINT value = getDpi && window ? getDpi(window) : 0;
+    if (value < 48 || value > 768) {
+        HDC dc = window ? GetDC(window) : nullptr;
+        value = dc ? static_cast<UINT>(GetDeviceCaps(dc, LOGPIXELSX)) : 96;
+        if (dc) ReleaseDC(window, dc);
+    }
+    return value >= 48 && value <= 768 ? static_cast<int>(value) : 96;
 }
 
 INT_PTR CALLBACK AboutProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
@@ -446,14 +487,16 @@ LRESULT CALLBACK PasswordProc(HWND window, UINT msg, WPARAM wp, LPARAM lp) {
 bool PasswordDialog(HWND owner, std::wstring& password, const std::wstring& prompt, HFONT font, PasswordScript* script = nullptr) {
     PasswordState state;
     RECT bounds{}; GetWindowRect(owner, &bounds);
+    int dpi = WindowDpi(owner);
+    auto d = [&](int value) { return MulDiv(value, dpi, 96); };
     HWND dialog = CreateWindowExW(WS_EX_DLGMODALFRAME, L"ChucaoPassword", L"Contraseña del PDF", WS_CAPTION | WS_SYSMENU | WS_POPUP,
-        bounds.left + 100, bounds.top + 120, 410, 210, owner, nullptr, GetModuleHandleW(nullptr), &state);
+        bounds.left + d(100), bounds.top + d(120), d(410), d(210), owner, nullptr, GetModuleHandleW(nullptr), &state);
     if (!dialog) return false;
-    HWND label = CreateWindowW(L"STATIC", prompt.c_str(), WS_CHILD | WS_VISIBLE, 18, 14, 360, 42, dialog, nullptr, nullptr, nullptr);
-    state.edit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_PASSWORD | ES_AUTOHSCROLL, 18, 64, 360, 28, dialog, nullptr, nullptr, nullptr);
+    HWND label = CreateWindowW(L"STATIC", prompt.c_str(), WS_CHILD | WS_VISIBLE, d(18), d(14), d(360), d(42), dialog, nullptr, nullptr, nullptr);
+    state.edit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_PASSWORD | ES_AUTOHSCROLL, d(18), d(64), d(360), d(28), dialog, nullptr, nullptr, nullptr);
     SendMessageW(state.edit, EM_SETLIMITTEXT, 256, 0);
-    CreateWindowW(L"BUTTON", L"Abrir", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 198, 112, 85, 30, dialog, reinterpret_cast<HMENU>(IDOK), nullptr, nullptr);
-    CreateWindowW(L"BUTTON", L"Cancelar", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 293, 112, 85, 30, dialog, reinterpret_cast<HMENU>(IDCANCEL), nullptr, nullptr);
+    CreateWindowW(L"BUTTON", L"Abrir", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, d(198), d(112), d(85), d(30), dialog, reinterpret_cast<HMENU>(IDOK), nullptr, nullptr);
+    CreateWindowW(L"BUTTON", L"Cancelar", WS_CHILD | WS_VISIBLE | WS_TABSTOP, d(293), d(112), d(85), d(30), dialog, reinterpret_cast<HMENU>(IDCANCEL), nullptr, nullptr);
     for (HWND child = GetWindow(dialog, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) SendMessageW(child, WM_SETFONT, reinterpret_cast<WPARAM>(font), FALSE);
     bool wasEnabled = IsWindowEnabled(owner) != 0;
     if (!script) { EnableWindow(owner, FALSE); ShowWindow(dialog, SW_SHOW); SetFocus(state.edit); }
@@ -491,6 +534,10 @@ public:
     bool interfaceTest = false;
     int interfaceStep = 0;
     int previousContentWidth = 0;
+    int dpi = 96;
+    int D(int value) const { return MulDiv(value, dpi, 96); }
+    int BarPixels() const { return D(52); }
+    int PageGap() const { return D(DocumentLayout::Gap); }
     DocumentOutline outline;
     bool outlineLoaded = false, outlinePending = false, outlineTest = false;
     int outlineChecks = 0, outlineStep = 0;
@@ -509,6 +556,7 @@ public:
     HFONT welcomeFont = nullptr;
     HBITMAP welcomeImage = nullptr;
     HICON brandIcon = nullptr;
+    int brandIconSize = 0;
     bool readingStateEnabled = true, readingStateWrites = true, stateConfigured = false, viewReady = false;
     std::wstring readingStateFile;
     bool settingsEnabled = true, settingsConfigured = false, forceDarkTheme = false;
@@ -523,6 +571,7 @@ public:
     bool recentTest = false;
     bool themeTest = false;
     bool startupTest = false;
+    bool dpiTest = false;
     int startupStage = 0, startupPage = -1;
     double startupRenderMs = 0, startupBitmapMs = 0, startupComposeMs = 0;
     int recentStep = 0, recentChecks = 0;
@@ -570,11 +619,11 @@ public:
     size_t navigationHits = 0;
     std::chrono::steady_clock::time_point started;
     double shellMs = 0, openedMs = 0;
-    int OutlineWidth() const { RECT rc{}; GetClientRect(window, &rc); return std::min(280, std::max(220, static_cast<int>(rc.right / 4))); }
-    int ViewLeft() const { return outlinePinned ? OutlineWidth() : outlineLoaded && !outline.entries.empty() ? 18 : 0; }
+    int OutlineWidth() const { RECT rc{}; GetClientRect(window, &rc); return std::min(D(280), std::max(D(220), static_cast<int>(rc.right / 4))); }
+    int ViewLeft() const { return outlinePinned ? OutlineWidth() : outlineLoaded && !outline.entries.empty() ? D(18) : 0; }
     HWND IconButton(HWND parent, int id, const wchar_t* title) {
         HWND button = CreateWindowW(L"BUTTON", title, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-            0, 0, 36, 36, parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), nullptr, nullptr);
+            0, 0, D(36), D(36), parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), nullptr, nullptr);
         SetWindowSubclass(button, IconButtonProc, 1, 0);
         TOOLINFOW tip{sizeof(tip)}; tip.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
         tip.hwnd = parent; tip.uId = reinterpret_cast<UINT_PTR>(button); tip.lpszText = const_cast<wchar_t*>(title);
@@ -582,24 +631,26 @@ public:
         return button;
     }
     void PaintButton(const DRAWITEMSTRUCT& item) {
+        auto px = [&](int value) { return D(value); };
         if (item.CtlID == OpenMenu) {
             POINT mouse{}; GetCursorPos(&mouse); RECT screen{}; GetWindowRect(item.hwndItem, &screen);
             bool pressed = (item.itemState & ODS_SELECTED) != 0;
             COLORREF color = pressed ? UiTheme().pressed : PtInRect(&screen, mouse) ? UiTheme().hover : UiTheme().active;
             SetDCBrushColor(item.hDC, UiTheme().bar);
             FillRect(item.hDC, &item.rcItem, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
-            RECT box = item.rcItem; InflateRect(&box, -1, -1); UiRoundRect(item.hDC, box, color, color);
-            RECT icon{item.rcItem.left + 4, item.rcItem.top + 3, item.rcItem.left + 32, item.rcItem.bottom - 3};
+            RECT box = item.rcItem; InflateRect(&box, -px(1), -px(1)); UiRoundRect(item.hDC, box, color, color, px(10));
+            RECT icon{item.rcItem.left + px(4), item.rcItem.top + px(3), item.rcItem.left + px(32), item.rcItem.bottom - px(3)};
             // The folder glyph shares the same palette; the label makes the primary action discoverable.
             int saved = SaveDC(item.hDC);
-            HPEN pen = CreatePen(PS_SOLID, 2, UiTheme().accent); SelectObject(item.hDC, pen); SelectObject(item.hDC, GetStockObject(NULL_BRUSH));
-            int x = icon.left + 4, y = icon.top + 5;
-            MoveToEx(item.hDC, x, y + 3, nullptr); LineTo(item.hDC, x + 6, y + 3); LineTo(item.hDC, x + 9, y + 6);
-            LineTo(item.hDC, x + 17, y + 6); LineTo(item.hDC, x + 15, y + 17); LineTo(item.hDC, x, y + 17); LineTo(item.hDC, x, y + 3);
-            MoveToEx(item.hDC, x, y + 8, nullptr); LineTo(item.hDC, x + 16, y + 8);
-            MoveToEx(item.hDC, box.right - 18, 16, nullptr); LineTo(item.hDC, box.right - 14, 20); LineTo(item.hDC, box.right - 10, 16);
+            HPEN pen = CreatePen(PS_SOLID, std::max(1, px(2)), UiTheme().accent); SelectObject(item.hDC, pen); SelectObject(item.hDC, GetStockObject(NULL_BRUSH));
+            int x = icon.left + px(4), y = icon.top + px(5);
+            MoveToEx(item.hDC, x, y + px(3), nullptr); LineTo(item.hDC, x + px(6), y + px(3)); LineTo(item.hDC, x + px(9), y + px(6));
+            LineTo(item.hDC, x + px(17), y + px(6)); LineTo(item.hDC, x + px(15), y + px(17)); LineTo(item.hDC, x, y + px(17)); LineTo(item.hDC, x, y + px(3));
+            MoveToEx(item.hDC, x, y + px(8), nullptr); LineTo(item.hDC, x + px(16), y + px(8));
+            MoveToEx(item.hDC, box.right - px(18), px(16), nullptr); LineTo(item.hDC, box.right - px(14), px(20)); LineTo(item.hDC, box.right - px(10), px(16));
             SelectObject(item.hDC, strongFont); SetBkMode(item.hDC, TRANSPARENT); SetTextColor(item.hDC, UiTheme().accent);
-            RECT text{34, 0, box.right - 22, item.rcItem.bottom}; DrawTextW(item.hDC, L"Abrir", -1, &text, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
+            RECT text{box.left + px(34), 0, box.right - px(22), item.rcItem.bottom};
+            DrawTextW(item.hDC, L"Abrir", -1, &text, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
             if ((item.itemState & (ODS_FOCUS | ODS_NOFOCUSRECT)) == ODS_FOCUS) DrawFocusRect(item.hDC, &box);
             RestoreDC(item.hDC, saved); DeleteObject(pen); return;
         }
@@ -608,10 +659,14 @@ public:
             FillRect(item.hDC, &item.rcItem, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
             // The supplied icon has a white background; a matching card keeps it
             // looking deliberate in the dark theme.
-            RECT card = item.rcItem; InflateRect(&card, -2, -2);
-            UiRoundRect(item.hDC, card, UiTheme().sheet, UiTheme().sheet, 8);
-            if (!brandIcon) brandIcon = static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_CHUCAO), IMAGE_ICON, 32, 32, LR_SHARED));
-            if (brandIcon) DrawIconEx(item.hDC, item.rcItem.left + 2, item.rcItem.top + 2, brandIcon, 32, 32, 0, nullptr, DI_NORMAL);
+            RECT card = item.rcItem; InflateRect(&card, -px(2), -px(2));
+            UiRoundRect(item.hDC, card, UiTheme().sheet, UiTheme().sheet, px(8));
+            if (!brandIcon || brandIconSize != px(32)) {
+                if (brandIcon) DestroyIcon(brandIcon);
+                brandIconSize = px(32);
+                brandIcon = static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_CHUCAO), IMAGE_ICON, brandIconSize, brandIconSize, 0));
+            }
+            if (brandIcon) DrawIconEx(item.hDC, item.rcItem.left + px(2), item.rcItem.top + px(2), brandIcon, px(32), px(32), 0, nullptr, DI_NORMAL);
             if ((item.itemState & (ODS_FOCUS | ODS_NOFOCUSRECT)) == ODS_FOCUS) DrawFocusRect(item.hDC, &item.rcItem);
             return;
         }
@@ -638,20 +693,26 @@ public:
         if (arranging) return;
         arranging = true;
         RECT rc{}; GetClientRect(window, &rc);
-        MoveWindow(GetDlgItem(window, About), rc.right - 54, 8, 36, 36, TRUE);
-        int left = ViewLeft(), bottom = static_cast<int>(rc.bottom) - 26;
-        int panelBottom = outlinePinned ? bottom : BarHeight + ViewHeight();
-        MoveWindow(outlineWindow, 0, BarHeight, OutlineWidth(), std::max(1, panelBottom - BarHeight), TRUE);
+        struct ToolbarItem { int id, x, width; };
+        const ToolbarItem toolbar[] = {{OpenMenu, 16, 96}, {Outline, 140, 36}, {Find, 180, 36},
+            {Previous, 248, 36}, {Next, 396, 36}, {Smaller, 460, 36}, {Larger, 564, 36},
+            {Fit, 604, 36}, {Print, 664, 36}, {Theme, 708, 36}};
+        for (const auto& item : toolbar)
+            MoveWindow(GetDlgItem(window, item.id), D(item.x), D(8), D(item.width), D(36), TRUE);
+        MoveWindow(GetDlgItem(window, About), rc.right - D(54), D(8), D(36), D(36), TRUE);
+        int left = ViewLeft(), bottom = static_cast<int>(rc.bottom) - D(26);
+        int panelBottom = outlinePinned ? bottom : BarPixels() + ViewHeight();
+        MoveWindow(outlineWindow, 0, BarPixels(), OutlineWidth(), std::max(1, panelBottom - BarPixels()), TRUE);
         ShowWindow(outlineWindow, outlinePinned || outlinePeek ? SW_SHOWNA : SW_HIDE);
         HWND rail = GetDlgItem(window, OutlineRail);
-        MoveWindow(rail, 0, BarHeight, 18, ViewHeight(), TRUE);
+        MoveWindow(rail, 0, BarPixels(), D(18), ViewHeight(), TRUE);
         ShowWindow(rail, !outlinePinned && outlineLoaded && !outline.entries.empty() && !outlinePeek ? SW_SHOWNA : SW_HIDE);
         if (outlinePeek) SetWindowPos(outlineWindow, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-        int y = bottom - 44, width = std::max(120, std::min(320, static_cast<int>(rc.right) - left - 320));
-        MoveWindow(query, left + 50, y + 12, width, 22, TRUE);
-        int x = left + 78 + width;
-        for (int id : {FindPrevious, FindNext, FindClose}) { MoveWindow(GetDlgItem(window, id), x, y + 4, 36, 36, TRUE); x += 36; }
-        MoveWindow(findFeedback, x + 8, y + 13, std::max(1, static_cast<int>(rc.right) - x - 16), 22, TRUE);
+        int y = bottom - D(44), width = std::max(D(120), std::min(D(320), static_cast<int>(rc.right) - left - D(320)));
+        MoveWindow(query, left + D(50), y + D(12), width, D(22), TRUE);
+        int x = left + D(78) + width;
+        for (int id : {FindPrevious, FindNext, FindClose}) { MoveWindow(GetDlgItem(window, id), x, y + D(4), D(36), D(36), TRUE); x += D(36); }
+        MoveWindow(findFeedback, x + D(8), y + D(13), std::max(1, static_cast<int>(rc.right) - x - D(16)), D(22), TRUE);
         for (HWND control : {query, findLabel, findFeedback, GetDlgItem(window, FindPrevious), GetDlgItem(window, FindNext), GetDlgItem(window, FindClose)})
             ShowWindow(control, searchVisible ? SW_SHOWNA : SW_HIDE);
         ShowWindow(findLabel, SW_HIDE);
@@ -674,6 +735,40 @@ public:
         outlinePinned = value; outlinePeek = false; outlineAutoShow = false; KillTimer(window, 7);
         ArrangeChrome(); Render();
     }
+    void StyleOutline() {
+        if (!outlineTree) return;
+        SendMessageW(outlineTree, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        if (outlineLabel) SendMessageW(outlineLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        TreeView_SetBkColor(outlineTree, UiTheme().bar);
+        TreeView_SetTextColor(outlineTree, UiTheme().ink);
+        SetWindowTheme(outlineTree, UiDark() ? L"DarkMode_Explorer" : L"Explorer", nullptr);
+        TreeView_SetItemHeight(outlineTree, D(32));
+        TreeView_SetIndent(outlineTree, D(16));
+    }
+    void ApplyFonts() {
+        for (HWND control : {query, findLabel, findFeedback})
+            if (control) SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        StyleOutline();
+    }
+    void CreateFonts() {
+        auto make = [&](int points, int weight) {
+            return CreateFontW(-D(points), 0, 0, 0, weight, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+        };
+        HFONT regular = make(14, FW_NORMAL), strong = make(14, FW_SEMIBOLD), welcome = make(28, FW_SEMIBOLD);
+        if (!regular || !strong || !welcome) {
+            if (regular) DeleteObject(regular);
+            if (strong) DeleteObject(strong);
+            if (welcome) DeleteObject(welcome);
+            return;
+        }
+        HFONT oldRegular = font, oldStrong = strongFont, oldWelcome = welcomeFont;
+        font = regular; strongFont = strong; welcomeFont = welcome;
+        ApplyFonts();
+        if (oldRegular) DeleteObject(oldRegular);
+        if (oldStrong) DeleteObject(oldStrong);
+        if (oldWelcome) DeleteObject(oldWelcome);
+    }
     bool ConfigureSettings() {
         if (!settingsEnabled) return false;
         if (settingsConfigured) return !settingsFile.empty();
@@ -689,11 +784,7 @@ public:
         SetUiTheme(dark);
         if (window) { ApplyWindowTheme(window, dark); SetWindowTheme(window, dark ? L"DarkMode_Explorer" : L"Explorer", nullptr); }
         if (outlineWindow) { ApplyWindowTheme(outlineWindow, dark); SetWindowTheme(outlineWindow, dark ? L"DarkMode_Explorer" : L"Explorer", nullptr); }
-        if (outlineTree) {
-            TreeView_SetBkColor(outlineTree, UiTheme().bar);
-            TreeView_SetTextColor(outlineTree, UiTheme().ink);
-            SetWindowTheme(outlineTree, dark ? L"DarkMode_Explorer" : L"Explorer", nullptr);
-        }
+        if (outlineTree) StyleOutline();
         if (persist && ConfigureSettings()) SettingsStore(settingsFile).Write({dark});
         if (!window) return;
         RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
@@ -707,6 +798,27 @@ public:
         ApplyPalette(false, false);
     }
     void ToggleTheme() { ApplyPalette(!UiDark(), true); }
+    void RunDpiTest() {
+        bool ok = dpi >= 48;
+        SaveTestImage(benchmarkReport + L".initial.bmp");
+        auto apply = [&](int target, const wchar_t* suffix) {
+            RECT rc{}; GetWindowRect(window, &rc);
+            int width = rc.right - rc.left, height = rc.bottom - rc.top;
+            RECT suggested{rc.left, rc.top, rc.left + MulDiv(width, target, dpi), rc.top + MulDiv(height, target, dpi)};
+            SendMessageW(window, WM_DPICHANGED, MAKELONG(target, target), reinterpret_cast<LPARAM>(&suggested));
+            LOGFONTW logFont{}; HFONT current = font;
+            ok = ok && dpi == target && current && GetObjectW(current, sizeof(logFont), &logFont) == sizeof(logFont) &&
+                logFont.lfHeight == -D(14) && BarPixels() == MulDiv(52, target, 96) &&
+                ViewHeight() > 0 && ViewWidth() > 0;
+            RECT about{}; GetWindowRect(GetDlgItem(window, About), &about);
+            ok = ok && about.right - about.left == D(36);
+            if (outlineTree) ok = ok && TreeView_GetItemHeight(outlineTree) == D(32);
+            SaveTestImage(benchmarkReport + suffix);
+        };
+        apply(144, L".144.bmp");
+        apply(192, L".192.bmp");
+        BenchmarkResult(ok);
+    }
     void RunThemeTest() {
         const char junk[] = "not a settings file\n"; DWORD written = 0;
         HANDLE file = CreateFileW(settingsFile.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -733,7 +845,7 @@ public:
     void CheckOutlinePeek() {
         if (!outlinePeek) { KillTimer(window, 7); return; }
         POINT point{}; GetCursorPos(&point); ScreenToClient(window, &point);
-        bool inside = point.x >= 0 && point.x < OutlineWidth() + 24 && point.y >= BarHeight && point.y < BarHeight + ViewHeight();
+        bool inside = point.x >= 0 && point.x < OutlineWidth() + D(24) && point.y >= BarPixels() && point.y < BarPixels() + ViewHeight();
         UpdateOutlinePeek(inside);
     }
     void UpdateOutlinePeek(bool inside) {
@@ -774,7 +886,7 @@ public:
             if (searchBoxes.empty() || searchPage != 0) { BenchmarkResult(false); return; }
             auto box = searchBoxes.front(); TextPoint hit;
             int x = ViewLeft() + layout.Left(0, ViewWidth(), horizontal) + static_cast<int>((box.left + box.right) * .5 * layout.Width(0));
-            int y = BarHeight + static_cast<int>(layout.Top(0) - scroll + (box.top + box.bottom) * .5 * layout.Height(0));
+            int y = BarPixels() + static_cast<int>(layout.Top(0) - scroll + (box.top + box.bottom) * .5 * layout.Height(0));
             if (!PointOnPage(x, y, hit) || hit.page != 0) { BenchmarkResult(false); return; }
             SaveTestImage(benchmarkReport + L".interface.bmp", window);
             HideSearch();
@@ -976,7 +1088,7 @@ public:
             zoom = 3; Reflow(); Render();
             ScrollHorizontal(static_cast<int>(layout.Left(0, ViewWidth()) + point.x * layout.Width(0) - ViewWidth() / 2.0));
         int sx = ViewLeft() + layout.Left(0, ViewWidth(), horizontal) + static_cast<int>(point.x * layout.Width(0));
-            int sy = BarHeight + static_cast<int>(layout.Top(0) - scroll + point.y * layout.Height(0)); TextPoint hit;
+            int sy = BarPixels() + static_cast<int>(layout.Top(0) - scroll + point.y * layout.Height(0)); TextPoint hit;
             if (!PointOnPage(sx, sy, hit) || !LinkAt(hit)) { BenchmarkResult(false); return; }
             point = hit; linkTestHorizontal = horizontal;
             linkTestScroll = scroll; linkStep = 2; ActivateLink(point);
@@ -1031,7 +1143,7 @@ public:
             selectionEnd = {0, (b.left + b.right) / 2, (b.top + b.bottom) / 2};
             TextPoint hit;
             int x = ViewLeft() + layout.Left(0, ViewWidth(), horizontal) + static_cast<int>(selectionStart.x * layout.Width(0));
-            int y = BarHeight + static_cast<int>(layout.Top(0) - scroll + selectionStart.y * layout.Height(0));
+            int y = BarPixels() + static_cast<int>(layout.Top(0) - scroll + selectionStart.y * layout.Height(0));
             if (!PointOnPage(x, y, hit) || NearestCharacter(boxes, hit.x, hit.y, layout.Height(0) / static_cast<double>(layout.Width(0))) != first) { BenchmarkResult(false); return; }
             selected = true; ++selectionRevision; textStep = 3; CopySelection();
         } else if (textStep == 3 && kind == Result::Copied) {
@@ -1104,7 +1216,7 @@ public:
             auto before = revision;
             SendMessageW(window, WM_HSCROLL, SB_RIGHT, 0);
             int right = layout.Left(page, ViewWidth(), horizontal) + layout.Width(page);
-            if (horizontal <= 0 || horizontal != layout.MaxHorizontal(ViewWidth()) || right > ViewWidth() - DocumentLayout::Gap) { BenchmarkResult(false); return; }
+            if (horizontal <= 0 || horizontal != layout.MaxHorizontal(ViewWidth()) || right > ViewWidth() - PageGap()) { BenchmarkResult(false); return; }
             SaveTestImage(benchmarkReport + L".horizontal.bmp");
             SendMessageW(window, WM_HSCROLL, SB_LEFT, 0);
             if (horizontal != 0 || revision != before) { BenchmarkResult(false); return; }
@@ -1242,14 +1354,14 @@ public:
         return ReadingStateStore(readingStateFile).Update(CurrentReadingState());
     }
     void ApplyReadingState(const ReadingState& state) {
-        zoom = state.zoom; layout.Rebuild(ViewWidth(), zoom);
+        zoom = state.zoom; layout.Rebuild(ViewWidth(), zoom, PageGap());
         ScrollTo(layout.Top(state.page) + static_cast<std::int64_t>(state.vertical * layout.Height(state.page)) + state.gap, false);
         ScrollHorizontal(static_cast<int>(layout.Left(state.page, ViewWidth()) + state.horizontal * layout.Width(state.page) - ViewWidth() / 2.0));
         PageStatus();
     }
     bool PointOnPage(int x, int y, TextPoint& point, bool clamp = false) {
-        if (!pages || (!clamp && (x < ViewLeft() || x >= ViewLeft() + ViewWidth() || y < BarHeight || y >= BarHeight + ViewHeight()))) return false;
-        auto documentY = scroll + y - BarHeight;
+        if (!pages || (!clamp && (x < ViewLeft() || x >= ViewLeft() + ViewWidth() || y < BarPixels() || y >= BarPixels() + ViewHeight()))) return false;
+        auto documentY = scroll + y - BarPixels();
         int index = layout.PageAt(documentY);
         int left = ViewLeft() + layout.Left(index, ViewWidth(), horizontal);
         double px = (x - left) / static_cast<double>(layout.Width(index));
@@ -1364,7 +1476,7 @@ public:
         }
         Redraw();
     }
-    int ViewHeight() const { RECT rc{}; GetClientRect(window, &rc); return std::max<int>(1, rc.bottom - BarHeight - 26 - (searchVisible ? 44 : 0)); }
+    int ViewHeight() const { RECT rc{}; GetClientRect(window, &rc); return std::max<int>(1, rc.bottom - BarPixels() - D(26) - (searchVisible ? D(44) : 0)); }
     int ViewWidth() const { RECT rc{}; GetClientRect(window, &rc); return std::max<int>(1, rc.right - ViewLeft()); }
     std::int64_t MaxScroll() const { return std::max<std::int64_t>(0, layout.Total() - ViewHeight()); }
     void ScrollHorizontal(int value) {
@@ -1380,7 +1492,7 @@ public:
         ScrollHorizontal(horizontal);
         scroll = std::max<std::int64_t>(0, std::min(value, MaxScroll()));
         int previous = page;
-        if (pages) page = layout.PageAt(scroll + std::min(40, ViewHeight() / 2));
+        if (pages) page = layout.PageAt(scroll + std::min(D(40), ViewHeight() / 2));
         if (page != previous) PageStatus();
         SCROLLINFO info{sizeof(info), SIF_RANGE | SIF_PAGE | SIF_POS};
         info.nMin = 0;
@@ -1401,7 +1513,7 @@ public:
         double fraction = pages && layout.Count() ? (scroll - layout.Top(anchor)) / static_cast<double>(layout.Height(anchor)) : 0;
         int beforeWidth = oldWidth > 0 ? oldWidth : ViewWidth();
         double center = pages && layout.Count() ? (beforeWidth / 2.0 - layout.Left(anchor, beforeWidth, horizontal)) / layout.Width(anchor) : 0.5;
-        layout.Rebuild(ViewWidth(), zoom);
+        layout.Rebuild(ViewWidth(), zoom, PageGap());
         if (keepAnchor && pages) scroll = layout.Top(anchor) + static_cast<std::int64_t>(fraction * layout.Height(anchor));
         if (keepAnchor && pages) horizontal = static_cast<int>(layout.Left(anchor, ViewWidth()) + center * layout.Width(anchor) - ViewWidth() / 2.0);
         ScrollTo(scroll, false);
@@ -1459,7 +1571,7 @@ public:
             outline = {}; outlineLoaded = outlinePending = false; PopulateOutline();
             EndSelection(); ClearSelection(); textPages.clear(); pendingText.clear(); searchPage = -1; searchBoxes.clear();
             path = file; ++document; pages = 0; canCopy = canPrint = false; page = 0; scroll = 0; horizontal = 0; zoom = 0; searching = false;
-            cache.clear(); cacheBytes = 0; layout.Reset(0); layout.Rebuild(ViewWidth(), zoom);
+            cache.clear(); cacheBytes = 0; layout.Reset(0); layout.Rebuild(ViewWidth(), zoom, PageGap());
             planned.clear(); renderWidth = 0; renderZoom = -1; ++viewVersion;
             ScrollHorizontal(0);
             ArrangeChrome();
@@ -1476,7 +1588,7 @@ public:
     void ChangePage(int target) {
         if (!pages) return;
         target = std::max(0, std::min(pages - 1, target));
-        page = target; PageStatus(); ScrollTo(std::max<std::int64_t>(0, layout.Top(target) - DocumentLayout::Gap));
+        page = target; PageStatus(); ScrollTo(std::max<std::int64_t>(0, layout.Top(target) - PageGap()));
     }
     void Search(bool backwards = false) {
         KillTimer(window, 9);
@@ -1553,7 +1665,7 @@ public:
             if (ConfigureReadingState()) pendingReadingState = ReadingStateStore(readingStateFile).Find(path, pages);
             readingStateFound = pendingReadingState.has_value();
             if (pendingReadingState) ApplyReadingState(*pendingReadingState);
-            else { layout.Rebuild(ViewWidth(), zoom); ScrollTo(0, false); }
+            else { layout.Rebuild(ViewWidth(), zoom, PageGap()); ScrollTo(0, false); }
             SetWindowTextW(window, (L"Chucao — " + path.substr(path.find_last_of(L"\\/") + 1)).c_str()); PageStatus(); Render();
             RequestOutline();
             break;
@@ -1588,12 +1700,12 @@ public:
                     (ViewWidth() / 2.0 - layout.Left(anchor, ViewWidth(), horizontal)) / layout.Width(anchor), zoom});
                 auto target = result->linkTarget;
                 ClearSelection(); layout.Learn(target.page, target.width, target.height);
-                zoom = DestinationZoom(target, ViewWidth(), ViewHeight(), zoom); Reflow();
-                ScrollTo(layout.Top(target.page) + static_cast<std::int64_t>(target.y * layout.Height(target.page)) - DocumentLayout::Gap);
+                zoom = DestinationZoom(target, ViewWidth(), ViewHeight(), zoom, D(48)); Reflow();
+                ScrollTo(layout.Top(target.page) + static_cast<std::int64_t>(target.y * layout.Height(target.page)) - PageGap());
                 // Whole-width modes center the page; rectangles and vertical fits anchor on their left edge.
                 bool centered = target.view == PDFDEST_VIEW_FIT || target.view == PDFDEST_VIEW_FITB || target.view == PDFDEST_VIEW_FITBH;
                 ScrollHorizontal(static_cast<int>(layout.Left(target.page, ViewWidth()) +
-                    (centered ? layout.Width(target.page) / 2.0 - ViewWidth() / 2.0 : target.x * layout.Width(target.page) - DocumentLayout::Gap)));
+                    (centered ? layout.Width(target.page) / 2.0 - ViewWidth() / 2.0 : target.x * layout.Width(target.page) - PageGap())));
                 PageStatus();
             } else if (!result->linkTarget.webUrl.empty()) OpenWebLink(result->linkTarget.webUrl);
             else if (result->linkTarget.hit) {
@@ -1732,18 +1844,18 @@ public:
         HGDIOBJ oldBuffer = SelectObject(dc, buffer);
         HBRUSH background = CreateSolidBrush(UiTheme().canvas); FillRect(dc, &rc, background); DeleteObject(background);
         SetDCBrushColor(dc, UiTheme().bar);
-        RECT bar{0, 0, rc.right, BarHeight}; FillRect(dc, &bar, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+        RECT bar{0, 0, rc.right, BarPixels()}; FillRect(dc, &bar, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         SelectObject(dc, font); SetBkMode(dc, TRANSPARENT); SetTextColor(dc, UiTheme().muted);
         if (pages) {
-            IntersectClipRect(dc, ViewLeft(), BarHeight, rc.right, BarHeight + ViewHeight());
+            IntersectClipRect(dc, ViewLeft(), BarPixels(), rc.right, BarPixels() + ViewHeight());
             int first = layout.PageAt(scroll), last = layout.PageAt(scroll + ViewHeight());
             SetStretchBltMode(dc, COLORONCOLOR); // Quick preview while a new zoom is rendered.
             for (int i = first; i <= last; ++i) {
                 int width = layout.Width(i), height = layout.Height(i);
                 int x = ViewLeft() + layout.Left(i, ViewWidth(), horizontal);
-                int y = BarHeight + static_cast<int>(layout.Top(i) - scroll);
+                int y = BarPixels() + static_cast<int>(layout.Top(i) - scroll);
                 RECT sheet{x, y, x + width, y + height};
-                RECT shadow{x + 2, y + 3, x + width + 2, y + height + 3};
+                RECT shadow{x + D(2), y + D(3), x + width + D(2), y + height + D(3)};
                 SetDCBrushColor(dc, UiTheme().shadow); FillRect(dc, &shadow, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
                 SetDCBrushColor(dc, UiTheme().sheet); FillRect(dc, &sheet, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
                 auto found = cache.find(i);
@@ -1764,22 +1876,22 @@ public:
                     }
                 } else {
                     auto label = L"Página " + std::to_wstring(i + 1) + L" · Cargando…";
-                    sheet.top += 24; DrawTextW(dc, label.c_str(), -1, &sheet, DT_CENTER | DT_TOP | DT_SINGLELINE);
+                    sheet.top += D(24); DrawTextW(dc, label.c_str(), -1, &sheet, DT_CENTER | DT_TOP | DT_SINGLELINE);
                 }
             }
             SelectClipRgn(dc, nullptr);
         } else if (!pages) {
-            RECT empty{0, BarHeight, rc.right, rc.bottom - 26};
+            RECT empty{0, BarPixels(), rc.right, rc.bottom - D(26)};
             SetDCBrushColor(dc, UiTheme().bar);
             FillRect(dc, &empty, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
             if (!welcomeImage) welcomeImage = static_cast<HBITMAP>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDB_CHUCAO_HOME), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION));
             int available = std::max<LONG>(1, empty.bottom - empty.top);
-            int size = std::min(224, std::max(100, available - 130));
-            int top = empty.top + std::max(8, (available - size - 108) / 2);
+            int size = std::min(D(224), std::max(D(100), available - D(130)));
+            int top = empty.top + std::max(D(8), (available - size - D(108)) / 2);
             // The artwork is a white-background bitmap; a matching rounded card keeps
             // it intentional in the dark theme instead of a stray white square.
-            RECT card{(rc.right - size) / 2 - 10, top - 10, (rc.right + size) / 2 + 10, top + size + 10};
-            UiRoundRect(dc, card, UiTheme().sheet, UiTheme().sheet, 20);
+            RECT card{(rc.right - size) / 2 - D(10), top - D(10), (rc.right + size) / 2 + D(10), top + size + D(10)};
+            UiRoundRect(dc, card, UiTheme().sheet, UiTheme().sheet, D(20));
             if (welcomeImage) {
                 HDC picture = CreateCompatibleDC(dc); auto oldPicture = SelectObject(picture, welcomeImage);
                 BITMAP bitmap{}; GetObjectW(welcomeImage, sizeof(bitmap), &bitmap);
@@ -1787,48 +1899,48 @@ public:
                 StretchBlt(dc, (rc.right - size) / 2, top, size, size, picture, 0, 0, bitmap.bmWidth, bitmap.bmHeight, SRCCOPY);
                 SelectObject(picture, oldPicture); DeleteDC(picture);
             }
-            RECT title{24, top + size + 8, rc.right - 24, top + size + 42};
+            RECT title{D(24), top + size + D(8), rc.right - D(24), top + size + D(42)};
             SelectObject(dc, welcomeFont); SetTextColor(dc, UiTheme().welcomeTitle);
             DrawTextW(dc, L"Chucao", -1, &title, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
             SelectObject(dc, font); SetTextColor(dc, UiTheme().welcomeText);
-            RECT tagline{24, title.bottom + 2, rc.right - 24, title.bottom + 28};
+            RECT tagline{D(24), title.bottom + D(2), rc.right - D(24), title.bottom + D(28)};
             DrawTextW(dc, L"Tu documento, sin distracciones.", -1, &tagline, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-            RECT action{24, tagline.bottom + 12, rc.right - 24, tagline.bottom + 38};
+            RECT action{D(24), tagline.bottom + D(12), rc.right - D(24), tagline.bottom + D(38)};
             DrawTextW(dc, L"Abrir PDF · Ctrl+O", -1, &action, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         }
         HPEN separator = CreatePen(PS_SOLID, 1, UiTheme().line); auto oldPen = SelectObject(dc, separator);
-        MoveToEx(dc, 0, BarHeight - 1, nullptr); LineTo(dc, rc.right, BarHeight - 1);
+        MoveToEx(dc, 0, BarPixels() - 1, nullptr); LineTo(dc, rc.right, BarPixels() - 1);
         SelectObject(dc, oldPen); DeleteObject(separator);
         SelectObject(dc, font); SetTextColor(dc, UiTheme().ink);
-        for (int x : {124, 228, 448, 652}) {
-            RECT rule{x, 17, x + 1, 35}; SetDCBrushColor(dc, UiTheme().line);
+        for (int x : {D(124), D(228), D(448), D(652)}) {
+            RECT rule{x, D(17), x + std::max(1, D(1)), D(35)}; SetDCBrushColor(dc, UiTheme().line);
             FillRect(dc, &rule, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         }
-        RECT pageField{290, 11, 388, 41}; UiRoundRect(dc, pageField, UiTheme().field, UiTheme().field);
+        RECT pageField{D(290), D(11), D(388), D(41)}; UiRoundRect(dc, pageField, UiTheme().field, UiTheme().field);
         auto pageLabel = pages ? std::to_wstring(page + 1) + L" / " + std::to_wstring(pages) : L"— / —";
         SelectObject(dc, strongFont); DrawTextW(dc, pageLabel.c_str(), -1, &pageField, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-        RECT zoomField{498, 0, 558, BarHeight};
+        RECT zoomField{D(498), 0, D(558), BarPixels()};
         auto zoomLabel = zoom > 0 ? std::to_wstring(static_cast<int>(std::round(zoom * 100))) + L"%" : L"Ancho";
         SelectObject(dc, font); SetTextColor(dc, UiTheme().muted);
         DrawTextW(dc, zoomLabel.c_str(), -1, &zoomField, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         if (searchVisible) {
-            RECT findBar{ViewLeft(), BarHeight + ViewHeight(), rc.right, rc.bottom - 26};
+            RECT findBar{ViewLeft(), BarPixels() + ViewHeight(), rc.right, rc.bottom - D(26)};
             SetDCBrushColor(dc, UiTheme().bar);
             FillRect(dc, &findBar, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
-            int width = std::max(120, std::min(320, static_cast<int>(rc.right) - ViewLeft() - 320));
-            RECT field{ViewLeft() + 12, findBar.top + 6, ViewLeft() + 60 + width, findBar.top + 38};
+            int width = std::max(D(120), std::min(D(320), static_cast<int>(rc.right) - ViewLeft() - D(320)));
+            RECT field{ViewLeft() + D(12), findBar.top + D(6), ViewLeft() + D(60) + width, findBar.top + D(38)};
             UiRoundRect(dc, field, UiTheme().field, GetFocus() == query ? UiTheme().accent : UiTheme().line);
-            int saved = SaveDC(dc); HPEN iconPen = CreatePen(PS_SOLID, 2, UiTheme().muted);
+            int saved = SaveDC(dc); HPEN iconPen = CreatePen(PS_SOLID, std::max(1, D(2)), UiTheme().muted);
             SelectObject(dc, iconPen); SelectObject(dc, GetStockObject(NULL_BRUSH));
-            int x = field.left + 12, y = field.top + 8;
-            Ellipse(dc, x, y, x + 12, y + 12); MoveToEx(dc, x + 10, y + 10, nullptr); LineTo(dc, x + 17, y + 17);
+            int x = field.left + D(12), y = field.top + D(8);
+            Ellipse(dc, x, y, x + D(12), y + D(12)); MoveToEx(dc, x + D(10), y + D(10), nullptr); LineTo(dc, x + D(17), y + D(17));
             RestoreDC(dc, saved); DeleteObject(iconPen);
-            RECT rule{findBar.left, findBar.top, findBar.right, findBar.top + 1};
+            RECT rule{findBar.left, findBar.top, findBar.right, findBar.top + std::max(1, D(1))};
             SetDCBrushColor(dc, UiTheme().line); FillRect(dc, &rule, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         }
-        RECT footerBar{0, rc.bottom - 26, rc.right, rc.bottom};
+        RECT footerBar{0, rc.bottom - D(26), rc.right, rc.bottom};
         SetDCBrushColor(dc, UiTheme().bar); FillRect(dc, &footerBar, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
-        RECT footer{16, rc.bottom - 24, rc.right - 16, rc.bottom};
+        RECT footer{D(16), rc.bottom - D(24), rc.right - D(16), rc.bottom};
         SelectObject(dc, font); SetTextColor(dc, UiTheme().muted);
         DrawTextW(dc, status.c_str(), -1, &footer, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
         BitBlt(target, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
@@ -1891,7 +2003,7 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         RECT rc{}; GetClientRect(window, &rc);
         SetDCBrushColor(dc, UiTheme().bar); FillRect(dc, &rc, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         SelectObject(dc, app->strongFont); SetBkMode(dc, TRANSPARENT); SetTextColor(dc, UiTheme().ink);
-        RECT title{20, 0, rc.right - 80, 48}; DrawTextW(dc, L"Contenido", -1, &title, DT_SINGLELINE | DT_VCENTER);
+        RECT title{app->D(20), 0, rc.right - app->D(80), app->D(48)}; DrawTextW(dc, L"Contenido", -1, &title, DT_SINGLELINE | DT_VCENTER);
         RECT rule{rc.right - 1, 0, rc.right, rc.bottom}; SetDCBrushColor(dc, UiTheme().line);
         FillRect(dc, &rule, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
     };
@@ -1902,17 +2014,13 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->outlineTree = CreateWindowExW(0, WC_TREEVIEWW, L"Índice del documento", WS_CHILD | WS_VISIBLE | WS_TABSTOP |
             TVS_LINESATROOT | TVS_HASBUTTONS | TVS_SHOWSELALWAYS | TVS_FULLROWSELECT, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
         app->outlineLabel = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 8, 0, 1, 1, window, nullptr, nullptr, nullptr);
-        TreeView_SetBkColor(app->outlineTree, UiTheme().bar); TreeView_SetTextColor(app->outlineTree, UiTheme().ink);
-        SetWindowTheme(app->outlineTree, L"Explorer", nullptr);
-        TreeView_SetItemHeight(app->outlineTree, 32); TreeView_SetIndent(app->outlineTree, 16);
-        SendMessageW(app->outlineTree, WM_SETFONT, reinterpret_cast<WPARAM>(app->font), TRUE);
-        SendMessageW(app->outlineLabel, WM_SETFONT, reinterpret_cast<WPARAM>(app->font), TRUE); return 0;
+        app->StyleOutline(); return 0;
     case WM_SIZE: {
         RECT rc{}; GetClientRect(window, &rc);
-        MoveWindow(GetDlgItem(window, OutlinePin), rc.right - 80, 6, 36, 36, TRUE);
-        MoveWindow(GetDlgItem(window, OutlineClose), rc.right - 42, 6, 36, 36, TRUE);
-        MoveWindow(app->outlineTree, 12, 52, std::max<LONG>(1, rc.right - 24), std::max<LONG>(1, rc.bottom - 96), TRUE);
-        MoveWindow(app->outlineLabel, 20, std::max<LONG>(0, rc.bottom - 36), std::max<LONG>(1, rc.right - 32), 28, TRUE); return 0;
+        MoveWindow(GetDlgItem(window, OutlinePin), rc.right - app->D(80), app->D(6), app->D(36), app->D(36), TRUE);
+        MoveWindow(GetDlgItem(window, OutlineClose), rc.right - app->D(42), app->D(6), app->D(36), app->D(36), TRUE);
+        MoveWindow(app->outlineTree, app->D(12), app->D(52), std::max<LONG>(1, rc.right - app->D(24)), std::max<LONG>(1, rc.bottom - app->D(96)), TRUE);
+        MoveWindow(app->outlineLabel, app->D(20), std::max<LONG>(0, rc.bottom - app->D(36)), std::max<LONG>(1, rc.right - app->D(32)), app->D(28), TRUE); return 0;
     }
     case WM_COMMAND: app->Command(LOWORD(wp)); return 0;
     case WM_DRAWITEM: app->PaintButton(*reinterpret_cast<DRAWITEMSTRUCT*>(lp)); return TRUE;
@@ -1959,36 +2067,51 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     if (!app) return DefWindowProcW(window, message, wp, lp);
     switch (message) {
     case WM_CREATE: {
-        app->font = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
-        app->strongFont = CreateFontW(-14, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
-        app->welcomeFont = CreateFontW(-28, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+        app->dpi = WindowDpi(window);
+        app->CreateFonts();
         SendMessageW(window, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_CHUCAO), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_SHARED)));
         app->tooltip = CreateWindowExW(0, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
             CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, window, nullptr, nullptr, nullptr);
-        SendMessageW(app->tooltip, TTM_SETMAXTIPWIDTH, 0, 320);
+        SendMessageW(app->tooltip, TTM_SETMAXTIPWIDTH, 0, app->D(320));
         struct Control { const wchar_t* text; int id, x; };
         Control buttons[] = {{L"Abrir PDF y recientes (Ctrl+O / Ctrl+Mayús+O)", OpenMenu, 16},
             {L"Mostrar u ocultar el índice (Ctrl+B)", Outline, 140}, {L"Buscar en el documento (Ctrl+F)", Find, 180},
             {L"Página anterior", Previous, 248}, {L"Página siguiente", Next, 396}, {L"Alejar", Smaller, 460},
             {L"Acercar", Larger, 564}, {L"Ajustar al ancho (Ctrl+0)", Fit, 604}, {L"Imprimir (Ctrl+P)", Print, 664}};
-        for (const auto& button : buttons) MoveWindow(app->IconButton(window, button.id, button.text), button.x, 8, button.id == OpenMenu ? 96 : 36, 36, TRUE);
-        MoveWindow(app->IconButton(window, Theme, L"Tema claro u oscuro (Ctrl+D)"), 708, 8, 36, 36, TRUE);
+        for (const auto& button : buttons) app->IconButton(window, button.id, button.text);
+        app->IconButton(window, Theme, L"Tema claro u oscuro (Ctrl+D)");
         app->IconButton(window, About, L"Acerca de Chucao (F1)");
         app->IconButton(window, OutlineRail, L"Desplegar el índice");
         app->outlineWindow = CreateWindowExW(WS_EX_CONTROLPARENT, L"ChucaoOutline", L"Contenido del documento", WS_CHILD | WS_CLIPCHILDREN,
-            0, BarHeight, 260, 500, window, nullptr, GetModuleHandleW(nullptr), app);
-        app->query = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL, 0, 0, 220, 26, window, reinterpret_cast<HMENU>(Query), nullptr, nullptr);
+            0, app->BarPixels(), app->D(260), app->D(500), window, nullptr, GetModuleHandleW(nullptr), app);
+        app->query = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL, 0, 0, app->D(220), app->D(26), window, reinterpret_cast<HMENU>(Query), nullptr, nullptr);
         SendMessageW(app->query, EM_SETCUEBANNER, FALSE, reinterpret_cast<LPARAM>(L"Buscar en el documento"));
         app->findLabel = CreateWindowW(L"STATIC", L"Buscar", WS_CHILD, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
         app->findFeedback = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
-        SendMessageW(app->findLabel, WM_SETFONT, reinterpret_cast<WPARAM>(app->font), TRUE);
-        SendMessageW(app->findFeedback, WM_SETFONT, reinterpret_cast<WPARAM>(app->font), TRUE);
         app->IconButton(window, FindPrevious, L"Coincidencia anterior (Mayús+Enter)");
         app->IconButton(window, FindNext, L"Coincidencia siguiente (Enter / F3)");
         app->IconButton(window, FindClose, L"Cerrar búsqueda (Escape)");
-        SendMessageW(app->query, WM_SETFONT, reinterpret_cast<WPARAM>(app->font), TRUE); SendMessageW(app->query, EM_SETLIMITTEXT, 256, 0);
+        SendMessageW(app->query, EM_SETLIMITTEXT, 256, 0);
+        app->ApplyFonts();
         app->LoadTheme();
         app->ArrangeChrome(); DragAcceptFiles(window, TRUE); return 0;
+    }
+    case WM_DPICHANGED: {
+        int next = HIWORD(wp) ? HIWORD(wp) : LOWORD(wp);
+        if (next >= 48 && next <= 768) app->dpi = next;
+        // Windows supplies the rectangle that keeps the window on the same logical
+        // area after crossing monitors with different scale factors.
+        RECT* suggested = reinterpret_cast<RECT*>(lp);
+        if (suggested) SetWindowPos(window, nullptr, suggested->left, suggested->top,
+            suggested->right - suggested->left, suggested->bottom - suggested->top,
+            SWP_NOZORDER | SWP_NOACTIVATE);
+        app->brandIconSize = 0; // Reload the About artwork at the new scale.
+        app->CreateFonts();
+        app->previousContentWidth = 0;
+        app->ArrangeChrome();
+        app->Reflow(); app->Render();
+        InvalidateRect(window, nullptr, TRUE);
+        return 0;
     }
     case WM_COMMAND:
         if (LOWORD(wp) == Query && (HIWORD(wp) == EN_SETFOCUS || HIWORD(wp) == EN_KILLFOCUS)) { app->Redraw(); }
@@ -2015,7 +2138,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     case WM_LBUTTONDOWN: app->BeginSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
     case WM_MOUSEMOVE:
         app->MoveSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); app->HoverLinks(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
-        if (GET_X_LPARAM(lp) < 18 && GET_Y_LPARAM(lp) >= BarHeight) app->PeekOutline();
+        if (GET_X_LPARAM(lp) < app->D(18) && GET_Y_LPARAM(lp) >= app->BarPixels()) app->PeekOutline();
         return 0;
     case WM_LBUTTONUP: app->FinishSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
     case WM_CAPTURECHANGED:
@@ -2037,10 +2160,10 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     case WM_TIMER:
         if (wp == 4 && app->dragging) {
             POINT pointer{}; GetCursorPos(&pointer); ScreenToClient(window, &pointer);
-            if (pointer.y < BarHeight + 20) { app->ScrollTo(app->scroll - 28); app->MoveSelection(pointer.x, pointer.y); }
-            else if (pointer.y > BarHeight + app->ViewHeight() - 20) { app->ScrollTo(app->scroll + 28); app->MoveSelection(pointer.x, pointer.y); }
-            if (pointer.x < app->ViewLeft() + 20) { app->ScrollHorizontal(app->horizontal - 28); app->MoveSelection(pointer.x, pointer.y); }
-            else if (pointer.x > app->ViewLeft() + app->ViewWidth() - 20) { app->ScrollHorizontal(app->horizontal + 28); app->MoveSelection(pointer.x, pointer.y); }
+            if (pointer.y < app->BarPixels() + app->D(20)) { app->ScrollTo(app->scroll - app->D(28)); app->MoveSelection(pointer.x, pointer.y); }
+            else if (pointer.y > app->BarPixels() + app->ViewHeight() - app->D(20)) { app->ScrollTo(app->scroll + app->D(28)); app->MoveSelection(pointer.x, pointer.y); }
+            if (pointer.x < app->ViewLeft() + app->D(20)) { app->ScrollHorizontal(app->horizontal - app->D(28)); app->MoveSelection(pointer.x, pointer.y); }
+            else if (pointer.x > app->ViewLeft() + app->ViewWidth() - app->D(20)) { app->ScrollHorizontal(app->horizontal + app->D(28)); app->MoveSelection(pointer.x, pointer.y); }
         }
         else if (wp == 9) { KillTimer(window, 9); if (app->searchVisible) app->Search(); }
         else if (wp == 7) app->CheckOutlinePeek();
@@ -2049,21 +2172,26 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         else if (wp == 2) { KillTimer(window, 2); app->BenchmarkResult(false); }
         else { KillTimer(window, 1); app->Render(); }
         return 0;
-    case WM_GETMINMAXINFO: reinterpret_cast<MINMAXINFO*>(lp)->ptMinTrackSize = {820, 400}; return 0;
-    case WM_MOUSEWHEEL:
+    case WM_GETMINMAXINFO:
+        reinterpret_cast<MINMAXINFO*>(lp)->ptMinTrackSize = {app->D(820), app->D(400)}; return 0;
+    case WM_MOUSEWHEEL: {
         app->pendingReadingState.reset();
         ++app->linkEpoch;
+        int delta = app->D(GET_WHEEL_DELTA_WPARAM(wp));
         if (GetKeyState(VK_CONTROL) < 0) app->Command(GET_WHEEL_DELTA_WPARAM(wp) > 0 ? Larger : Smaller);
-        else if (GetKeyState(VK_SHIFT) < 0) app->ScrollHorizontal(app->horizontal - GET_WHEEL_DELTA_WPARAM(wp));
-        else app->ScrollTo(app->scroll - GET_WHEEL_DELTA_WPARAM(wp)); return 0;
-    case WM_MOUSEHWHEEL: app->pendingReadingState.reset(); ++app->linkEpoch; app->ScrollHorizontal(app->horizontal + GET_WHEEL_DELTA_WPARAM(wp)); return 0;
+        else if (GetKeyState(VK_SHIFT) < 0) app->ScrollHorizontal(app->horizontal - delta);
+        else app->ScrollTo(app->scroll - delta); return 0;
+    }
+    case WM_MOUSEHWHEEL:
+        app->pendingReadingState.reset(); ++app->linkEpoch;
+        app->ScrollHorizontal(app->horizontal + app->D(GET_WHEEL_DELTA_WPARAM(wp))); return 0;
     case WM_HSCROLL: {
         app->pendingReadingState.reset();
         ++app->linkEpoch;
         SCROLLINFO info{sizeof(info), SIF_ALL}; GetScrollInfo(window, SB_HORZ, &info);
         int value = app->horizontal;
         switch (LOWORD(wp)) {
-        case SB_LINELEFT: value -= 40; break; case SB_LINERIGHT: value += 40; break;
+        case SB_LINELEFT: value -= app->D(40); break; case SB_LINERIGHT: value += app->D(40); break;
         case SB_PAGELEFT: value -= info.nPage; break; case SB_PAGERIGHT: value += info.nPage; break;
         case SB_LEFT: value = 0; break; case SB_RIGHT: value = app->layout.MaxHorizontal(app->ViewWidth()); break;
         case SB_THUMBPOSITION: case SB_THUMBTRACK: value = info.nTrackPos; break;
@@ -2076,7 +2204,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         SCROLLINFO info{sizeof(info), SIF_ALL}; GetScrollInfo(window, SB_VERT, &info);
         std::int64_t value = app->scroll;
         switch (LOWORD(wp)) {
-        case SB_LINEUP: value -= 40; break; case SB_LINEDOWN: value += 40; break;
+        case SB_LINEUP: value -= app->D(40); break; case SB_LINEDOWN: value += app->D(40); break;
         case SB_PAGEUP: value -= info.nPage; break; case SB_PAGEDOWN: value += info.nPage; break;
         case SB_TOP: value = 0; break; case SB_BOTTOM: value = app->MaxScroll(); break;
         case SB_THUMBPOSITION: case SB_THUMBTRACK:
@@ -2116,14 +2244,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool recentTest = argv && argc == 5 && std::wstring(argv[1]) == L"--benchmark-recents";
     bool themeTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-theme";
     bool startupTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-startup";
+    bool dpiTest = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-dpi";
     bool interfaceTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-interface";
-    bool benchmark = interfaceTest || recentTest || themeTest || startupTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
+    bool benchmark = interfaceTest || recentTest || themeTest || startupTest || dpiTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
     bool previewHome = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-home";
     bool previewAbout = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-about";
     bool forceDark = false;
     for (int i = 1; argv && i < argc; ++i) if (std::wstring(argv[i]) == L"--theme-dark") forceDark = true;
     bool shellBenchmark = argv && argc >= 3 && (std::wstring(argv[1]) == L"--benchmark-shell" || previewHome || previewAbout);
-    SetProcessDPIAware();
+    EnablePerMonitorDpi();
+    int initialDpi = SystemDpi();
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_TREEVIEW_CLASSES | ICC_LINK_CLASS}; InitCommonControlsEx(&controls);
     WNDCLASSW wc{}; wc.hInstance = instance; wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(IDI_CHUCAO));
@@ -2142,8 +2272,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.passwordTest = passwordTest;
     app.themeTest = themeTest;
     app.startupTest = startupTest;
+    app.dpiTest = dpiTest;
     app.readingStateEnabled = !benchmark && !shellBenchmark;
     app.settingsEnabled = !benchmark && !shellBenchmark;
+    if (dpiTest) app.benchmarkReport = argv[2];
     if (themeTest) { app.settingsFile = argv[2]; app.settingsConfigured = true; app.settingsEnabled = true; }
     if (forceDark) { app.forceDarkTheme = true; app.settingsEnabled = false; }
     if (recentTest) { app.recentTest = true; app.readingStateFile = argv[4]; app.readingStateEnabled = true; }
@@ -2152,10 +2284,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         app.readingStateEnabled = true; app.readingStateWrites = stateTest == 1;
     }
     if (passwordTest) { std::wstring file = argv[2]; app.passwordTestRoot = file.substr(0, file.find_last_of(L"\\/") + 1); }
-    if (benchmark) app.benchmarkReport = argv[3];
+    if (benchmark && !dpiTest) app.benchmarkReport = argv[3];
     if (shellBenchmark) app.benchmarkReport = argv[2];
     HWND window = CreateWindowW(L"ChucaoReader", L"Chucao PDF Reader", WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_HSCROLL | WS_CLIPCHILDREN,
-        CW_USEDEFAULT, CW_USEDEFAULT, 1080, 800, nullptr, nullptr, instance, &app);
+        CW_USEDEFAULT, CW_USEDEFAULT, MulDiv(1080, initialDpi, 96), MulDiv(800, initialDpi, 96), nullptr, nullptr, instance, &app);
     if (!window) return 1;
     if (!benchmark && !shellBenchmark) { ShowWindow(window, show); UpdateWindow(window); }
     app.shellMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
@@ -2170,6 +2302,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         app.BenchmarkResult(success);
     }
     else if (themeTest) app.RunThemeTest();
+    else if (dpiTest) app.RunDpiTest();
     else if (benchmark) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
     else if (argv && argc > 1) app.Load(argv[1]);
     if (argv) LocalFree(argv);
@@ -2195,7 +2328,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
                 ++app.linkEpoch;
                 if (msg.wParam == VK_HOME) app.ScrollTo(0);
                 else if (msg.wParam == VK_END) app.ScrollTo(app.MaxScroll());
-                else app.ScrollTo(app.scroll + (msg.wParam == VK_UP ? -40 : msg.wParam == VK_DOWN ? 40 : msg.wParam == VK_PRIOR ? -app.ViewHeight() + 40 : app.ViewHeight() - 40));
+                else app.ScrollTo(app.scroll + (msg.wParam == VK_UP ? -app.D(40) : msg.wParam == VK_DOWN ? app.D(40) :
+                    msg.wParam == VK_PRIOR ? -app.ViewHeight() + app.D(40) : app.ViewHeight() - app.D(40)));
                 continue;
             }
             int command = 0;

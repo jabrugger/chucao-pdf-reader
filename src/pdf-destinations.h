@@ -113,9 +113,9 @@ inline DestinationLocation ResolveDestination(FPDF_DOCUMENT pdf, const PdfDestin
     }
     FPDF_ClosePage(page); return result;
 }
-inline double DestinationZoom(const DestinationLocation& target, int width, int height, double current) {
+inline double DestinationZoom(const DestinationLocation& target, int width, int height, double current, int margin = 48) {
     if (!std::isfinite(target.width) || !std::isfinite(target.height) || target.width <= 0 || target.height <= 0) return current;
-    double availableWidth = std::max(1, width - 48), availableHeight = std::max(1, height - 48);
+    double availableWidth = std::max(1, width - margin), availableHeight = std::max(1, height - margin);
     double value = current;
     double boxWidth = target.hasBox ? (target.boxRight - target.boxLeft) * target.width : target.width;
     double boxHeight = target.hasBox ? (target.boxBottom - target.boxTop) * target.height : target.height;

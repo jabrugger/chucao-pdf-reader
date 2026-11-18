@@ -94,6 +94,8 @@ documento. Ver [alcance y pruebas](docs/reading-state.md).
 - Tema claro u oscuro: el botón de luna/sol o Ctrl+D. La elección se recuerda en
   `%LOCALAPPDATA%\ChucaoPDFReader\settings.dat`; ver [temas](docs/themes.md).
   Las páginas del PDF se mantienen blancas.
+- La interfaz se adapta al DPI de cada monitor, con fuentes e iconos
+  reescalados; ver [DPI por monitor](docs/dpi.md).
 - Los documentos cifrados solicitan contraseña y avisan si es incorrecta; no se
   guarda en disco ni en logs. Los permisos de copia e impresión se comprueban al abrir.
 - El zoom conserva la página y la posición de lectura; la imagen anterior sirve de

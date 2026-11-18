@@ -24,6 +24,12 @@ if (!$themeProcess.WaitForExit(15000)) { $themeProcess.Kill(); throw 'La prueba 
 if ($themeProcess.ExitCode -ne 0) { throw 'Falló la prueba de temas.' }
 $themeResult = [IO.File]::ReadAllText($themeReport) | ConvertFrom-Json
 if (!$themeResult.success) { throw 'El cambio de tema o su persistencia no coincidió.' }
+$dpiReport = [IO.Path]::Combine($results, 'dpi.json')
+$dpiProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', 'Chucao.exe')) -ArgumentList @('--benchmark-dpi', 'test-results\dpi.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
+if (!$dpiProcess.WaitForExit(15000)) { $dpiProcess.Kill(); throw 'La prueba de DPI excedió 15 segundos.' }
+if ($dpiProcess.ExitCode -ne 0) { throw 'Falló la prueba de DPI.' }
+$dpiResult = [IO.File]::ReadAllText($dpiReport) | ConvertFrom-Json
+if (!$dpiResult.success) { throw 'Las métricas de interfaz no se adaptaron a 144/192 DPI.' }
 & ([IO.Path]::Combine($root, 'build', 'layout-test.exe'))
 if ($LASTEXITCODE -ne 0) { throw 'Falló la geometría del documento.' }
 $startup = & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Executable $Executable -Pdf ([IO.Path]::Combine($root, 'test-results', 'sample.pdf')) -Runs 1 -Startup

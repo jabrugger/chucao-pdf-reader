@@ -50,7 +50,8 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
 - [ ] Conservar la posición anterior cuando FitH, FitV, FitBH o FitBV omiten su
   coordenada (la API numérica usada no distingue null de cero).
 - [ ] Mejorar accesibilidad y navegación por teclado, incluidos foco y controles.
-- [ ] Adaptar la interfaz a distintos DPI por monitor.
+- [x] Adaptar la interfaz a distintos DPI por monitor, con fuentes, iconos,
+  márgenes y controles reescalados y `WM_DPICHANGED`. Evidencia: [dpi.md](dpi.md).
 - [x] Revisar y pulir los mensajes de error.
   - [x] Distinguir el primer pedido de contraseña del aviso de contraseña incorrecta.
   - [x] Distinguir formato, archivo ausente, protección no admitida, documento sin
@@ -84,6 +85,11 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   con un perfil corrupto y las capturas oscuras. Evidencia: [themes.md](themes.md).
 - [ ] Validar manualmente el contraste de ambos temas a distintos DPI, el alto
   contraste de Windows y el cambio de tema con varias ventanas abiertas.
+
+- [x] Validar automáticamente el reescalado a 144 y 192 DPI de fuentes, botones,
+  campos, alto de fila del árbol y capturas. Evidencia: [dpi.md](dpi.md).
+- [ ] Validar manualmente monitores reales a 125–200 %, arrastre entre monitores,
+  reinicio en un monitor secundario, escalas fraccionarias y alto contraste.
 
 - [ ] Revisar el icono en Explorer/barra de tareas y la bienvenida a distintos DPI.
 
