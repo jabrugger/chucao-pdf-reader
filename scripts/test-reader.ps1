@@ -48,12 +48,7 @@ if (!$rapidProcess.WaitForExit(15000)) { $rapidProcess.Kill(); throw 'La prueba 
 if ($rapidProcess.ExitCode -ne 0) { throw 'Falló la prueba de apertura consecutiva.' }
 $rapidResult = [IO.File]::ReadAllText($rapidReport) | ConvertFrom-Json
 if (!$rapidResult.success -or $rapidResult.pages -ne 4) { throw 'La apertura consecutiva no conservó el segundo documento.' }
-$tabsReport = [IO.Path]::Combine($results, 'tabs.json')
-$tabsProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', $Executable)) -ArgumentList @('--benchmark-tabs', 'test-results\sample.pdf', 'test-results\mixed-pages.pdf', 'test-results\tabs.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
-if (!$tabsProcess.WaitForExit(15000)) { $tabsProcess.Kill(); throw 'La prueba de pestañas excedió 15 segundos.' }
-if ($tabsProcess.ExitCode -ne 0) { throw 'Falló la prueba de pestañas.' }
-$tabsResult = [IO.File]::ReadAllText($tabsReport) | ConvertFrom-Json
-if (!$tabsResult.success) { throw 'La gestión de pestañas no coincidió.' }
+& ([IO.Path]::Combine($PSScriptRoot, 'test-tabs.ps1')) -Executable $Executable
 & ([IO.Path]::Combine($root, 'build', 'layout-test.exe'))
 if ($LASTEXITCODE -ne 0) { throw 'Falló la geometría del documento.' }
 $startup = & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Executable $Executable -Pdf ([IO.Path]::Combine($root, 'test-results', 'sample.pdf')) -Runs 1 -Startup

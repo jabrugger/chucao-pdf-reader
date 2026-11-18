@@ -21,15 +21,14 @@ El alcance detallado y las validaciones manuales abiertas se conservan en [TODO.
 los protegidos vuelven a pedir contraseña y los remotos dependen del I/O. Esto está
 documentado en [tabs.md](tabs.md), pero no equivale a conmutación instantánea.
 
-`RunTabsTest` comprueba los comandos y el modelo de pestañas de forma sincrónica.
-No espera los bitmaps de A/B ni verifica la recuperación real de sus posiciones.
-Que pase esa prueba no valida aún el ciclo completo de lectura entre pestañas.
+En la base `3f55ece`, `RunTabsTest` solo comprobaba los comandos sin esperar los
+bitmaps ni la recuperación real. Ese límite de validación quedó resuelto por la
+tanda de estabilización descrita abajo; no sustituye el uso con PDF reales/remotos.
 
-**Cierre:** en el código revisado, `CloseDocument` llama a `ResetDocument` para
-vaciar la UI, pero no encola un cierre del documento de PDFium. El worker cierra su
-`pdf_` al cargar el siguiente o al destruirse. Falta verificar y resolver la liberación
-efectiva al cerrar la última pestaña, junto con la cancelación de trabajos anteriores.
-Una lectura de I/O bloqueante sigue siendo un límite separado del worker único.
+**Cierre:** en la base revisada, `CloseDocument` vaciaba la UI sin ordenar el cierre
+del PDF. Ahora encola un cierre explícito y el worker confirma su finalización,
+invalidando revisiones y generaciones anteriores. Una lectura de I/O bloqueante
+sigue siendo un límite separado del worker único.
 
 **Validación:** los modos de prueba de DPI y alto contraste simulan métricas/paleta;
 no sustituyen monitores reales ni cambiar Windows a alto contraste. Impresión,
@@ -48,6 +47,7 @@ entrega, con versión/fecha y ejecutable coherentes.
    ante archivo ausente o contraseña cancelada. Resolver el cierre real en el worker.
    Mantener inicialmente el modelo liviano; cualquier caché de documentos debe
    justificarse con mediciones de memoria y tiempos.
+   Primera tanda automatizada completada el 2026-11-18; queda la validación manual.
 2. **Validar el lector cotidiano.** PDF real normal/protegido/remoto, índice temporal,
    búsqueda, selección/copia, teclado, cambio de zoom/tamaño y cierre durante carga.
    Después, impresión y DPI/alto contraste reales. Registrar resultados sin marcar
@@ -80,3 +80,17 @@ pestañas se regeneraron correctamente con el ejecutable elegido; también pasar
 persistencia, recientes, permisos/contraseñas, errores, geometría, índice/destinos,
 interfaz, enlaces, navegación y texto. Esto no amplía el alcance de las pruebas de
 pestañas ni cierra las validaciones manuales pendientes descritas arriba.
+
+## Tanda de estabilización completada — 2026-11-18
+
+- Posición de cada pestaña en memoria, sin depender de que el perfil sea escribible.
+- Cierre explícito del PDF en el worker y acuse de finalización; descarte de trabajo
+  de generaciones anteriores.
+- Reintento de pestaña fallida o con contraseña cancelada sin duplicarla.
+- `test-tabs.ps1`: 27 comprobaciones asincrónicas con bitmaps reales, A/B a
+  distintos zooms/posiciones, errores, tres pedidos de contraseña y dos acuses de cierre.
+- Compilación CMake Release y regresión completa aprobadas sobre el ejecutable nuevo.
+
+Siguiente bloque: probar el EXE con documentos habituales, medir el cambio entre
+pestañas de archivos grandes/remotos y verificar cierre durante I/O. No se agregan
+todavía varios documentos de PDFium en memoria ni se regenera el portable.

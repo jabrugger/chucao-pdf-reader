@@ -187,7 +187,7 @@ std::wstring Text(HWND window) {
     return value;
 }
 struct Result {
-    enum Kind { Image, Opened, Password, Failure, Search, Printed, Geometry, Copied, OutlineReady, LinksReady, LinkFollowed, OutlineFollowed } kind = Failure;
+    enum Kind { Image, Opened, Password, Failure, Search, Printed, Geometry, Copied, OutlineReady, LinksReady, LinkFollowed, OutlineFollowed, Closed } kind = Failure;
     DocumentOutline outline;
     std::vector<PageLink> links;
     LinkTarget linkTarget;
@@ -274,6 +274,16 @@ public:
                 result->copyAllowed = (permissions & 16) != 0; result->printAllowed = (permissions & 4) != 0;
                 if (result->pages <= 0) { result->kind = Result::Failure; result->message = L"El PDF no tiene páginas válidas."; }
             }
+            Send(std::move(result));
+        });
+    }
+    void Close(unsigned long long document) {
+        wantedDocument_ = document; ++revision_; ++searchRevision_;
+        Queue([this, document] {
+            if (cancelled_ || document != wantedDocument_) return;
+            if (pdf_) { FPDF_CloseDocument(pdf_); pdf_ = nullptr; }
+            document_ = document; searchPage_ = searchIndex_ = -1; lastQuery_.clear();
+            auto result = std::make_unique<Result>(); result->kind = Result::Closed;
             Send(std::move(result));
         });
     }
@@ -613,7 +623,11 @@ public:
     bool rapidTest = false;
     int rapidPages = 0;
     bool tabsTest = false;
-    std::wstring tabsTestA, tabsTestB;
+    bool tabsTestFailed = false;
+    std::wstring tabsTestA, tabsTestB, tabsTestProtected, tabsTestMissing;
+    int tabsStep = 0, tabsChecks = 0, tabsPrompts = 0, tabsClosed = 0;
+    ReadingState tabsExpectedA, tabsExpectedB;
+    bool openingDocument = false;
     int startupStage = 0, startupPage = -1;
     double startupRenderMs = 0, startupBitmapMs = 0, startupComposeMs = 0;
     int recentStep = 0, recentChecks = 0;
@@ -652,7 +666,8 @@ public:
     int testWordStart[2]{0, 0};
     std::vector<TextBox> searchBoxes;
     std::wstring path, status = L"Abrí un PDF para empezar · Ctrl+O";
-    std::vector<std::wstring> tabs;
+    struct DocumentTab { std::wstring path; std::optional<ReadingState> reading; };
+    std::vector<DocumentTab> tabs;
     int activeTab = -1, hoverTab = -1;
     bool hoverTabClose = false;
     struct TabLayout { RECT bounds{}, close{}; };
@@ -1150,7 +1165,7 @@ public:
         double readyMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         char data[1024]{};
         Endpoint a, b; SelectionRange(a, b);
-        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d,\"navigation_steps\":%d,\"cache_hits\":%zu,\"cache_bytes\":%zu,\"outline_checks\":%d,\"link_checks\":%d,\"password_checks\":%d,\"state_checks\":%d,\"recent_checks\":%d,\"text_checks\":%d,\"text_step\":%d,\"selection_first\":%d,\"selection_last\":%d,\"first_page\":%d,\"first_render_ms\":%.3f,\"first_bitmap_ms\":%.3f,\"first_compose_ms\":%.3f}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages, navigationStep, navigationHits, cacheBytes, outlineChecks, linkChecks, passwordChecks, readingStateChecks, recentChecks, textChecks, textStep, a.character, b.character, startupPage, startupRenderMs, startupBitmapMs, startupComposeMs);
+        int size = sprintf_s(data, "{\"success\":%s,\"shell_ms\":%.3f,\"opened_ms\":%.3f,\"ready_ms\":%.3f,\"pages\":%d,\"navigation_steps\":%d,\"cache_hits\":%zu,\"cache_bytes\":%zu,\"outline_checks\":%d,\"link_checks\":%d,\"password_checks\":%d,\"state_checks\":%d,\"recent_checks\":%d,\"tabs_checks\":%d,\"tabs_step\":%d,\"tabs_password_prompts\":%d,\"tabs_closed\":%d,\"text_checks\":%d,\"text_step\":%d,\"selection_first\":%d,\"selection_last\":%d,\"first_page\":%d,\"first_render_ms\":%.3f,\"first_bitmap_ms\":%.3f,\"first_compose_ms\":%.3f}\n", success ? "true" : "false", shellMs, openedMs, readyMs, pages, navigationStep, navigationHits, cacheBytes, outlineChecks, linkChecks, passwordChecks, readingStateChecks, recentChecks, tabsChecks, tabsStep, tabsPrompts, tabsClosed, textChecks, textStep, a.character, b.character, startupPage, startupRenderMs, startupBitmapMs, startupComposeMs);
         HANDLE output = CreateFileW(benchmarkReport.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (output != INVALID_HANDLE_VALUE) { DWORD written = 0; WriteFile(output, data, size, &written, nullptr); CloseHandle(output); }
         PostMessageW(window, WM_CLOSE, 0, 0);
@@ -1402,6 +1417,7 @@ public:
         if (confirm && MessageBoxW(window, L"¿Olvidar la lista de recientes y las posiciones guardadas?", L"Historial de Chucao", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES) return false;
         if (!ReadingStateStore(readingStateFile).Clear()) { status = L"No se pudo guardar el cambio del historial. Se conserva el archivo anterior."; Redraw(); return false; }
         recentEntries.clear(); suppressCurrentState = true; pendingReadingState.reset();
+        for (auto& tab : tabs) tab.reading.reset();
         status = L"Historial y posiciones olvidados."; Redraw(); return true;
     }
     void CheckRecents() {
@@ -1482,6 +1498,21 @@ public:
         ScrollTo(layout.Top(state.page) + static_cast<std::int64_t>(state.vertical * layout.Height(state.page)) + state.gap, false);
         ScrollHorizontal(static_cast<int>(layout.Left(state.page, ViewWidth()) + state.horizontal * layout.Width(state.page) - ViewWidth() / 2.0));
         PageStatus();
+    }
+    void RememberTabView() {
+        if (suppressCurrentState || !pages || !viewReady || pendingReadingState || !cache.count(layout.PageAt(scroll))) return;
+        for (auto& tab : tabs) if (SameTab(tab.path, path)) { tab.reading = CurrentReadingState(); break; }
+    }
+    std::optional<ReadingState> SessionTabView() const {
+        for (const auto& tab : tabs) if (SameTab(tab.path, path) && tab.reading && tab.reading->pages == pages) return tab.reading;
+        return {};
+    }
+    std::wstring TabRetryHint() const {
+        return activeTab >= 0 && activeTab < static_cast<int>(tabs.size()) && SameTab(tabs[activeTab].path, path) ?
+            L" · Clic en la pestaña para reintentar." : L"";
+    }
+    void CancelPasswordOpen() {
+        openingDocument = false; status = L"Apertura cancelada." + TabRetryHint(); Redraw();
     }
     bool PointOnPage(int x, int y, TextPoint& point, bool clamp = false) {
         if (!pages || (!clamp && (x < ViewLeft() || x >= ViewLeft() + ViewWidth() || y < ContentTop() || y >= ContentTop() + ViewHeight()))) return false;
@@ -1686,6 +1717,7 @@ public:
         Redraw();
     }
     void ResetDocument(const std::wstring& file) {
+        RememberTabView(); openingDocument = false;
         SaveReadingState(); viewReady = false; pendingReadingState.reset();
         outlinePinned = outlinePeek = false; outlineAutoShow = true; KillTimer(window, 7);
         suppressCurrentState = false;
@@ -1701,20 +1733,21 @@ public:
     void Load(const std::wstring& file, const std::wstring& password = L"", bool retry = false) {
         if (!worker) worker = std::make_unique<PdfWorker>(window);
         if (!retry) ResetDocument(file);
-        status = L"Abriendo documento…"; Redraw(); worker->Load(path, password, document, retry);
+        openingDocument = true; status = L"Abriendo documento…"; Redraw(); worker->Load(path, password, document, retry);
     }
     void OpenDocument(const std::wstring& file) {
         if (file.empty()) return;
         for (int i = 0; i < static_cast<int>(tabs.size()); ++i)
-            if (SameTab(tabs[i], file)) { ActivateTab(i); return; }
-        tabs.push_back(file);
+            if (SameTab(tabs[i].path, file)) { ActivateTab(i); return; }
+        tabs.push_back({file, {}});
         activeTab = static_cast<int>(tabs.size()) - 1;
         Load(file);
     }
     void ActivateTab(int index) {
-        if (index < 0 || index >= static_cast<int>(tabs.size()) || index == activeTab) return;
+        if (index < 0 || index >= static_cast<int>(tabs.size())) return;
+        if (index == activeTab && (pages || openingDocument)) return;
         activeTab = index;
-        Load(tabs[index]);
+        Load(tabs[index].path);
     }
     void CloseTab(int index) {
         if (index < 0 || index >= static_cast<int>(tabs.size())) return;
@@ -1724,7 +1757,7 @@ public:
         if (wasActive) {
             int next = std::min(index, static_cast<int>(tabs.size()) - 1);
             activeTab = next;
-            Load(tabs[next]);
+            Load(tabs[next].path);
         } else if (index < activeTab) --activeTab;
         ArrangeChrome(); Redraw();
     }
@@ -1733,21 +1766,119 @@ public:
         ActivateTab((activeTab + delta + static_cast<int>(tabs.size())) % static_cast<int>(tabs.size()));
     }
     void CloseDocument() {
-        if (!worker) worker = std::make_unique<PdfWorker>(window);
         ResetDocument(L"");
+        if (worker) worker->Close(document);
         SetWindowTextW(window, L"Chucao PDF Reader");
         status = L"Abrí un PDF para empezar · Ctrl+O";
         Redraw();
     }
+    bool TabsCheck(bool ok) {
+        if (tabsTestFailed) return false;
+        if (!ok) { tabsTestFailed = true; BenchmarkResult(false); return false; }
+        ++tabsChecks; return true;
+    }
+    bool TabViewMatches(const ReadingState& expected) const {
+        auto actual = CurrentReadingState();
+        return actual.page == expected.page && actual.zoom == expected.zoom &&
+            std::abs(actual.vertical - expected.vertical) < .01 && std::abs(actual.horizontal - expected.horizontal) < .01;
+    }
+    void SetTabsTestView(ReadingState& expected, double scale) {
+        expected = {path, pages, pages - 1, scale, .3, .65, 0};
+        pendingReadingState = expected; ApplyReadingState(expected); Render();
+    }
     void RunTabsTest() {
-        bool ok = tabs.empty() && activeTab == -1;
-        OpenDocument(tabsTestA); ok = ok && tabs.size() == 1 && activeTab == 0 && path == tabsTestA;
-        OpenDocument(tabsTestB); ok = ok && tabs.size() == 2 && activeTab == 1 && path == tabsTestB;
-        OpenDocument(tabsTestA); ok = ok && tabs.size() == 2 && activeTab == 0 && path == tabsTestA; // reuses the open tab
-        ActivateTab(1); ok = ok && activeTab == 1 && path == tabsTestB;
-        CloseTab(0); ok = ok && tabs.size() == 1 && activeTab == 0 && path == tabsTestB;
-        CloseTab(0); ok = ok && tabs.empty() && activeTab == -1 && pages == 0 && path.empty();
-        BenchmarkResult(ok);
+        tabsTestMissing = tabsTestA.substr(0, tabsTestA.find_last_of(L"\\/") + 1) + L"unavailable.pdf";
+        tabsStep = 0; OpenDocument(tabsTestA);
+    }
+    void CheckTabsImage() {
+        if (!tabsTest || tabsTestFailed || !pages || !viewReady || pendingReadingState) return;
+        auto bitmap = cache.find(layout.PageAt(scroll));
+        if (bitmap == cache.end() || bitmap->second.version != viewVersion) return;
+        switch (tabsStep) {
+        case 0:
+            if (!TabsCheck(tabs.size() == 1 && activeTab == 0 && SameTab(path, tabsTestA) && pages == 2)) return;
+            tabsStep = 1; SetTabsTestView(tabsExpectedA, 3); break;
+        case 1:
+            if (!TabsCheck(TabViewMatches(tabsExpectedA))) return;
+            tabsStep = 2; OpenDocument(tabsTestB); break;
+        case 2:
+            if (!TabsCheck(tabs.size() == 2 && activeTab == 1 && SameTab(path, tabsTestB) && pages == 4)) return;
+            // Keep horizontal panning reachable even before the other page sizes are learned.
+            tabsStep = 3; SetTabsTestView(tabsExpectedB, 4); break;
+        case 3:
+            if (!TabsCheck(TabViewMatches(tabsExpectedB))) return;
+            tabsStep = 4; ActivateTab(0); break;
+        case 4: {
+            if (!TabsCheck(TabViewMatches(tabsExpectedA) && tabs.size() == 2 && activeTab == 0)) return;
+            int originalPages = pages; auto generation = document;
+            for (auto kind : {Result::Opened, Result::Image, Result::Failure, Result::Password, Result::Closed}) {
+                auto stale = std::make_unique<Result>(); stale->kind = kind; stale->document = document - 1; stale->pages = 9999;
+                Receive(std::move(stale));
+            }
+            if (!TabsCheck(pages == originalPages && document == generation && tabsPrompts == 0 && tabsClosed == 0)) return;
+            OpenDocument(tabsTestA);
+            if (!TabsCheck(tabs.size() == 2 && document == generation)) return;
+            tabsStep = 5; ActivateTab(1); break;
+        }
+        case 5: {
+            if (!TabsCheck(TabViewMatches(tabsExpectedB))) return;
+            auto generation = document; CloseTab(0);
+            if (!TabsCheck(tabs.size() == 1 && activeTab == 0 && document == generation && SameTab(path, tabsTestB))) return;
+            tabsStep = 6; CloseTab(0); break;
+        }
+        case 7:
+            if (!TabsCheck(tabs.size() == 1 && activeTab == 0 && page == 0 && zoom == 0 && SameTab(path, tabsTestA))) return;
+            tabsStep = 8; OpenDocument(tabsTestMissing); break;
+        case 10:
+            if (!TabsCheck(tabs.size() == 1 && pages == 2 && SameTab(path, tabsTestA))) return;
+            tabsStep = 11; OpenDocument(tabsTestProtected); break;
+        case 13: {
+            if (!TabsCheck(tabs.size() == 2 && activeTab == 1 && pages == 2 && SameTab(path, tabsTestProtected))) return;
+            auto generation = document; OpenDocument(tabsTestProtected);
+            if (!TabsCheck(document == generation && tabsPrompts == 2)) return;
+            SaveTestImage(benchmarkReport + L".tabs.bmp", window);
+            tabsStep = 14; ActivateTab(0); break;
+        }
+        case 14:
+            if (!TabsCheck(SameTab(path, tabsTestA) && pages == 2)) return;
+            tabsStep = 16; ActivateTab(1); break;
+        case 17: {
+            if (!TabsCheck(SameTab(path, tabsTestProtected) && pages == 2 && tabsPrompts == 3)) return;
+            auto generation = document; CloseTab(0);
+            if (!TabsCheck(tabs.size() == 1 && activeTab == 0 && generation == document)) return;
+            tabsStep = 15; CloseTab(0); break;
+        }
+        }
+    }
+    void CheckTabsFailure() {
+        if (!TabsCheck((tabsStep == 8 || tabsStep == 9) && !openingDocument && !pages && tabs.size() == 2 && SameTab(path, tabsTestMissing))) return;
+        if (tabsStep == 8) {
+            auto generation = document; tabsStep = 9; OpenDocument(tabsTestMissing);
+            if (document <= generation || tabs.size() != 2) BenchmarkResult(false);
+        } else { tabsStep = 10; CloseTab(activeTab); }
+    }
+    void CheckTabsPassword(const std::wstring& prompt) {
+        if (!TabsCheck((tabsStep == 11 || tabsStep == 12 || tabsStep == 16) && SameTab(path, tabsTestProtected))) return;
+        ++tabsPrompts;
+        PasswordScript script;
+        if (tabsStep == 11) script.action = PasswordScript::Cancel;
+        else script.value = L"Chucao-test";
+        std::wstring password; EraseSecretOnExit<wchar_t> wipe{password};
+        bool accepted = PasswordDialog(window, password, prompt, font, &script);
+        if (!TabsCheck(script.verified && accepted == (tabsStep != 11))) return;
+        if (!accepted) {
+            CancelPasswordOpen();
+            if (!TabsCheck(!openingDocument && !pages && tabs.size() == 2)) return;
+            tabsStep = 12; OpenDocument(tabsTestProtected);
+        } else {
+            tabsStep = tabsStep == 12 ? 13 : 17; Load(path, password, true);
+        }
+    }
+    void CheckTabsClosed() {
+        if (!TabsCheck((tabsStep == 6 || tabsStep == 15) && tabs.empty() && activeTab == -1 && path.empty() && !pages && cacheBytes == 0)) return;
+        ++tabsClosed;
+        if (tabsStep == 6) { tabsStep = 7; OpenDocument(tabsTestA); }
+        else { tabsStep = 18; BenchmarkResult(tabsClosed == 2 && tabsPrompts == 3); }
     }
     void ChooseFile() {
         wchar_t filename[32768]{};
@@ -1834,11 +1965,13 @@ public:
         if (result->kind == Result::Failure && result->revision && result->revision != revision) return;
         switch (result->kind) {
         case Result::Opened:
+            openingDocument = false;
             canCopy = result->copyAllowed; canPrint = result->printAllowed;
             openedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
             pages = result->pages; layout.Reset(pages);
             if (rapidTest) rapidPages = result->pages;
-            if (ConfigureReadingState()) pendingReadingState = ReadingStateStore(readingStateFile).Find(path, pages);
+            pendingReadingState = SessionTabView();
+            if (!pendingReadingState && ConfigureReadingState()) pendingReadingState = ReadingStateStore(readingStateFile).Find(path, pages);
             readingStateFound = pendingReadingState.has_value();
             if (pendingReadingState) ApplyReadingState(*pendingReadingState);
             else { layout.Rebuild(ViewWidth(), zoom, PageGap()); ScrollTo(0, false); }
@@ -1924,6 +2057,7 @@ public:
                     Receive(std::move(stale));
                     BenchmarkResult(pages == before && pages == rapidPages && rapidPages > 0);
                 }
+                else if (tabsTest) CheckTabsImage();
                 else if (textTest) CheckText(Result::Image);
                 else if (navigationTest) { PostMessageW(window, WM_TIMER, 3, 0); }
                 else if (interfaceTest) { /* Wait for the outline and search diagnostics. */ }
@@ -1936,6 +2070,7 @@ public:
             }
             break;
         case Result::Password: {
+            if (tabsTest) { CheckTabsPassword(result->message); break; }
             if (readingStateTest) {
                 if (++stateAuthenticationAttempts > 1) { BenchmarkResult(false); break; }
                 PasswordScript script; script.value = L"Chucao-test";
@@ -1947,7 +2082,7 @@ public:
             if (!benchmarkReport.empty()) { BenchmarkResult(false); break; }
             std::wstring password;
             if (PasswordDialog(window, password, result->message, font)) Load(path, password, true);
-            else { status = L"Apertura cancelada."; Redraw(); }
+            else CancelPasswordOpen();
             if (!password.empty()) SecureZeroMemory(&password[0], password.size() * sizeof(wchar_t));
             break;
         }
@@ -2006,11 +2141,14 @@ public:
             }
             break;
         case Result::Failure: {
+            openingDocument = false;
             auto slash = path.find_last_of(L"\\/");
             auto name = path.substr(slash == std::wstring::npos ? 0 : slash + 1);
             status = name.empty() ? result->message : name + L": " + result->message;
+            if (!pages) status += TabRetryHint();
             Redraw();
-            if (recentTest && recentStep == 2 && path == recentMissing) {
+            if (tabsTest) CheckTabsFailure();
+            else if (recentTest && recentStep == 2 && path == recentMissing) {
                 HMENU menu = BuildOpenMenu();
                 bool retained = false;
                 for (const auto& entry : recentEntries) if (entry.path == recentMissing) retained = true;
@@ -2020,6 +2158,9 @@ public:
             } else BenchmarkResult(false);
             break;
         }
+        case Result::Closed:
+            if (tabsTest) CheckTabsClosed();
+            break;
         }
     }
     void ComputeTabs(const RECT& rc) {
@@ -2076,7 +2217,7 @@ public:
             }
             SetTextColor(dc, active ? UiTheme().ink : UiTheme().muted);
             RECT text{t.bounds.left + D(10), t.bounds.top, t.close.left - D(4), t.bounds.bottom};
-            DrawTextW(dc, TabTitle(tabs[i]), -1, &text, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+            DrawTextW(dc, TabTitle(tabs[i].path), -1, &text, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
             // Small close cross with GDI+ so it stays crisp at every DPI.
             Gdiplus::Graphics graphics(dc);
             if (graphics.GetLastStatus() == Gdiplus::Ok) {
@@ -2559,7 +2700,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool keysTest = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-keys";
     bool hcTest = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-highcontrast";
     bool rapidTest = argv && argc == 5 && std::wstring(argv[1]) == L"--benchmark-rapid";
-    bool tabsTest = argv && argc == 5 && std::wstring(argv[1]) == L"--benchmark-tabs";
+    bool tabsTest = argv && argc == 6 && std::wstring(argv[1]) == L"--benchmark-tabs";
     bool interfaceTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-interface";
     bool benchmark = interfaceTest || recentTest || themeTest || startupTest || dpiTest || keysTest || hcTest || rapidTest || tabsTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
     bool previewHome = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-home";
@@ -2612,7 +2753,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     if (passwordTest) { std::wstring file = argv[2]; app.passwordTestRoot = file.substr(0, file.find_last_of(L"\\/") + 1); }
     if (benchmark && !dpiTest && !keysTest && !hcTest && !rapidTest && !tabsTest) app.benchmarkReport = argv[3];
     if (rapidTest) app.benchmarkReport = argv[4];
-    if (tabsTest) { app.tabsTestA = argv[2]; app.tabsTestB = argv[3]; app.benchmarkReport = argv[4]; }
+    if (tabsTest) { app.tabsTestA = argv[2]; app.tabsTestB = argv[3]; app.tabsTestProtected = argv[4]; app.benchmarkReport = argv[5]; }
     if (shellBenchmark) app.benchmarkReport = argv[2];
     HWND window = CreateWindowExW(WS_EX_CONTROLPARENT, L"ChucaoReader", L"Chucao PDF Reader",
         WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_HSCROLL | WS_CLIPCHILDREN,
@@ -2639,7 +2780,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     else if (keysTest) app.RunKeysTest();
     else if (hcTest) app.RunHcTest();
     else if (rapidTest) { app.Load(argv[2]); app.Load(argv[3]); SetTimer(window, 2, 30000, nullptr); }
-    else if (tabsTest) app.RunTabsTest();
+    else if (tabsTest) { app.RunTabsTest(); SetTimer(window, 2, 30000, nullptr); }
     else if (benchmark) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
     else if (argv && argc > 1) {
         // Diagnostic switches are not document paths; every other argument opens a tab.

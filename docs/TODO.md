@@ -10,10 +10,11 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
 
 Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.md).
 
-1. [ ] Estabilizar pestañas con cargas reales A→B→A y recuperación de posición;
-   verificar errores y contraseña cancelada.
-2. [ ] Liberar el PDF en el worker al cerrar la última pestaña y descartar sus
-   trabajos pendientes; hoy el cierre explícito del motor ocurre al abrir otro o salir.
+1. [x] Estabilizar pestañas con cargas reales A→B→A y recuperación de posición;
+   verificar errores y contraseña cancelada. Evidencia: [tabs.md](tabs.md).
+2. [x] Liberar el PDF en el worker al cerrar la última pestaña y descartar sus
+   trabajos anteriores mediante revisiones/generaciones. La prueba espera el acuse
+   de cierre; una lectura de I/O bloqueante sigue siendo un límite aparte.
 3. [ ] Validar uso cotidiano y rendimiento con documentos reales antes de agregar
    nuevas funciones grandes.
 4. [ ] Preparar la próxima entrega portable con versión/fecha y binario coherentes,
@@ -167,6 +168,9 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 - [x] Validar automáticamente la gestión de pestañas: abrir, reutilizar, activar,
   cerrar conservando la vecina y volver a la bienvenida. Evidencia:
   [tabs.md](tabs.md).
+- [x] Esperar bitmaps reales al alternar A→B→A, recuperar página/zoom/posición sin
+  historial en disco, reintentar error y contraseña cancelada, volver a autenticar
+  y confirmar el cierre del PDF en el worker (27 comprobaciones).
 - [ ] Validar manualmente alternar pestañas con muchos documentos, archivos
   protegidos y remotos, y con teclado y mouse.
 - [ ] Cambiar zoom y tamaño de ventana durante el renderizado.
