@@ -141,8 +141,10 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   atrasados, sin abrir un navegador durante las pruebas.
 - [ ] Validar manualmente clic en enlaces web reales, navegador predeterminado
   y mensaje de error si Windows no puede abrirlo.
-- [ ] Abrir documentos consecutivamente con rapidez y comprobar que los resultados
-  anteriores no sustituyan al documento actual.
+- [x] Validar automáticamente que abrir dos documentos consecutivos mantenga el
+  segundo y descarte un resultado atrasado del primero (`--benchmark-rapid`).
+- [ ] Validar manualmente abrir muchos documentos seguidos con mouse/teclado y con
+  archivos reales remotos o protegidos.
 - [ ] Cambiar zoom y tamaño de ventana durante el renderizado.
 - [ ] Cerrar durante lectura, búsqueda o renderizado, sin bloqueos ni fugas.
 - [ ] Medir CPU y memoria tras muchas aperturas y recorridos.

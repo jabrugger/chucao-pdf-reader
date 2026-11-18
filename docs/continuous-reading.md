@@ -36,6 +36,11 @@ página, reutilización sin nueva petición de render, regreso al principio y re
 del documento, rechazando resultados anteriores. Comprueba también el límite de la
 caché. No envía impresiones ni modifica archivos de origen.
 
+`--benchmark-rapid` abre dos documentos consecutivos sin esperar el primer bitmap,
+verifica que quede el segundo (cantidad de páginas correcta) e inyecta un resultado
+atrasado del primero para confirmar que se descarta. La apertura rápida con el mouse,
+con archivos remotos y protegidos sigue como validación manual.
+
 La prueba de geometría cubre límites de documento, páginas de proporciones distintas,
 estimaciones, ancla de zoom y extensiones superiores a 32 bits. El recorrido integrado
 se probó además con el libro de PHP de 410 páginas indicado por el usuario.

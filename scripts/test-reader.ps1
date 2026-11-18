@@ -42,6 +42,12 @@ if (!$hcProcess.WaitForExit(15000)) { $hcProcess.Kill(); throw 'La prueba de alt
 if ($hcProcess.ExitCode -ne 0) { throw 'Falló la prueba de alto contraste.' }
 $hcResult = [IO.File]::ReadAllText($hcReport) | ConvertFrom-Json
 if (!$hcResult.success) { throw 'La paleta de alto contraste no usó los colores del sistema.' }
+$rapidReport = [IO.Path]::Combine($results, 'rapid.json')
+$rapidProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', 'Chucao.exe')) -ArgumentList @('--benchmark-rapid', 'test-results\sample.pdf', 'test-results\mixed-pages.pdf', 'test-results\rapid.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
+if (!$rapidProcess.WaitForExit(15000)) { $rapidProcess.Kill(); throw 'La prueba de apertura consecutiva excedió 15 segundos.' }
+if ($rapidProcess.ExitCode -ne 0) { throw 'Falló la prueba de apertura consecutiva.' }
+$rapidResult = [IO.File]::ReadAllText($rapidReport) | ConvertFrom-Json
+if (!$rapidResult.success -or $rapidResult.pages -ne 4) { throw 'La apertura consecutiva no conservó el segundo documento.' }
 & ([IO.Path]::Combine($root, 'build', 'layout-test.exe'))
 if ($LASTEXITCODE -ne 0) { throw 'Falló la geometría del documento.' }
 $startup = & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Executable $Executable -Pdf ([IO.Path]::Combine($root, 'test-results', 'sample.pdf')) -Runs 1 -Startup

@@ -598,6 +598,8 @@ public:
     bool dpiTest = false;
     bool keysTest = false;
     bool hcTest = false;
+    bool rapidTest = false;
+    int rapidPages = 0;
     int startupStage = 0, startupPage = -1;
     double startupRenderMs = 0, startupBitmapMs = 0, startupComposeMs = 0;
     int recentStep = 0, recentChecks = 0;
@@ -1765,6 +1767,7 @@ public:
             canCopy = result->copyAllowed; canPrint = result->printAllowed;
             openedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
             pages = result->pages; layout.Reset(pages);
+            if (rapidTest) rapidPages = result->pages;
             if (ConfigureReadingState()) pendingReadingState = ReadingStateStore(readingStateFile).Find(path, pages);
             readingStateFound = pendingReadingState.has_value();
             if (pendingReadingState) ApplyReadingState(*pendingReadingState);
@@ -1842,6 +1845,14 @@ public:
                     ComposeFrame();
                     startupComposeMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
                     BenchmarkResult(true);
+                }
+                else if (rapidTest) {
+                    // A late result from the first document must not replace the second.
+                    int before = pages;
+                    auto stale = std::make_unique<Result>(); stale->kind = Result::Opened;
+                    stale->document = document - 1; stale->pages = 9999;
+                    Receive(std::move(stale));
+                    BenchmarkResult(pages == before && pages == rapidPages && rapidPages > 0);
                 }
                 else if (textTest) CheckText(Result::Image);
                 else if (navigationTest) { PostMessageW(window, WM_TIMER, 3, 0); }
@@ -2394,8 +2405,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool dpiTest = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-dpi";
     bool keysTest = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-keys";
     bool hcTest = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-highcontrast";
+    bool rapidTest = argv && argc == 5 && std::wstring(argv[1]) == L"--benchmark-rapid";
     bool interfaceTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-interface";
-    bool benchmark = interfaceTest || recentTest || themeTest || startupTest || dpiTest || keysTest || hcTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
+    bool benchmark = interfaceTest || recentTest || themeTest || startupTest || dpiTest || keysTest || hcTest || rapidTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
     bool previewHome = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-home";
     bool previewAbout = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-about";
     bool forceDark = false;
@@ -2430,6 +2442,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.dpiTest = dpiTest;
     app.keysTest = keysTest;
     app.hcTest = hcTest;
+    app.rapidTest = rapidTest;
     app.readingStateEnabled = !benchmark && !shellBenchmark;
     app.settingsEnabled = !benchmark && !shellBenchmark;
     if (dpiTest || keysTest || hcTest) app.benchmarkReport = argv[2];
@@ -2442,7 +2455,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         app.readingStateEnabled = true; app.readingStateWrites = stateTest == 1;
     }
     if (passwordTest) { std::wstring file = argv[2]; app.passwordTestRoot = file.substr(0, file.find_last_of(L"\\/") + 1); }
-    if (benchmark && !dpiTest && !keysTest && !hcTest) app.benchmarkReport = argv[3];
+    if (benchmark && !dpiTest && !keysTest && !hcTest && !rapidTest) app.benchmarkReport = argv[3];
+    if (rapidTest) app.benchmarkReport = argv[4];
     if (shellBenchmark) app.benchmarkReport = argv[2];
     HWND window = CreateWindowExW(WS_EX_CONTROLPARENT, L"ChucaoReader", L"Chucao PDF Reader",
         WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_HSCROLL | WS_CLIPCHILDREN,
@@ -2468,6 +2482,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     else if (dpiTest) app.RunDpiTest();
     else if (keysTest) app.RunKeysTest();
     else if (hcTest) app.RunHcTest();
+    else if (rapidTest) { app.Load(argv[2]); app.Load(argv[3]); SetTimer(window, 2, 30000, nullptr); }
     else if (benchmark) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
     else if (argv && argc > 1) {
         // Diagnostic switches are not document paths.
