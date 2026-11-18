@@ -66,7 +66,10 @@ del campo de búsqueda simplemente queda vacío.
 
 Se revisaron además las capturas de ambos temas y de 96/144/192 DPI. Los iconos
 vectoriales se dibujan con GDI+ y `SmoothingModeAntiAlias`, con extremos y uniones
-redondeados, para evitar los trazos escalonados del dibujo GDI.
+redondeados, para evitar los trazos escalonados del dibujo GDI. Los botones
+propios interceptan `WM_PAINT`, `WM_NCCALCSIZE` y `WM_NCPAINT` para que el control
+`BUTTON` no agregue su marco 3D nativo, que se veía como un borde claro en el
+tema oscuro. El estado presionado, el foco y el hover se calculan en el subclass.
 
 ## Pendiente manual
 

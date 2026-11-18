@@ -154,9 +154,10 @@ inline void DrawUiIcon(HDC dc, RECT bounds, UiIcon icon, bool active, bool hover
         break;
     }
     case UiIcon::Sun:
-        ellipse(5, 5, 15, 15);
-        line(10, 0, 10, 3); line(10, 17, 10, 20); line(0, 10, 3, 10); line(17, 10, 20, 10);
-        line(3, 3, 6, 6); line(14, 14, 17, 17); line(17, 3, 14, 6); line(6, 14, 3, 17); break;
+        ellipse(6, 6, 14, 14);
+        line(10, 1, 10, 3.5f); line(10, 16.5f, 10, 19); line(1, 10, 3.5f, 10); line(16.5f, 10, 19, 10);
+        line(3.6f, 3.6f, 5.4f, 5.4f); line(14.6f, 14.6f, 16.4f, 16.4f);
+        line(16.4f, 3.6f, 14.6f, 5.4f); line(5.4f, 14.6f, 3.6f, 16.4f); break;
     }
     if (focused) {
         int margin = std::max(2, static_cast<int>(std::lround(4 * scale)));

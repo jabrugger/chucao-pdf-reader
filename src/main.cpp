@@ -647,8 +647,11 @@ public:
     int OutlineWidth() const { RECT rc{}; GetClientRect(window, &rc); return std::min(D(280), std::max(D(220), static_cast<int>(rc.right / 4))); }
     int ViewLeft() const { return outlinePinned ? OutlineWidth() : outlineLoaded && !outline.entries.empty() ? D(18) : 0; }
     HWND IconButton(HWND parent, int id, const wchar_t* title) {
-        HWND button = CreateWindowW(L"BUTTON", title, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+        HWND button = CreateWindowW(L"BUTTON", title, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | BS_FLAT,
             0, 0, D(36), D(36), parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), nullptr, nullptr);
+        // The native button theme would leave a light frame around the custom
+        // painting in the dark theme. The button draws its own background.
+        SetWindowTheme(button, L"", L"");
         SetWindowSubclass(button, IconButtonProc, 1, 0);
         TOOLINFOW tip{sizeof(tip)}; tip.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
         tip.hwnd = parent; tip.uId = reinterpret_cast<UINT_PTR>(button); tip.lpszText = const_cast<wchar_t*>(title);
@@ -2136,6 +2139,30 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
 }
 
 LRESULT CALLBACK IconButtonProc(HWND window, UINT message, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR) {
+    auto paint = [&](HDC dc) {
+        auto app = reinterpret_cast<Reader*>(GetWindowLongPtrW(GetAncestor(window, GA_ROOT), GWLP_USERDATA));
+        if (!app || !dc) return;
+        DRAWITEMSTRUCT item{}; item.CtlID = GetDlgCtrlID(window); item.hwndItem = window; item.hDC = dc;
+        GetClientRect(window, &item.rcItem);
+        HWND root = GetAncestor(window, GA_ROOT);
+        bool keyboardFocus = GetFocus() == window && !(SendMessageW(root, WM_QUERYUISTATE, 0, 0) & UISF_HIDEFOCUS);
+        bool pressed = GetCapture() == window && (GetKeyState(VK_LBUTTON) & 0x8000) != 0;
+        item.itemState = (keyboardFocus ? ODS_FOCUS : 0) | (pressed ? ODS_SELECTED : 0);
+        app->PaintButton(item);
+    };
+    // Owner-drawn buttons still get a classic 3D highlight from the button
+    // class. Remove the non-client inset and paint the whole control ourselves.
+    if (message == WM_NCCALCSIZE) return 0;
+    if (message == WM_NCPAINT) return 0;
+    if (message == WM_ERASEBKGND) return 1;
+    if (message == WM_PAINT) {
+        PAINTSTRUCT ps{}; HDC dc = BeginPaint(window, &ps); paint(dc); EndPaint(window, &ps); return 0;
+    }
+    if (message == WM_PRINTCLIENT) { paint(reinterpret_cast<HDC>(wp)); return 0; }
+    if (message == WM_SETFOCUS || message == WM_KILLFOCUS) {
+        InvalidateRect(window, nullptr, TRUE);
+        return DefSubclassProc(window, message, wp, lp);
+    }
     if (message == WM_LBUTTONDOWN)
         SendMessageW(GetAncestor(window, GA_ROOT), WM_CHANGEUISTATE, MAKEWPARAM(UIS_SET, UISF_HIDEFOCUS), 0);
     if (message == WM_MOUSEMOVE) {
@@ -2411,7 +2438,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     else if (dpiTest) app.RunDpiTest();
     else if (keysTest) app.RunKeysTest();
     else if (benchmark) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
-    else if (argv && argc > 1) app.Load(argv[1]);
+    else if (argv && argc > 1) {
+        // --theme-dark is a diagnostic flag, not a document path.
+        for (int i = 1; i < argc; ++i) {
+            std::wstring argument = argv[i];
+            if (argument != L"--theme-dark") { app.Load(argument); break; }
+        }
+    }
     if (argv) LocalFree(argv);
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
