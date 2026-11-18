@@ -24,6 +24,19 @@ cmd /c scripts\build.cmd
 build\Chucao.exe
 ```
 
+Como alternativa, `CMakeLists.txt` compila los mismos binarios y pruebas con el
+CMake incluido en Visual Studio:
+
+```powershell
+cmake -S . -B build\cmake-check -G "Visual Studio 18 2026" -A x64
+cmake --build build\cmake-check --config Release
+ctest --test-dir build\cmake-check -C Release
+```
+
+Elegir el generador que corresponda a la versión instalada (`Visual Studio 18
+2026`, `Visual Studio 17 2022`, etc.). La carpeta `build\cmake-check` queda dentro
+de `build/`, excluida de Git.
+
 La descarga fija PDFium `chromium/8152` para x64, sin V8, y comprueba su SHA-256.
 Los binarios proceden de la distribución comunitaria `bblanchon/pdfium-binaries`.
 El motor y sus avisos de terceros se conservan en `deps/pdfium`; no se suben al repo.
