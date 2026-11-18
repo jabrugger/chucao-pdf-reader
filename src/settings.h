@@ -9,6 +9,10 @@
 struct AppSettings {
     bool dark = false;
     bool restoreSession = false;
+    // theme=system: the reader resolves light/dark from Windows; `dark` is then unused.
+    bool followSystem = false;
+    // true: the index opens docked when a PDF has bookmarks; false: only on hover/toggle.
+    bool autoShowOutline = true;
 };
 
 class SettingsStore {
@@ -45,11 +49,14 @@ public:
         AppSettings settings;
         if (line == "theme=dark") settings.dark = true;
         else if (line == "theme=light") settings.dark = false;
+        else if (line == "theme=system") settings.followSystem = true;
         else return {};
         while (std::getline(lines, line)) {
             strip(line);
             if (line == "restore=1") settings.restoreSession = true;
             else if (line == "restore=0") settings.restoreSession = false;
+            else if (line == "outline=1") settings.autoShowOutline = true;
+            else if (line == "outline=0") settings.autoShowOutline = false;
             else if (line.empty()) continue;
             else return {};
         }
@@ -60,7 +67,7 @@ public:
         auto slash = filename_.find_last_of(L"\\/");
         if (slash == std::wstring::npos) return false;
         if (!CreateDirectoryW(filename_.substr(0, slash).c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) return false;
-        std::string data = std::string("ChucaoSettings 1\n") + (settings.dark ? "theme=dark\n" : "theme=light\n") + (settings.restoreSession ? "restore=1\n" : "restore=0\n");
+        std::string data = std::string("ChucaoSettings 1\n") + (settings.followSystem ? "theme=system\n" : settings.dark ? "theme=dark\n" : "theme=light\n") + (settings.restoreSession ? "restore=1\n" : "restore=0\n") + (settings.autoShowOutline ? "outline=1\n" : "outline=0\n");
         auto temporary = filename_ + L"." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64()) + L".tmp";
         HANDLE file = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
         bool ok = file != INVALID_HANDLE_VALUE;

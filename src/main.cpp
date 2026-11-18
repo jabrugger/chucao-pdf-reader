@@ -121,6 +121,15 @@ int WindowDpi(HWND window) {
     return value >= 48 && value <= 768 ? static_cast<int>(value) : 96;
 }
 
+#pragma comment(lib, "advapi32.lib")
+// Windows "app mode": 0 = dark, 1 = light. Missing or unreadable means light.
+bool SystemPrefersDark() {
+    DWORD value = 1, size = sizeof(value);
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+        L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &value, &size) != ERROR_SUCCESS) return false;
+    return value == 0;
+}
+
 INT_PTR CALLBACK AboutProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
     if (message == WM_CTLCOLORDLG) return reinterpret_cast<INT_PTR>(UiBackgroundBrush());
     if (message == WM_CTLCOLORSTATIC) {
@@ -134,6 +143,15 @@ INT_PTR CALLBACK AboutProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
         SetDlgItemTextW(dialog, IDC_ABOUT_AUTHOR, CHUCAO_WIDE(CHUCAO_AUTHOR));
         SetDlgItemTextW(dialog, IDC_ABOUT_EMAIL, CHUCAO_WIDE(CHUCAO_EMAIL));
         SetDlgItemTextW(dialog, IDC_ABOUT_RELEASE, L"Fecha de release: " CHUCAO_WIDE(CHUCAO_RELEASE_DATE));
+        {   // Make the bird as tall as the text beside it, square, whatever the DPI.
+            auto clientRect = [&](int id) { RECT r{}; GetWindowRect(GetDlgItem(dialog, id), &r); MapWindowPoints(nullptr, dialog, reinterpret_cast<POINT*>(&r), 2); return r; };
+            RECT title = clientRect(IDC_ABOUT_TITLE), release = clientRect(IDC_ABOUT_RELEASE), link = clientRect(IDC_ABOUT_REPOSITORY), icon = clientRect(IDC_ABOUT_ICON);
+            int side = std::max<LONG>(32, link.top + (release.bottom - release.top) - title.top);
+            if (HICON bird = static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_CHUCAO), IMAGE_ICON, side, side, LR_DEFAULTCOLOR))) {
+                SetWindowPos(GetDlgItem(dialog, IDC_ABOUT_ICON), nullptr, icon.left, title.top, side, side, SWP_NOZORDER);
+                SendDlgItemMessageW(dialog, IDC_ABOUT_ICON, STM_SETICON, reinterpret_cast<WPARAM>(bird), 0);
+            }
+        }
         RECT owner{}, bounds{}; GetWindowRect(GetParent(dialog), &owner); GetWindowRect(dialog, &bounds);
         SetWindowPos(dialog, nullptr, owner.left + ((owner.right - owner.left) - (bounds.right - bounds.left)) / 2,
             owner.top + ((owner.bottom - owner.top) - (bounds.bottom - bounds.top)) / 2, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
@@ -141,6 +159,10 @@ INT_PTR CALLBACK AboutProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
         SetFocus(GetDlgItem(dialog, IDC_ABOUT_TITLE));
         LITEM link{}; link.mask = LIF_ITEMINDEX | LIF_STATE; link.iLink = 0; link.stateMask = LIS_FOCUSED;
         SendDlgItemMessageW(dialog, IDC_ABOUT_REPOSITORY, LM_SETITEM, 0, reinterpret_cast<LPARAM>(&link));
+        return FALSE;
+    }
+    if (message == WM_DESTROY) {
+        if (HICON bird = reinterpret_cast<HICON>(SendDlgItemMessageW(dialog, IDC_ABOUT_ICON, STM_GETICON, 0, 0))) DestroyIcon(bird);
         return FALSE;
     }
     if (message == WM_COMMAND) {
@@ -589,6 +611,8 @@ public:
     }
     DocumentOutline outline;
     bool outlineLoaded = false, outlinePending = false, outlineTest = false;
+    std::vector<HTREEITEM> outlineItems;   // tree item of each outline entry
+    HTREEITEM outlineHighlight = nullptr;  // row shaded for the section being read
     int outlineChecks = 0, outlineStep = 0;
     bool destinationsTest = false;
     double testedDestinationZoom = 3;
@@ -608,7 +632,7 @@ public:
     bool readingStateEnabled = true, readingStateWrites = true, stateConfigured = false, viewReady = false;
     std::wstring readingStateFile;
     bool settingsEnabled = true, settingsConfigured = false, forceDarkTheme = false;
-    bool forceHighContrast = false, darkTheme = false, applyingPalette = false;
+    bool forceHighContrast = false, darkTheme = false, applyingPalette = false, followSystemTheme = false, autoShowOutline = true;
     std::wstring settingsFile;
     std::optional<ReadingState> pendingReadingState;
     int readingStateTest = 0, readingStateStep = 0, readingStateChecks = 0;
@@ -852,22 +876,27 @@ public:
             SetWindowTheme(outlineWindow, highContrast ? L"" : (dark ? L"DarkMode_Explorer" : L"Explorer"), nullptr);
         }
         if (outlineTree) StyleOutline();
-        if (persist && ConfigureSettings()) SettingsStore(settingsFile).Write({dark, restoreLastSession});
+        if (persist && ConfigureSettings()) SettingsStore(settingsFile).Write({dark, restoreLastSession, followSystemTheme, autoShowOutline});
         if (!window) { applyingPalette = false; return; }
         RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
         for (HWND control : {outlineWindow, query, findFeedback, findLabel}) if (control) InvalidateRect(control, nullptr, TRUE);
         applyingPalette = false;
     }
     void LoadTheme() {
-        restoreLastSession = false;
+        restoreLastSession = false; followSystemTheme = false; autoShowOutline = outlineAutoShow = true;
         if (forceHighContrast) { ApplyPalette(false, false); return; }
         if (forceDarkTheme) { ApplyPalette(true, false); return; }
         if (ConfigureSettings()) {
-            if (auto settings = SettingsStore(settingsFile).Read()) { restoreLastSession = settings->restoreSession; ApplyPalette(settings->dark, false); return; }
+            if (auto settings = SettingsStore(settingsFile).Read()) {
+                restoreLastSession = settings->restoreSession; followSystemTheme = settings->followSystem;
+                autoShowOutline = outlineAutoShow = settings->autoShowOutline;
+                ApplyPalette(followSystemTheme ? SystemPrefersDark() : settings->dark, false); return;
+            }
         }
         ApplyPalette(false, false);
     }
-    void ToggleTheme() { ApplyPalette(!darkTheme, true); }
+    // Ctrl+D is an explicit choice, so it stops following the system.
+    void ToggleTheme() { followSystemTheme = false; ApplyPalette(!darkTheme, true); }
     std::wstring SessionFile() {
         if (!ConfigureSettings()) return {};
         return settingsFile.substr(0, settingsFile.find_last_of(L"\\/") + 1) + L"last-session.dat";
@@ -899,7 +928,14 @@ public:
         }
         ArrangeHome(); Redraw();
     }
-    int HomeListTop() const { return ContentTop() + D(190); }
+    // The bird grows with the window but always leaves room for the heading and at
+    // least three rows of recent files (up to 200 dip, never below the old 96).
+    int HomeImageSize() const {
+        RECT rc{}; GetClientRect(window, &rc);
+        int reserved = D(16) + D(78) + D(56) * 3 + D(50);
+        return std::clamp(static_cast<int>(rc.bottom) - ContentTop() - reserved, D(96), D(200));
+    }
+    int HomeListTop() const { return ContentTop() + D(16) + HomeImageSize() + D(78); }
     void ArrangeHome() {
         if (!homeList) return;
         RECT rc{}; GetClientRect(window, &rc);
@@ -1125,7 +1161,8 @@ public:
         if (!outlineTree) return;
         SendMessageW(outlineTree, WM_SETREDRAW, FALSE, 0);
         TreeView_DeleteAllItems(outlineTree);
-        std::vector<HTREEITEM> items;
+        outlineHighlight = nullptr;
+        auto& items = outlineItems; items.clear();
         for (const auto& entry : outline.entries) {
             auto label = entry.title + (entry.page >= 0 ? L"  ·  " + std::to_wstring(entry.page + 1) : L"");
             TVINSERTSTRUCTW item{};
@@ -1143,7 +1180,62 @@ public:
         if (outlineLoaded && !outline.entries.empty()) {
             auto summary = std::to_wstring(outline.entries.size()) + (outline.entries.size() == 1 ? L" sección" : L" secciones") + (outline.limited ? L" · Índice parcial" : L"");
             SetWindowTextW(outlineLabel, summary.c_str());
+            UpdateOutlineHighlight();
         }
+    }
+    // Last entry, in document order, that starts at or before the page under the
+    // reading point. It is page-granular on purpose: a destination's Y is expressed in
+    // the unrotated, uncropped page space and the outline is read without loading pages,
+    // so comparing Y would be wrong on rotated or cropped pages.
+    int CurrentOutlineEntry() const {
+        if (!pages || !outlineLoaded || outline.entries.empty() || layout.Count() == 0) return -1;
+        int p = layout.PageAt(scroll + std::min(D(40), ViewHeight() / 2));
+        int found = -1;
+        for (int i = 0; i < static_cast<int>(outline.entries.size()); ++i)
+            if (outline.entries[i].page >= 0 && outline.entries[i].page <= p) found = i;
+        return found;
+    }
+    // Shades the row of the section being read. A section inside a collapsed chapter
+    // shades the nearest visible ancestor; the user's expand/collapse state is untouched.
+    void UpdateOutlineHighlight(bool scrollIntoView = true) {
+        if (!outlineTree || outlineItems.size() != outline.entries.size()) return;
+        HTREEITEM target = nullptr;
+        int entry = CurrentOutlineEntry();
+        if (entry >= 0) {
+            std::vector<int> chain;
+            for (int i = entry; i >= 0 && chain.size() < 70; i = outline.entries[i].parent) chain.push_back(i);
+            std::reverse(chain.begin(), chain.end());
+            target = outlineItems[chain[0]];
+            for (size_t k = 1; k < chain.size(); ++k) {
+                if (!(TreeView_GetItemState(outlineTree, outlineItems[chain[k - 1]], TVIS_EXPANDED) & TVIS_EXPANDED)) break;
+                target = outlineItems[chain[k]];
+            }
+        }
+        if (target == outlineHighlight) return;
+        outlineHighlight = target;
+        InvalidateRect(outlineTree, nullptr, FALSE);
+        if (!target || !scrollIntoView || GetFocus() == outlineTree) return;
+        POINT cursor{}; RECT bounds{}; GetCursorPos(&cursor); GetWindowRect(outlineTree, &bounds);
+        if (IsWindowVisible(outlineTree) && PtInRect(&bounds, cursor)) return; // the user is browsing the index
+        TreeView_EnsureVisible(outlineTree, target);
+    }
+    COLORREF OutlineTint() const {
+        int percent = UiDark() ? 24 : 16; COLORREF a = UiTheme().bar, b = UiTheme().accent;
+        return RGB((GetRValue(a) * (100 - percent) + GetRValue(b) * percent) / 100,
+                   (GetGValue(a) * (100 - percent) + GetGValue(b) * percent) / 100,
+                   (GetBValue(a) * (100 - percent) + GetBValue(b) * percent) / 100);
+    }
+    // Drawn before the items: the tree repaints each label's own background afterwards
+    // (with the tint, see NM_CUSTOMDRAW), so the full row and the edge bar go here.
+    void PaintOutlineHighlight(HDC dc, HTREEITEM item) {
+        RECT row{}, client{}; GetClientRect(outlineTree, &client);
+        if (!TreeView_GetItemRect(outlineTree, item, &row, FALSE)) return;
+        row.left = 0; row.right = client.right;
+        SetDCBrushColor(dc, OutlineTint());
+        FillRect(dc, &row, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+        RECT edge{row.left, row.top + D(4), row.left + std::max(2, D(3)), row.bottom - D(4)};
+        SetDCBrushColor(dc, UiTheme().accent);
+        FillRect(dc, &edge, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
     }
     void RequestOutline() {
         if (pages && !outlineLoaded && !outlinePending) {
@@ -1205,6 +1297,8 @@ public:
                 else positioned = false;
             }
             if (page != 1 || target.page != 1 || !positioned) { BenchmarkResult(false); return; }
+            // The section being read (the child that was just opened) must be the shaded row.
+            if (!destinationsTest && (outlineItems.size() < 2 || CurrentOutlineEntry() != 1 || outlineHighlight != outlineItems[1])) { BenchmarkResult(false); return; }
             testedDestinationZoom = zoom;
             ++outlineChecks;
             auto stale = std::make_unique<Result>(); stale->kind = Result::OutlineFollowed;
@@ -1706,6 +1800,7 @@ public:
         int previous = page;
         if (pages) page = layout.PageAt(scroll + std::min(D(40), ViewHeight() / 2));
         if (page != previous) PageStatus();
+        UpdateOutlineHighlight();
         SCROLLINFO info{sizeof(info), SIF_RANGE | SIF_PAGE | SIF_POS};
         info.nMin = 0;
         if (layout.Total() < 1000000000) {
@@ -1776,7 +1871,7 @@ public:
     void ResetDocument(const std::wstring& file) {
         RememberTabView(); openingDocument = false;
         SaveReadingState(); viewReady = false; pendingReadingState.reset();
-        outlinePinned = outlinePeek = false; outlineAutoShow = true; KillTimer(window, 7);
+        outlinePinned = outlinePeek = false; outlineAutoShow = autoShowOutline; KillTimer(window, 7);
         suppressCurrentState = false;
         pageLinks.clear(); pendingLinks.clear(); linkHistory.clear();
         outline = {}; outlineLoaded = outlinePending = false; PopulateOutline();
@@ -2339,7 +2434,7 @@ public:
             RECT empty{0, ContentTop(), rc.right, rc.bottom - D(26)};
             SetDCBrushColor(dc, UiTheme().bar); FillRect(dc, &empty, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
             if (!welcomeImage) welcomeImage = static_cast<HBITMAP>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDB_CHUCAO_HOME), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION));
-            int size = D(96), top = ContentTop() + D(16);
+            int size = HomeImageSize(), top = ContentTop() + D(16);
             if (welcomeImage) {
                 HDC picture = CreateCompatibleDC(dc); auto oldPicture = SelectObject(picture, welcomeImage);
                 BITMAP bitmap{}; GetObjectW(welcomeImage, sizeof(bitmap), &bitmap);
@@ -2458,10 +2553,12 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
     if (message == WM_INITDIALOG) {
         app = reinterpret_cast<Reader*>(lp); SetWindowLongPtrW(dialog, DWLP_USER, lp);
         HWND theme = GetDlgItem(dialog, IDC_SETTINGS_THEME);
+        SendMessageW(theme, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Igual que el sistema"));
         SendMessageW(theme, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Claro"));
         SendMessageW(theme, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Oscuro"));
-        SendMessageW(theme, CB_SETCURSEL, app->darkTheme ? 1 : 0, 0);
+        SendMessageW(theme, CB_SETCURSEL, app->followSystemTheme ? 0 : app->darkTheme ? 2 : 1, 0);
         CheckDlgButton(dialog, IDC_SETTINGS_RESTORE, app->restoreLastSession ? BST_CHECKED : BST_UNCHECKED);
+        CheckDlgButton(dialog, IDC_SETTINGS_OUTLINE, app->autoShowOutline ? BST_CHECKED : BST_UNCHECKED);
         ApplyWindowTheme(dialog, UiDark());
         RECT owner{}, bounds{}; GetWindowRect(app->window, &owner); GetWindowRect(dialog, &bounds);
         SetWindowPos(dialog, nullptr, owner.left + ((owner.right - owner.left) - (bounds.right - bounds.left)) / 2,
@@ -2476,16 +2573,23 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
     if (message == WM_COMMAND) {
         int id = LOWORD(wp);
         if (id == IDOK || id == IDCANCEL) { EndDialog(dialog, id); return TRUE; }
-        if ((id == IDC_SETTINGS_THEME && HIWORD(wp) == CBN_SELCHANGE) || (id == IDC_SETTINGS_RESTORE && HIWORD(wp) == BN_CLICKED)) {
-            AppSettings value{SendDlgItemMessageW(dialog, IDC_SETTINGS_THEME, CB_GETCURSEL, 0, 0) == 1,
-                IsDlgButtonChecked(dialog, IDC_SETTINGS_RESTORE) == BST_CHECKED};
+        if ((id == IDC_SETTINGS_THEME && HIWORD(wp) == CBN_SELCHANGE) ||
+            ((id == IDC_SETTINGS_RESTORE || id == IDC_SETTINGS_OUTLINE) && HIWORD(wp) == BN_CLICKED)) {
+            auto choice = SendDlgItemMessageW(dialog, IDC_SETTINGS_THEME, CB_GETCURSEL, 0, 0);
+            bool system = choice == 0;
+            AppSettings value{system ? SystemPrefersDark() : choice == 2,
+                IsDlgButtonChecked(dialog, IDC_SETTINGS_RESTORE) == BST_CHECKED, system,
+                IsDlgButtonChecked(dialog, IDC_SETTINGS_OUTLINE) == BST_CHECKED};
             if (!app->ConfigureSettings() || !SettingsStore(app->settingsFile).Write(value)) {
-                SendDlgItemMessageW(dialog, IDC_SETTINGS_THEME, CB_SETCURSEL, app->darkTheme ? 1 : 0, 0);
+                SendDlgItemMessageW(dialog, IDC_SETTINGS_THEME, CB_SETCURSEL, app->followSystemTheme ? 0 : app->darkTheme ? 2 : 1, 0);
                 CheckDlgButton(dialog, IDC_SETTINGS_RESTORE, app->restoreLastSession ? BST_CHECKED : BST_UNCHECKED);
+                CheckDlgButton(dialog, IDC_SETTINGS_OUTLINE, app->autoShowOutline ? BST_CHECKED : BST_UNCHECKED);
                 SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, L"No se pudieron guardar las opciones."); return TRUE;
             }
             bool wasRestoring = app->restoreLastSession;
-            app->restoreLastSession = value.restoreSession; app->ApplyPalette(value.dark, false);
+            app->restoreLastSession = value.restoreSession; app->followSystemTheme = value.followSystem;
+            app->autoShowOutline = value.autoShowOutline; // applies from the next document on
+            app->ApplyPalette(value.dark, false);
             bool saved = value.restoreSession ? app->SaveSession() : !wasRestoring || SessionStore(app->SessionFile()).Write({});
             SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, saved ? L"" : L"No se pudo actualizar la sesión guardada.");
             ApplyWindowTheme(dialog, UiDark()); RedrawWindow(dialog, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
@@ -2539,6 +2643,21 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     case WM_PRINTCLIENT: paint(reinterpret_cast<HDC>(wp)); return 0;
     case WM_NOTIFY: {
         auto notification = reinterpret_cast<NMHDR*>(lp);
+        if (notification->hwndFrom == app->outlineTree && notification->code == NM_CUSTOMDRAW) {
+            auto draw = reinterpret_cast<NMTVCUSTOMDRAW*>(lp);
+            if (draw->nmcd.dwDrawStage == CDDS_PREPAINT) {
+                if (app->outlineHighlight) app->PaintOutlineHighlight(draw->nmcd.hdc, app->outlineHighlight);
+                return CDRF_NOTIFYITEMDRAW;
+            }
+            if (draw->nmcd.dwDrawStage == CDDS_ITEMPREPAINT && app->outlineHighlight &&
+                reinterpret_cast<HTREEITEM>(draw->nmcd.dwItemSpec) == app->outlineHighlight) {
+                draw->clrTextBk = app->OutlineTint(); return CDRF_NEWFONT;
+            }
+            return CDRF_DODEFAULT;
+        }
+        if (notification->hwndFrom == app->outlineTree && notification->code == TVN_ITEMEXPANDEDW) {
+            app->UpdateOutlineHighlight(false); return 0;
+        }
         if (notification->hwndFrom == app->outlineTree && notification->code == NM_CLICK) {
             DWORD position = GetMessagePos(); TVHITTESTINFO hit{};
             hit.pt = {GET_X_LPARAM(position), GET_Y_LPARAM(position)}; ScreenToClient(app->outlineTree, &hit.pt);
@@ -2658,7 +2777,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     case WM_SYSCOLORCHANGE:
     case WM_THEMECHANGED:
         // Re-read high contrast and system colors; the saved theme choice is kept.
-        app->ApplyPalette(app->darkTheme, false);
+        app->ApplyPalette(app->followSystemTheme ? SystemPrefersDark() : app->darkTheme, false);
         return 0;
     case WM_COMMAND:
         if (LOWORD(wp) == HomeList) {

@@ -3,7 +3,12 @@
 El icono de la barra (antes solo alternaba el tema) abre **Opciones de Chucao**.
 Ctrl+D sigue alternando el tema directamente.
 
-- **Tema preferido**: claro u oscuro; se aplica al instante.
+- **Tema preferido**: «Igual que el sistema» (sigue el modo de aplicaciones de
+  Windows y se actualiza si cambia), claro u oscuro; se aplica al instante.
+  Ctrl+D fija un tema explícito.
+- **Mostrar automáticamente el índice**: activado por defecto (como antes). Si se
+  desmarca, el índice no se fija al abrir un PDF con marcadores y aparece al acercar
+  el puntero al borde izquierdo o con Ctrl+B. Rige desde el siguiente documento.
 - **Reabrir los PDF de la última sesión**: desactivado por defecto. Al activarlo,
   al iniciar sin indicar un archivo se reabren las pestañas y la activa.
   Los PDF protegidos vuelven a pedir contraseña; no se guarda ninguna.
@@ -15,8 +20,9 @@ Ctrl+D sigue alternando el tema directamente.
 
 `%LOCALAPPDATA%\ChucaoPDFReader\`:
 
-- `settings.dat`: `theme=` y `restore=0|1`. Los archivos anteriores sin `restore`
-  se leen con la restauración desactivada.
+- `settings.dat`: `theme=light|dark|system`, `restore=0|1` y `outline=0|1`. Los
+  archivos anteriores sin `restore` se leen con la restauración desactivada, y sin
+  `outline` con el índice automático activado.
 - `last-session.dat`: cabecera `ChucaoSession 1`, índice de la pestaña activa y
   una ruta UTF-8 por línea. Máximo 64 rutas y 1 MiB; escritura atómica.
   Un archivo dañado se ignora por completo. La sesión se guarda al cerrar, al

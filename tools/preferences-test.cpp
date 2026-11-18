@@ -19,6 +19,18 @@ int wmain(int argc, wchar_t** argv) {
         auto read = settings.Read(); Check(read && read->dark && !read->restoreSession, "legacy theme and safe default");
         Check(settings.Write({false, true}), "save restore preference"); read = settings.Read();
         Check(read && !read->dark && read->restoreSession, "preferences round trip");
+        Check(settings.Write({true, false, true}), "save system theme"); read = settings.Read();
+        Check(read && read->followSystem && !read->restoreSession, "system theme round trip");
+        Raw(settingsFile, "ChucaoSettings 1\ntheme=system\nrestore=1\n"); read = settings.Read();
+        Check(read && read->followSystem && read->restoreSession, "system theme with restore");
+        Raw(settingsFile, "ChucaoSettings 1\ntheme=dark\n"); read = settings.Read();
+        Check(read && read->dark && !read->followSystem, "explicit theme does not follow system");
+        Check(read && read->autoShowOutline, "index opens automatically by default");
+        Check(settings.Write({false, false, false, false}), "save manual index"); read = settings.Read();
+        Check(read && !read->autoShowOutline, "manual index round trip");
+        Raw(settingsFile, "ChucaoSettings 1\ntheme=light\noutline=0\nrestore=1\n"); read = settings.Read();
+        Check(read && !read->autoShowOutline && read->restoreSession, "outline preference alongside restore");
+        Raw(settingsFile, "ChucaoSettings 1\ntheme=dark\noutline=maybe\n"); Check(!settings.Read(), "invalid outline preference ignored safely");
         Raw(settingsFile, "ChucaoSettings 1\ntheme=dark\nrestore=oops\n"); Check(!settings.Read(), "invalid restore ignored safely");
         SavedSession session{{folder + L"\\lectura-café.pdf", folder + L"\\漢字.pdf"}, 1};
         Check(sessions.Write(session), "save Unicode session"); auto saved = sessions.Read();

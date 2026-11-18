@@ -5,21 +5,22 @@
 IDI_CHUCAO ICON "assets/branding/chucao.ico"
 IDB_CHUCAO_HOME BITMAP "assets/branding/chucao-home.bmp"
 
-IDD_ABOUT DIALOGEX 0, 0, 326, 130
+IDD_ABOUT DIALOGEX 0, 0, 416, 130
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Acerca de Chucao"
 FONT 9, "Segoe UI"
 BEGIN
-    ICON IDI_CHUCAO, -1, 12, 14, 40, 40
-    LTEXT "Chucao PDF Reader", IDC_ABOUT_TITLE, 66, 12, 246, 14
-    LTEXT "", IDC_ABOUT_VERSION, 66, 30, 246, 12
-    LTEXT "", IDC_ABOUT_AUTHOR, 66, 48, 246, 12
-    LTEXT "", IDC_ABOUT_EMAIL, 66, 62, 246, 12
-    LTEXT "", IDC_ABOUT_RELEASE, 66, 80, 246, 12
-    CONTROL "<a href=""https://github.com/jabrugger/chucao-pdf-reader"">github.com/jabrugger/chucao-pdf-reader</a>", IDC_ABOUT_REPOSITORY, "SysLink", WS_TABSTOP, 66, 99, 246, 18
+    // The icon is resized in AboutProc to match the height of the text block.
+    ICON IDI_CHUCAO, IDC_ABOUT_ICON, 12, 12, 100, 100
+    LTEXT "Chucao PDF Reader", IDC_ABOUT_TITLE, 150, 12, 246, 14
+    LTEXT "", IDC_ABOUT_VERSION, 150, 30, 246, 12
+    LTEXT "", IDC_ABOUT_AUTHOR, 150, 48, 246, 12
+    LTEXT "", IDC_ABOUT_EMAIL, 150, 62, 246, 12
+    LTEXT "", IDC_ABOUT_RELEASE, 150, 80, 246, 12
+    CONTROL "<a href=""https://github.com/jabrugger/chucao-pdf-reader"">github.com/jabrugger/chucao-pdf-reader</a>", IDC_ABOUT_REPOSITORY, "SysLink", WS_TABSTOP, 150, 99, 246, 18
 END
 
-IDD_SETTINGS DIALOGEX 0, 0, 332, 172
+IDD_SETTINGS DIALOGEX 0, 0, 332, 214
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Opciones de Chucao"
 FONT 9, "Segoe UI"
@@ -28,8 +29,10 @@ BEGIN
     COMBOBOX IDC_SETTINGS_THEME, 172, 12, 144, 64, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     CONTROL "Reabrir los PDF de la última sesión", IDC_SETTINGS_RESTORE, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 16, 48, 300, 16
     LTEXT "Al iniciar sin elegir un archivo. Los PDF protegidos volverán a pedir contraseña.", -1, 28, 69, 280, 28
-    CONTROL "<a>Olvidar recientes y posiciones guardadas</a>", IDC_SETTINGS_CLEAR, "SysLink", WS_TABSTOP, 16, 112, 300, 18
-    LTEXT "", IDC_SETTINGS_STATUS, 16, 140, 300, 22
+    CONTROL "Mostrar automáticamente el índice", IDC_SETTINGS_OUTLINE, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 16, 104, 300, 16
+    LTEXT "Al abrir un PDF con marcadores. Si se desmarca, el índice aparece al acercar el puntero al borde izquierdo o con Ctrl+B.", -1, 28, 125, 280, 28
+    CONTROL "<a>Olvidar recientes y posiciones guardadas</a>", IDC_SETTINGS_CLEAR, "SysLink", WS_TABSTOP, 16, 160, 300, 18
+    LTEXT "", IDC_SETTINGS_STATUS, 16, 184, 300, 22
 END
 
 1 VERSIONINFO
