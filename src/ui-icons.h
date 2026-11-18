@@ -1,6 +1,8 @@
 #pragma once
 #include <windows.h>
+#include <gdiplus.h>
 #include <cmath>
+#include <algorithm>
 
 enum class UiIcon { Folder, Previous, Next, Minus, Plus, Fit, Outline, Search, Printer, Close, Pin, Moon, Sun };
 
@@ -43,12 +45,40 @@ inline HBRUSH UiBackgroundBrush() {
     return UiDark() ? dark : light;
 }
 
+namespace UiDraw {
+inline Gdiplus::Color Color(COLORREF color) {
+    return Gdiplus::Color(255, GetRValue(color), GetGValue(color), GetBValue(color));
+}
+inline void RoundedRectPath(Gdiplus::GraphicsPath& path, float x, float y, float width, float height, float radius) {
+    float r = std::max(0.0f, std::min(radius, std::min(width, height) / 2));
+    float d = r * 2;
+    if (d <= 0) { path.AddRectangle(Gdiplus::RectF(x, y, width, height)); return; }
+    path.AddArc(x, y, d, d, 180.0f, 90.0f);
+    path.AddArc(x + width - d, y, d, d, 270.0f, 90.0f);
+    path.AddArc(x + width - d, y + height - d, d, d, 0.0f, 90.0f);
+    path.AddArc(x, y + height - d, d, d, 90.0f, 90.0f);
+    path.CloseFigure();
+}
+} // namespace UiDraw
+
+// Rounded fields and cards are drawn with GDI+ so their corners stay smooth at
+// every scale. The pen width follows the radius, which callers already scale
+// with the monitor DPI.
 inline void UiRoundRect(HDC dc, RECT bounds, COLORREF fill, COLORREF border, int radius = 10) {
-    int saved = SaveDC(dc);
-    HBRUSH brush = CreateSolidBrush(fill); HPEN pen = CreatePen(PS_SOLID, 1, border);
-    SelectObject(dc, brush); SelectObject(dc, pen);
-    RoundRect(dc, bounds.left, bounds.top, bounds.right, bounds.bottom, radius, radius);
-    RestoreDC(dc, saved); DeleteObject(brush); DeleteObject(pen);
+    if (bounds.right <= bounds.left || bounds.bottom <= bounds.top) return;
+    Gdiplus::Graphics graphics(dc);
+    if (graphics.GetLastStatus() != Gdiplus::Ok) return;
+    graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    Gdiplus::GraphicsPath path;
+    UiDraw::RoundedRectPath(path, static_cast<float>(bounds.left), static_cast<float>(bounds.top),
+        static_cast<float>(bounds.right - bounds.left), static_cast<float>(bounds.bottom - bounds.top),
+        static_cast<float>(radius));
+    Gdiplus::SolidBrush brush(UiDraw::Color(fill));
+    graphics.FillPath(&brush, &path);
+    if (border != fill) {
+        Gdiplus::Pen pen(UiDraw::Color(border), std::max(1.0f, std::round(radius / 10.0f)));
+        graphics.DrawPath(&pen, &path);
+    }
 }
 
 inline void PaintUiChildren(HDC dc, HWND parent) {
@@ -63,29 +93,40 @@ inline void PaintUiChildren(HDC dc, HWND parent) {
     }
 }
 
-// Small native vector glyphs: no fonts, image dependencies or engine work.
+// Small native vector glyphs drawn with GDI+ antialiasing: no fonts or image
+// dependencies, and smooth diagonals at every DPI.
 inline void DrawUiIcon(HDC dc, RECT bounds, UiIcon icon, bool active, bool hovered, bool pressed, bool focused) {
     const auto& palette = UiTheme();
-    int saved = SaveDC(dc);
-    IntersectClipRect(dc, bounds.left, bounds.top, bounds.right, bounds.bottom);
-    SetDCBrushColor(dc, palette.bar);
-    FillRect(dc, &bounds, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+    Gdiplus::Graphics graphics(dc);
+    if (graphics.GetLastStatus() != Gdiplus::Ok) return;
+    graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    float left = static_cast<float>(bounds.left), top = static_cast<float>(bounds.top);
+    float width = static_cast<float>(bounds.right - bounds.left), height = static_cast<float>(bounds.bottom - bounds.top);
+    if (width <= 0 || height <= 0) return;
+    float scale = width / 36.0f;
+    Gdiplus::SolidBrush barBrush(UiDraw::Color(palette.bar));
+    graphics.FillRectangle(&barBrush, left, top, width, height);
     COLORREF background = pressed ? palette.pressed : active ? palette.active : hovered ? palette.hover : palette.bar;
-    double scale = (bounds.right - bounds.left) / 36.0;
-    int inset = std::max(1, static_cast<int>(std::lround(2 * scale)));
-    int radius = std::max(2, static_cast<int>(std::lround(8 * scale)));
-    HBRUSH brush = CreateSolidBrush(background);
-    SelectObject(dc, brush); SelectObject(dc, GetStockObject(NULL_PEN));
-    RoundRect(dc, bounds.left + inset, bounds.top + inset, bounds.right - inset, bounds.bottom - inset, radius, radius);
-    HPEN pen = CreatePen(PS_SOLID, std::max(1, static_cast<int>(std::lround(2 * scale))), active ? palette.accent : palette.ink);
-    SelectObject(dc, pen); SelectObject(dc, GetStockObject(NULL_BRUSH));
-    int glyph = std::max(12, static_cast<int>(std::lround(20 * scale)));
-    int x = (bounds.left + bounds.right - glyph) / 2, y = (bounds.top + bounds.bottom - glyph) / 2;
-    auto sx = [&](int value) { return x + static_cast<int>(std::lround(value * scale)); };
-    auto sy = [&](int value) { return y + static_cast<int>(std::lround(value * scale)); };
-    auto line = [&](int a, int b, int c, int d) { MoveToEx(dc, sx(a), sy(b), nullptr); LineTo(dc, sx(c), sy(d)); };
-    auto rect = [&](int a, int b, int c, int d) { Rectangle(dc, sx(a), sy(b), sx(c), sy(d)); };
-    auto ellipse = [&](int a, int b, int c, int d) { Ellipse(dc, sx(a), sy(b), sx(c), sy(d)); };
+    float inset = std::max(1.0f, std::round(2 * scale));
+    Gdiplus::GraphicsPath backgroundPath;
+    UiDraw::RoundedRectPath(backgroundPath, left + inset, top + inset, width - 2 * inset, height - 2 * inset,
+        std::max(2.0f, std::round(8 * scale)));
+    Gdiplus::SolidBrush backgroundBrush(UiDraw::Color(background));
+    graphics.FillPath(&backgroundBrush, &backgroundPath);
+    Gdiplus::Pen pen(UiDraw::Color(active ? palette.accent : palette.ink), std::max(1.4f, 2.0f * scale));
+    pen.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound, Gdiplus::DashCapRound);
+    pen.SetLineJoin(Gdiplus::LineJoinRound);
+    float glyph = std::max(12.0f, std::round(20 * scale));
+    float x = left + (width - glyph) / 2, y = top + (height - glyph) / 2;
+    auto sx = [&](float value) { return x + value * scale; };
+    auto sy = [&](float value) { return y + value * scale; };
+    auto line = [&](float a, float b, float c, float d) { graphics.DrawLine(&pen, sx(a), sy(b), sx(c), sy(d)); };
+    auto rect = [&](float a, float b, float c, float d) {
+        graphics.DrawRectangle(&pen, sx(a), sy(b), (c - a) * scale, (d - b) * scale);
+    };
+    auto ellipse = [&](float a, float b, float c, float d) {
+        graphics.DrawEllipse(&pen, sx(a), sy(b), (c - a) * scale, (d - b) * scale);
+    };
     switch (icon) {
     case UiIcon::Folder:
         line(2, 6, 2, 3); line(2, 3, 8, 3); line(8, 3, 10, 6); line(10, 6, 18, 6);
@@ -106,12 +147,11 @@ inline void DrawUiIcon(HDC dc, RECT bounds, UiIcon icon, bool active, bool hover
     case UiIcon::Pin: rect(6, 3, 14, 10); line(4, 11, 16, 11); line(10, 11, 10, 18); break;
     case UiIcon::Moon: {
         // Filled crescent: an ink circle with a background-colored bite taken out.
-        HBRUSH inkBrush = CreateSolidBrush(active ? palette.accent : palette.ink);
-        SelectObject(dc, inkBrush); SelectObject(dc, GetStockObject(NULL_PEN));
-        ellipse(2, 2, 18, 18);
-        HBRUSH bite = CreateSolidBrush(background);
-        SelectObject(dc, bite); ellipse(9, 0, 24, 16);
-        DeleteObject(bite); DeleteObject(inkBrush); break;
+        Gdiplus::SolidBrush inkBrush(UiDraw::Color(active ? palette.accent : palette.ink));
+        graphics.FillEllipse(&inkBrush, sx(2), sy(2), 16 * scale, 16 * scale);
+        Gdiplus::SolidBrush bite(UiDraw::Color(background));
+        graphics.FillEllipse(&bite, sx(9), sy(0), 15 * scale, 16 * scale);
+        break;
     }
     case UiIcon::Sun:
         ellipse(5, 5, 15, 15);
@@ -123,5 +163,23 @@ inline void DrawUiIcon(HDC dc, RECT bounds, UiIcon icon, bool active, bool hover
         RECT focus{bounds.left + margin, bounds.top + margin, bounds.right - margin, bounds.bottom - margin};
         DrawFocusRect(dc, &focus);
     }
-    RestoreDC(dc, saved); DeleteObject(pen); DeleteObject(brush);
+}
+
+// Folder and dropdown chevron for the labelled Open button.
+inline void DrawOpenGlyph(HDC dc, RECT box, COLORREF color, float scale) {
+    Gdiplus::Graphics graphics(dc);
+    if (graphics.GetLastStatus() != Gdiplus::Ok) return;
+    graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    Gdiplus::Pen pen(UiDraw::Color(color), std::max(1.4f, 2.0f * scale));
+    pen.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound, Gdiplus::DashCapRound);
+    pen.SetLineJoin(Gdiplus::LineJoinRound);
+    float x = static_cast<float>(box.left) + 8 * scale, y = static_cast<float>(box.top) + 8 * scale;
+    auto line = [&](float a, float b, float c, float d) {
+        graphics.DrawLine(&pen, x + a * scale, y + b * scale, x + c * scale, y + d * scale);
+    };
+    line(0, 3, 6, 3); line(6, 3, 9, 6); line(9, 6, 17, 6); line(17, 6, 15, 17);
+    line(15, 17, 0, 17); line(0, 17, 0, 3); line(0, 8, 16, 8);
+    float chevronX = static_cast<float>(box.right) - 18 * scale;
+    graphics.DrawLine(&pen, chevronX, y + 8 * scale, chevronX + 4 * scale, y + 12 * scale);
+    graphics.DrawLine(&pen, chevronX + 4 * scale, y + 12 * scale, chevronX + 8 * scale, y + 8 * scale);
 }

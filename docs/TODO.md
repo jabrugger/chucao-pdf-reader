@@ -49,7 +49,11 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   contenido de la página. Evidencia: [outline-navigation.md](outline-navigation.md).
 - [ ] Conservar la posición anterior cuando FitH, FitV, FitBH o FitBV omiten su
   coordenada (la API numérica usada no distingue null de cero).
-- [ ] Mejorar accesibilidad y navegación por teclado, incluidos foco y controles.
+- [x] Mejorar accesibilidad y navegación por teclado: orden de tabulación, foco
+  entre documento/índice/barra, F6, Espacio, +/−, Escape y nombres MSAA de los
+  controles. Evidencia: [accessibility.md](accessibility.md).
+- [ ] Anuncios para lectores de pantalla (barra de estado como región viva) y
+  paleta de alto contraste de Windows.
 - [x] Adaptar la interfaz a distintos DPI por monitor, con fuentes, iconos,
   márgenes y controles reescalados y `WM_DPICHANGED`. Evidencia: [dpi.md](dpi.md).
 - [x] Revisar y pulir los mensajes de error.
@@ -85,6 +89,12 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   con un perfil corrupto y las capturas oscuras. Evidencia: [themes.md](themes.md).
 - [ ] Validar manualmente el contraste de ambos temas a distintos DPI, el alto
   contraste de Windows y el cambio de tema con varias ventanas abiertas.
+
+- [x] Validar automáticamente el orden de tabulación, el ciclo de foco, los atajos
+  de paneo y los nombres accesibles de los controles. Evidencia:
+  [accessibility.md](accessibility.md).
+- [ ] Validar manualmente con Narrator/NVDA, alto contraste, IME y navegación
+  completa solo con teclado en documentos reales.
 
 - [x] Validar automáticamente el reescalado a 144 y 192 DPI de fuentes, botones,
   campos, alto de fila del árbol y capturas. Evidencia: [dpi.md](dpi.md).

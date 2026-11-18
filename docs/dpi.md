@@ -22,7 +22,9 @@ bitmap de la interfaz.
 - `WM_DPICHANGED` aplica el rectángulo sugerido por Windows, vuelve a maquetar y
   dispara un render nuevo con el ancho de vista actualizado.
 - Los glifos vectoriales escalan su espacio de 20 × 20 y el grosor del trazo;
-  no se cargan imágenes para los iconos.
+  se dibujan con GDI+ y `SmoothingModeAntiAlias`, con extremos y uniones
+  redondeados, para que no aparezcan escalonados a 150–200 %. No se cargan
+  imágenes para los iconos.
 - El zoom del documento sigue siendo independiente del DPI: la escala de la
   página no cambia, solo el tamaño de la interfaz que la rodea.
 

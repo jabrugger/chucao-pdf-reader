@@ -30,6 +30,12 @@ if (!$dpiProcess.WaitForExit(15000)) { $dpiProcess.Kill(); throw 'La prueba de D
 if ($dpiProcess.ExitCode -ne 0) { throw 'Falló la prueba de DPI.' }
 $dpiResult = [IO.File]::ReadAllText($dpiReport) | ConvertFrom-Json
 if (!$dpiResult.success) { throw 'Las métricas de interfaz no se adaptaron a 144/192 DPI.' }
+$keysReport = [IO.Path]::Combine($results, 'keys.json')
+$keysProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', 'Chucao.exe')) -ArgumentList @('--benchmark-keys', 'test-results\keys.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
+if (!$keysProcess.WaitForExit(15000)) { $keysProcess.Kill(); throw 'La prueba de teclado excedió 15 segundos.' }
+if ($keysProcess.ExitCode -ne 0) { throw 'Falló la prueba de teclado.' }
+$keysResult = [IO.File]::ReadAllText($keysReport) | ConvertFrom-Json
+if (!$keysResult.success) { throw 'El orden de tabulación, el foco o los nombres accesibles no coincidieron.' }
 & ([IO.Path]::Combine($root, 'build', 'layout-test.exe'))
 if ($LASTEXITCODE -ne 0) { throw 'Falló la geometría del documento.' }
 $startup = & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Executable $Executable -Pdf ([IO.Path]::Combine($root, 'test-results', 'sample.pdf')) -Runs 1 -Startup

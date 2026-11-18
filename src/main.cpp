@@ -6,6 +6,8 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include <dwmapi.h>
+#include <oleacc.h>
+#include <oleauto.h>
 #include <fpdfview.h>
 #include <fpdf_text.h>
 #include <fpdf_progressive.h>
@@ -38,6 +40,15 @@
 
 #pragma comment(linker, "\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
+// oleacc.h declares these without providing a library definition unless INITGUID
+// is defined before every Windows header. Defining the two symbols here keeps
+// the rest of the build independent of INITGUID (which breaks known folders on
+// older SDKs).
+EXTERN_C const CLSID DECLSPEC_SELECTANY CLSID_AccPropServices =
+    {0xb5f8350b, 0x0548, 0x48b1, {0xa6, 0xee, 0x88, 0xbd, 0x00, 0xb4, 0xa5, 0xe7}};
+EXTERN_C const MSAAPROPID DECLSPEC_SELECTANY PROPID_ACC_NAME =
+    {0x608d3df8, 0x8128, 0x4aa7, {0xa4, 0x28, 0xf5, 0x5e, 0x49, 0x26, 0x72, 0x91}};
+
 namespace {
 constexpr UINT Ready = WM_APP + 1;
 constexpr UINT ChromeHover = WM_APP + 2;
@@ -69,6 +80,19 @@ void EnablePerMonitorDpi() {
         FreeLibrary(shcore);
     }
     SetProcessDPIAware();
+}
+
+// Screen readers use MSAA names. Owner-drawn buttons already expose their
+// window text; edits need an explicit property because the cue banner is not a
+// label. Failures are silent: the reader keeps working without a screen reader.
+void SetAccessibleName(HWND control, const wchar_t* name) {
+    if (!control) return;
+    IAccPropServices* service = nullptr;
+    if (SUCCEEDED(CoCreateInstance(CLSID_AccPropServices, nullptr, CLSCTX_INPROC_SERVER,
+        IID_IAccPropServices, reinterpret_cast<void**>(&service)))) {
+        service->SetHwndPropStr(control, static_cast<DWORD>(OBJID_CLIENT), CHILDID_SELF, PROPID_ACC_NAME, name);
+        service->Release();
+    }
 }
 
 int SystemDpi() {
@@ -572,6 +596,7 @@ public:
     bool themeTest = false;
     bool startupTest = false;
     bool dpiTest = false;
+    bool keysTest = false;
     int startupStage = 0, startupPage = -1;
     double startupRenderMs = 0, startupBitmapMs = 0, startupComposeMs = 0;
     int recentStep = 0, recentChecks = 0;
@@ -639,20 +664,13 @@ public:
             SetDCBrushColor(item.hDC, UiTheme().bar);
             FillRect(item.hDC, &item.rcItem, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
             RECT box = item.rcItem; InflateRect(&box, -px(1), -px(1)); UiRoundRect(item.hDC, box, color, color, px(10));
-            RECT icon{item.rcItem.left + px(4), item.rcItem.top + px(3), item.rcItem.left + px(32), item.rcItem.bottom - px(3)};
             // The folder glyph shares the same palette; the label makes the primary action discoverable.
-            int saved = SaveDC(item.hDC);
-            HPEN pen = CreatePen(PS_SOLID, std::max(1, px(2)), UiTheme().accent); SelectObject(item.hDC, pen); SelectObject(item.hDC, GetStockObject(NULL_BRUSH));
-            int x = icon.left + px(4), y = icon.top + px(5);
-            MoveToEx(item.hDC, x, y + px(3), nullptr); LineTo(item.hDC, x + px(6), y + px(3)); LineTo(item.hDC, x + px(9), y + px(6));
-            LineTo(item.hDC, x + px(17), y + px(6)); LineTo(item.hDC, x + px(15), y + px(17)); LineTo(item.hDC, x, y + px(17)); LineTo(item.hDC, x, y + px(3));
-            MoveToEx(item.hDC, x, y + px(8), nullptr); LineTo(item.hDC, x + px(16), y + px(8));
-            MoveToEx(item.hDC, box.right - px(18), px(16), nullptr); LineTo(item.hDC, box.right - px(14), px(20)); LineTo(item.hDC, box.right - px(10), px(16));
+            DrawOpenGlyph(item.hDC, item.rcItem, UiTheme().accent, static_cast<float>(dpi) / 96.0f);
             SelectObject(item.hDC, strongFont); SetBkMode(item.hDC, TRANSPARENT); SetTextColor(item.hDC, UiTheme().accent);
             RECT text{box.left + px(34), 0, box.right - px(22), item.rcItem.bottom};
             DrawTextW(item.hDC, L"Abrir", -1, &text, DT_SINGLELINE | DT_VCENTER | DT_CENTER);
             if ((item.itemState & (ODS_FOCUS | ODS_NOFOCUSRECT)) == ODS_FOCUS) DrawFocusRect(item.hDC, &box);
-            RestoreDC(item.hDC, saved); DeleteObject(pen); return;
+            return;
         }
         if (item.CtlID == About) {
             SetDCBrushColor(item.hDC, UiTheme().bar);
@@ -798,6 +816,72 @@ public:
         ApplyPalette(false, false);
     }
     void ToggleTheme() { ApplyPalette(!UiDark(), true); }
+    void CycleFocus() {
+        if (GetFocus() == window) {
+            if (outlinePinned && outlineTree) SetFocus(outlineTree);
+            else if (HWND first = GetDlgItem(window, OpenMenu)) SetFocus(first);
+        } else SetFocus(window);
+    }
+    void RunKeysTest() {
+        bool ok = true;
+        std::wstring debug;
+        const int expected[] = {OpenMenu, Outline, Find, Previous, Next, Smaller, Larger, Fit, Print, Theme, About};
+        HWND item = GetDlgItem(window, OpenMenu);
+        for (int id : expected) {
+            debug += L"expect=" + std::to_wstring(id) + L" item=" + std::to_wstring(item ? GetDlgCtrlID(item) : -1) +
+                L" tab=" + std::to_wstring(item ? (GetWindowLongPtrW(item, GWL_STYLE) & WS_TABSTOP) != 0 : 0) + L"\n";
+            ok = ok && item == GetDlgItem(window, id);
+            ok = ok && item && (GetWindowLongPtrW(item, GWL_STYLE) & WS_TABSTOP);
+            if (!item) break;
+            item = GetNextDlgTabItem(window, item, FALSE);
+        }
+        debug += L"cycle=" + std::to_wstring(item ? GetDlgCtrlID(item) : -1) + L"\n";
+        ok = ok && item == GetDlgItem(window, OpenMenu);
+        auto accessibleName = [](HWND control) {
+            IAccessible* accessible = nullptr;
+            std::wstring result;
+            if (SUCCEEDED(AccessibleObjectFromWindow(control, static_cast<DWORD>(OBJID_CLIENT), IID_IAccessible,
+                reinterpret_cast<void**>(&accessible)))) {
+                VARIANT self{}; self.vt = VT_I4; self.lVal = CHILDID_SELF;
+                BSTR name = nullptr;
+                if (SUCCEEDED(accessible->get_accName(self, &name)) && name) {
+                    result = name; SysFreeString(name);
+                }
+                accessible->Release();
+            }
+            return result;
+        };
+        auto queryName = accessibleName(query), themeName = accessibleName(GetDlgItem(window, Theme));
+        auto previousName = accessibleName(GetDlgItem(window, Previous));
+        debug += L"query=" + queryName + L"\ntheme=" + themeName + L"\nprevious=" + previousName + L"\n";
+        ok = ok && queryName.find(L"Buscar") != std::wstring::npos;
+        ok = ok && themeName.find(L"Tema") != std::wstring::npos;
+        ok = ok && previousName.find(L"Página anterior") != std::wstring::npos;
+        SetFocus(window); CycleFocus();
+        debug += L"focus1=" + std::to_wstring(GetFocus() ? GetDlgCtrlID(GetFocus()) : -1) + L"\n";
+        ok = ok && GetFocus() == GetDlgItem(window, OpenMenu);
+        CycleFocus();
+        debug += L"focus2=" + std::to_wstring(GetFocus() ? GetDlgCtrlID(GetFocus()) : -1) + L"\n";
+        ok = ok && GetFocus() == window;
+        // Tab must move focus among the custom toolbar buttons through the dialog manager.
+        SetFocus(GetDlgItem(window, OpenMenu));
+        MSG key{}; key.hwnd = GetDlgItem(window, OpenMenu); key.message = WM_KEYDOWN; key.wParam = VK_TAB;
+        IsDialogMessageW(window, &key);
+        debug += L"tab=" + std::to_wstring(GetFocus() ? GetDlgCtrlID(GetFocus()) : -1) + L"\n";
+        ok = ok && GetFocus() == GetDlgItem(window, Outline);
+        SetFocus(window);
+        if (!ok) {
+            HANDLE log = CreateFileW((benchmarkReport + L".keys.txt").c_str(), GENERIC_WRITE, 0, nullptr,
+                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (log != INVALID_HANDLE_VALUE) {
+                DWORD written = 0;
+                WriteFile(log, debug.data(), static_cast<DWORD>(debug.size() * sizeof(wchar_t)), &written, nullptr);
+                CloseHandle(log);
+            }
+        }
+        SaveTestImage(benchmarkReport + L".keys.bmp");
+        BenchmarkResult(ok);
+    }
     void RunDpiTest() {
         bool ok = dpi >= 48;
         SaveTestImage(benchmarkReport + L".initial.bmp");
@@ -1916,7 +2000,7 @@ public:
             RECT rule{x, D(17), x + std::max(1, D(1)), D(35)}; SetDCBrushColor(dc, UiTheme().line);
             FillRect(dc, &rule, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         }
-        RECT pageField{D(290), D(11), D(388), D(41)}; UiRoundRect(dc, pageField, UiTheme().field, UiTheme().field);
+        RECT pageField{D(290), D(11), D(388), D(41)}; UiRoundRect(dc, pageField, UiTheme().field, UiTheme().field, D(10));
         auto pageLabel = pages ? std::to_wstring(page + 1) + L" / " + std::to_wstring(pages) : L"— / —";
         SelectObject(dc, strongFont); DrawTextW(dc, pageLabel.c_str(), -1, &pageField, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
         RECT zoomField{D(498), 0, D(558), BarPixels()};
@@ -1929,12 +2013,16 @@ public:
             FillRect(dc, &findBar, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
             int width = std::max(D(120), std::min(D(320), static_cast<int>(rc.right) - ViewLeft() - D(320)));
             RECT field{ViewLeft() + D(12), findBar.top + D(6), ViewLeft() + D(60) + width, findBar.top + D(38)};
-            UiRoundRect(dc, field, UiTheme().field, GetFocus() == query ? UiTheme().accent : UiTheme().line);
-            int saved = SaveDC(dc); HPEN iconPen = CreatePen(PS_SOLID, std::max(1, D(2)), UiTheme().muted);
-            SelectObject(dc, iconPen); SelectObject(dc, GetStockObject(NULL_BRUSH));
-            int x = field.left + D(12), y = field.top + D(8);
-            Ellipse(dc, x, y, x + D(12), y + D(12)); MoveToEx(dc, x + D(10), y + D(10), nullptr); LineTo(dc, x + D(17), y + D(17));
-            RestoreDC(dc, saved); DeleteObject(iconPen);
+            UiRoundRect(dc, field, UiTheme().field, GetFocus() == query ? UiTheme().accent : UiTheme().line, D(10));
+            {
+                Gdiplus::Graphics graphics(dc);
+                graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+                Gdiplus::Pen iconPen(UiDraw::Color(UiTheme().muted), static_cast<float>(std::max(1, D(2))));
+                iconPen.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound, Gdiplus::DashCapRound);
+                float x = static_cast<float>(field.left + D(12)), y = static_cast<float>(field.top + D(8));
+                graphics.DrawEllipse(&iconPen, x, y, static_cast<float>(D(12)), static_cast<float>(D(12)));
+                graphics.DrawLine(&iconPen, x + D(10), y + D(10), x + D(17), y + D(17));
+            }
             RECT rule{findBar.left, findBar.top, findBar.right, findBar.top + std::max(1, D(1))};
             SetDCBrushColor(dc, UiTheme().line); FillRect(dc, &rule, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         }
@@ -2086,6 +2174,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
             0, app->BarPixels(), app->D(260), app->D(500), window, nullptr, GetModuleHandleW(nullptr), app);
         app->query = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL, 0, 0, app->D(220), app->D(26), window, reinterpret_cast<HMENU>(Query), nullptr, nullptr);
         SendMessageW(app->query, EM_SETCUEBANNER, FALSE, reinterpret_cast<LPARAM>(L"Buscar en el documento"));
+        SetAccessibleName(app->query, L"Buscar en el documento");
+        struct Accessible { int id; const wchar_t* name; };
+        const Accessible names[] = {{OpenMenu, L"Abrir PDF y recientes"}, {Outline, L"Mostrar u ocultar el índice"},
+            {Find, L"Buscar en el documento"}, {Previous, L"Página anterior"}, {Next, L"Página siguiente"},
+            {Smaller, L"Alejar"}, {Larger, L"Acercar"}, {Fit, L"Ajustar al ancho"}, {Print, L"Imprimir"},
+            {Theme, L"Tema claro u oscuro"}, {About, L"Acerca de Chucao"}};
+        for (const auto& entry : names) SetAccessibleName(GetDlgItem(window, entry.id), entry.name);
         app->findLabel = CreateWindowW(L"STATIC", L"Buscar", WS_CHILD, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
         app->findFeedback = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
         app->IconButton(window, FindPrevious, L"Coincidencia anterior (Mayús+Enter)");
@@ -2245,14 +2340,19 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool themeTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-theme";
     bool startupTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-startup";
     bool dpiTest = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-dpi";
+    bool keysTest = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-keys";
     bool interfaceTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-interface";
-    bool benchmark = interfaceTest || recentTest || themeTest || startupTest || dpiTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
+    bool benchmark = interfaceTest || recentTest || themeTest || startupTest || dpiTest || keysTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
     bool previewHome = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-home";
     bool previewAbout = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-about";
     bool forceDark = false;
     for (int i = 1; argv && i < argc; ++i) if (std::wstring(argv[i]) == L"--theme-dark") forceDark = true;
     bool shellBenchmark = argv && argc >= 3 && (std::wstring(argv[1]) == L"--benchmark-shell" || previewHome || previewAbout);
     EnablePerMonitorDpi();
+    HRESULT comResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    Gdiplus::GdiplusStartupInput gdiplusInput;
+    ULONG_PTR gdiplusToken = 0;
+    Gdiplus::Status gdiplusStatus = Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusInput, nullptr);
     int initialDpi = SystemDpi();
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_TREEVIEW_CLASSES | ICC_LINK_CLASS}; InitCommonControlsEx(&controls);
     WNDCLASSW wc{}; wc.hInstance = instance; wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
@@ -2273,9 +2373,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.themeTest = themeTest;
     app.startupTest = startupTest;
     app.dpiTest = dpiTest;
+    app.keysTest = keysTest;
     app.readingStateEnabled = !benchmark && !shellBenchmark;
     app.settingsEnabled = !benchmark && !shellBenchmark;
-    if (dpiTest) app.benchmarkReport = argv[2];
+    if (dpiTest || keysTest) app.benchmarkReport = argv[2];
     if (themeTest) { app.settingsFile = argv[2]; app.settingsConfigured = true; app.settingsEnabled = true; }
     if (forceDark) { app.forceDarkTheme = true; app.settingsEnabled = false; }
     if (recentTest) { app.recentTest = true; app.readingStateFile = argv[4]; app.readingStateEnabled = true; }
@@ -2284,11 +2385,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         app.readingStateEnabled = true; app.readingStateWrites = stateTest == 1;
     }
     if (passwordTest) { std::wstring file = argv[2]; app.passwordTestRoot = file.substr(0, file.find_last_of(L"\\/") + 1); }
-    if (benchmark && !dpiTest) app.benchmarkReport = argv[3];
+    if (benchmark && !dpiTest && !keysTest) app.benchmarkReport = argv[3];
     if (shellBenchmark) app.benchmarkReport = argv[2];
-    HWND window = CreateWindowW(L"ChucaoReader", L"Chucao PDF Reader", WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_HSCROLL | WS_CLIPCHILDREN,
+    HWND window = CreateWindowExW(WS_EX_CONTROLPARENT, L"ChucaoReader", L"Chucao PDF Reader",
+        WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_HSCROLL | WS_CLIPCHILDREN,
         CW_USEDEFAULT, CW_USEDEFAULT, MulDiv(1080, initialDpi, 96), MulDiv(800, initialDpi, 96), nullptr, nullptr, instance, &app);
-    if (!window) return 1;
+    if (!window) {
+        if (gdiplusStatus == Gdiplus::Ok) Gdiplus::GdiplusShutdown(gdiplusToken);
+        if (SUCCEEDED(comResult)) CoUninitialize();
+        return 1;
+    }
     if (!benchmark && !shellBenchmark) { ShowWindow(window, show); UpdateWindow(window); }
     app.shellMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     if (shellBenchmark) {
@@ -2303,6 +2409,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     }
     else if (themeTest) app.RunThemeTest();
     else if (dpiTest) app.RunDpiTest();
+    else if (keysTest) app.RunKeysTest();
     else if (benchmark) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
     else if (argv && argc > 1) app.Load(argv[1]);
     if (argv) LocalFree(argv);
@@ -2310,6 +2417,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
         if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE && app.searchVisible) { app.HideSearch(); continue; }
         if (msg.message == WM_KEYDOWN && msg.wParam == VK_F1) { app.Command(About); continue; }
+        if (msg.message == WM_KEYDOWN && msg.wParam == VK_F6) { app.CycleFocus(); continue; }
         if (app.outlineWindow && (msg.hwnd == app.outlineWindow || IsChild(app.outlineWindow, msg.hwnd))) {
             if (msg.message == WM_KEYDOWN && msg.wParam == 'F' && GetKeyState(VK_CONTROL) < 0) { app.ShowSearch(); continue; }
             if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN && GetFocus() == app.outlineTree) { app.NavigateOutline(); continue; }
@@ -2322,6 +2430,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         if (msg.message == WM_KEYDOWN) {
             SendMessageW(window, WM_CHANGEUISTATE, MAKEWPARAM(UIS_CLEAR, UISF_HIDEFOCUS), 0);
             bool ctrl = GetKeyState(VK_CONTROL) < 0, edit = GetFocus() == app.query;
+            HWND focused = GetFocus();
+            if (!edit && focused == window && msg.wParam == VK_SPACE) {
+                app.pendingReadingState.reset(); ++app.linkEpoch;
+                int amount = app.ViewHeight() - app.D(40);
+                app.ScrollTo(app.scroll + (GetKeyState(VK_SHIFT) < 0 ? -amount : amount));
+                continue;
+            }
+            if (!edit && (focused == window || focused == app.outlineTree) &&
+                (msg.wParam == VK_ADD || msg.wParam == VK_OEM_PLUS || msg.wParam == '=')) { app.Command(Larger); continue; }
+            if (!edit && (focused == window || focused == app.outlineTree) &&
+                (msg.wParam == VK_SUBTRACT || msg.wParam == VK_OEM_MINUS || msg.wParam == '-')) { app.Command(Smaller); continue; }
             if (!edit && GetKeyState(VK_MENU) < 0 && msg.wParam == VK_LEFT) { app.BackFromLink(); continue; }
             if (!edit && (msg.wParam == VK_NEXT || msg.wParam == VK_PRIOR || msg.wParam == VK_DOWN || msg.wParam == VK_UP || msg.wParam == VK_HOME || msg.wParam == VK_END)) {
                 app.pendingReadingState.reset();
@@ -2333,7 +2452,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
                 continue;
             }
             int command = 0;
-            if (!edit && msg.wParam == VK_ESCAPE) { app.EndSelection(); app.ClearSelection(); continue; }
+            if (!edit && msg.wParam == VK_ESCAPE) { app.EndSelection(); app.ClearSelection(); SetFocus(window); continue; }
             if (ctrl && msg.wParam == 'O') command = GetKeyState(VK_SHIFT) < 0 ? OpenMenu : Open;
             else if (ctrl && msg.wParam == 'B') command = Outline;
             else if (ctrl && msg.wParam == 'F') command = Find;
@@ -2348,5 +2467,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         }
         if (!IsDialogMessageW(window, &msg)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
     }
+    if (gdiplusStatus == Gdiplus::Ok) Gdiplus::GdiplusShutdown(gdiplusToken);
+    if (SUCCEEDED(comResult)) CoUninitialize();
     return static_cast<int>(msg.wParam);
 }
