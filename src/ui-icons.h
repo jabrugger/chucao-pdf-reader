@@ -146,7 +146,7 @@ inline void DrawUiIcon(HDC dc, RECT bounds, UiIcon icon, bool active, bool hover
     case UiIcon::Close: line(5, 5, 15, 15); line(15, 5, 5, 15); break;
     case UiIcon::Pin: rect(6, 3, 14, 10); line(4, 11, 16, 11); line(10, 11, 10, 18); break;
     case UiIcon::Moon: {
-        // Filled crescent: an ink circle with a background-colored bite taken out.
+        // Crescent: an ink circle with a background bite taken out, opening right.
         Gdiplus::SolidBrush inkBrush(UiDraw::Color(active ? palette.accent : palette.ink));
         graphics.FillEllipse(&inkBrush, sx(2), sy(2), 16 * scale, 16 * scale);
         Gdiplus::SolidBrush bite(UiDraw::Color(background));
@@ -154,10 +154,10 @@ inline void DrawUiIcon(HDC dc, RECT bounds, UiIcon icon, bool active, bool hover
         break;
     }
     case UiIcon::Sun:
-        ellipse(6, 6, 14, 14);
-        line(10, 1, 10, 3.5f); line(10, 16.5f, 10, 19); line(1, 10, 3.5f, 10); line(16.5f, 10, 19, 10);
-        line(3.6f, 3.6f, 5.4f, 5.4f); line(14.6f, 14.6f, 16.4f, 16.4f);
-        line(16.4f, 3.6f, 14.6f, 5.4f); line(5.4f, 14.6f, 3.6f, 16.4f); break;
+        ellipse(7, 7, 13, 13);
+        line(10, 2, 10, 4.5f); line(10, 15.5f, 10, 18); line(2, 10, 4.5f, 10); line(15.5f, 10, 18, 10);
+        line(6.5f, 6.5f, 4.5f, 4.5f); line(13.5f, 6.5f, 15.5f, 4.5f);
+        line(6.5f, 13.5f, 4.5f, 15.5f); line(13.5f, 13.5f, 15.5f, 15.5f); break;
     case UiIcon::Info: {
         ellipse(4, 4, 16, 16);
         Gdiplus::SolidBrush dot(UiDraw::Color(active ? palette.accent : palette.ink));

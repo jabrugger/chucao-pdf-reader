@@ -891,22 +891,28 @@ public:
         BenchmarkResult(ok);
     }
     void RunThemeTest() {
-        const char junk[] = "not a settings file\n"; DWORD written = 0;
-        HANDLE file = CreateFileW(settingsFile.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        bool ok = file != INVALID_HANDLE_VALUE &&
-            WriteFile(file, junk, sizeof(junk) - 1, &written, nullptr) && written == sizeof(junk) - 1;
-        if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
-        LoadTheme(); // Corrupt profile falls back to the light theme without throwing.
-        ok = ok && !UiDark();
-        ToggleTheme();
-        ok = ok && UiDark();
+        bool ok = true;
+        auto writeRaw = [&](const std::string& content) {
+            HANDLE file = CreateFileW(settingsFile.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (file == INVALID_HANDLE_VALUE) return false;
+            DWORD written = 0;
+            bool result = WriteFile(file, content.data(), static_cast<DWORD>(content.size()), &written, nullptr) != 0 &&
+                written == content.size();
+            CloseHandle(file);
+            return result;
+        };
+        ok = ok && writeRaw("not a settings file\n");
+        LoadTheme(); ok = ok && !UiDark(); // Corrupt profile falls back to light.
+        // A UTF-8 BOM and CRLF line endings from another editor must still load dark.
+        ok = ok && writeRaw(std::string("\xEF\xBB\xBF") + "ChucaoSettings 1\r\ntheme=dark\r\n");
+        LoadTheme(); ok = ok && UiDark();
+        ToggleTheme(); ok = ok && !UiDark();
         auto settings = SettingsStore(settingsFile).Read();
+        ok = ok && settings.has_value() && !settings->dark;
+        ToggleTheme(); ok = ok && UiDark();
+        settings = SettingsStore(settingsFile).Read();
         ok = ok && settings.has_value() && settings->dark;
         SaveTestImage(benchmarkReport + L".dark.bmp");
-        ToggleTheme();
-        ok = ok && !UiDark();
-        settings = SettingsStore(settingsFile).Read();
-        ok = ok && settings.has_value() && !settings->dark;
         BenchmarkResult(ok);
     }
     void PeekOutline() {

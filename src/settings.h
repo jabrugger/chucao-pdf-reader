@@ -1,6 +1,7 @@
 #pragma once
 #include <windows.h>
 #include <optional>
+#include <sstream>
 #include <string>
 
 // Small, local preferences file. It never contains document contents, paths or
@@ -25,10 +26,21 @@ public:
         bool ok = ReadFile(file, &data[0], static_cast<DWORD>(data.size()), &read, nullptr) != 0;
         CloseHandle(file);
         if (!ok || read != data.size()) return {};
-        const std::string header = "ChucaoSettings 1\n";
-        if (data.compare(0, header.size(), header) != 0) return {};
-        auto line = data.substr(header.size());
-        while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) line.pop_back();
+        // Tolerate a UTF-8 BOM and both LF/CRLF line endings so an edited file
+        // never silently discards the whole preference.
+        if (data.size() >= 3 && static_cast<unsigned char>(data[0]) == 0xEF &&
+            static_cast<unsigned char>(data[1]) == 0xBB && static_cast<unsigned char>(data[2]) == 0xBF)
+            data.erase(0, 3);
+        std::istringstream lines(data);
+        std::string line;
+        auto strip = [](std::string& value) {
+            while (!value.empty() && (value.back() == '\n' || value.back() == '\r')) value.pop_back();
+        };
+        if (!std::getline(lines, line)) return {};
+        strip(line);
+        if (line != "ChucaoSettings 1") return {};
+        if (!std::getline(lines, line)) return {};
+        strip(line);
         AppSettings settings;
         if (line == "theme=dark") settings.dark = true;
         else if (line == "theme=light") settings.dark = false;
