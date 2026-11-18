@@ -24,9 +24,9 @@ La lista consolidada y verificable de pendientes está en [TODO.md](TODO.md).
    si aporta ventajas medibles. No asumir que un lenguaje determina el resultado.
 5. **Versión de uso diario (en curso)**: implementados archivos recientes, permisos
    de impresión/copia, paquete portable con avisos de terceros y licencia MIT.
-   Pendientes errores claros, accesibilidad, pruebas con impresoras físicas y
-   virtuales, documentos grandes/remotos, instalador y validación del paquete en
-   otras PC.
+   Mensajes de error revisados. Pendientes accesibilidad, pruebas con impresoras
+   físicas y virtuales, documentos grandes/remotos, instalador y validación del
+   paquete en otras PC.
 
 Fuera de alcance permanente: editar PDF, anotaciones, OCR, combinar/dividir,
 redactar, firmar o crear documentos. La impresión no modifica el archivo de origen.

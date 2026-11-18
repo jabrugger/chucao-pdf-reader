@@ -17,6 +17,7 @@
 #include "ui-icons.h"
 #include "reading-state.h"
 #include "recent-files.h"
+#include "pdf-errors.h"
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
@@ -190,14 +191,12 @@ public:
             if (!pdf_) {
                 auto error = FPDF_GetLastError();
                 result->kind = error == FPDF_ERR_PASSWORD ? Result::Password : Result::Failure;
-                result->message = error == FPDF_ERR_FORMAT ? L"El archivo no es un PDF válido o está dañado." : L"No se pudo abrir el PDF.";
-                if (error == FPDF_ERR_PASSWORD) result->message = suppliedPassword ? L"La contraseña es incorrecta. Volvé a intentarlo." : L"Este documento está protegido. Ingresá la contraseña.";
-                if (error == FPDF_ERR_FILE) result->message = L"No se pudo abrir el archivo. Puede haberse movido o no estar disponible.";
+                result->message = PdfOpenErrorMessage(error, suppliedPassword);
             } else {
                 result->kind = Result::Opened; result->pages = FPDF_GetPageCount(pdf_);
                 auto permissions = FPDF_GetDocPermissions(pdf_);
                 result->copyAllowed = (permissions & 16) != 0; result->printAllowed = (permissions & 4) != 0;
-                if (result->pages <= 0) { result->kind = Result::Failure; result->message = L"El PDF no contiene páginas."; }
+                if (result->pages <= 0) { result->kind = Result::Failure; result->message = L"El PDF no tiene páginas válidas."; }
             }
             Send(std::move(result));
         });
@@ -248,10 +247,10 @@ public:
             QueryPerformanceFrequency(&frequency); QueryPerformanceCounter(&start);
             auto result = std::make_unique<Result>(); result->revision = revision; result->viewVersion = viewVersion; result->page = page;
             FPDF_PAGE pdfPage = FPDF_LoadPage(pdf_, page);
-            if (!pdfPage) { result->message = L"No se pudo leer la página."; Send(std::move(result)); continue; }
+            if (!pdfPage) { result->message = PageFailureMessage(page, PageFailure::Read); Send(std::move(result)); continue; }
             double width = FPDF_GetPageWidth(pdfPage), height = FPDF_GetPageHeight(pdfPage);
             if (!(width > 0 && height > 0 && std::isfinite(width) && std::isfinite(height))) {
-                FPDF_ClosePage(pdfPage); result->message = L"Dimensiones de página inválidas."; Send(std::move(result)); continue;
+                FPDF_ClosePage(pdfPage); result->message = PageFailureMessage(page, PageFailure::Dimensions); Send(std::move(result)); continue;
             }
             double scale = zoom > 0 ? zoom : std::max(100, viewport - 64) / width;
             result->pageWidth = width; result->pageHeight = height;
@@ -277,8 +276,8 @@ public:
                 FPDF_RenderPage_Close(pdfPage);
                 FPDFBitmap_Destroy(bitmap);
                 if (state == FPDF_RENDER_DONE) result->kind = Result::Image;
-                else result->message = L"No se pudo dibujar la página.";
-            } else result->message = L"No hay memoria para dibujar la página.";
+                else result->message = PageFailureMessage(page, PageFailure::Render);
+            } else result->message = PageFailureMessage(page, PageFailure::Memory);
             FPDF_ClosePage(pdfPage); QueryPerformanceCounter(&end);
             result->milliseconds = 1000.0 * (end.QuadPart - start.QuadPart) / frequency.QuadPart;
             if (revision == revision_) Send(std::move(result));
@@ -403,7 +402,8 @@ public:
                 FPDF_ClosePage(page);
             }
             if (started) { if (ok) ok = EndDoc(dc) > 0; else AbortDoc(dc); }
-            DeleteDC(dc); result->message = ok ? L"Documento enviado a la impresora." : L"No se pudo completar la impresión.";
+            DeleteDC(dc); result->message = ok ? L"Documento enviado a la impresora." :
+                L"No se pudo completar la impresión. Revisá la impresora y la cola de impresión.";
             Send(std::move(result));
         });
     }
@@ -1070,7 +1070,7 @@ public:
     }
     void ShowOpenMenu() {
         HMENU menu = BuildOpenMenu();
-        if (!menu) { status = L"No se pudo abrir el menú."; Redraw(); return; }
+        if (!menu) { status = L"No se pudo abrir el menú de recientes."; Redraw(); return; }
         RECT button{}; GetWindowRect(GetDlgItem(window, OpenMenu), &button);
         UINT command = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN, button.left, button.bottom, window, nullptr);
         DestroyMenu(menu); if (command) Command(static_cast<int>(command));
@@ -1078,7 +1078,7 @@ public:
     bool ClearReadingHistory(bool confirm = true) {
         if (!readingStateWrites || !ConfigureReadingState() || (!confirm && !recentTest)) return false;
         if (confirm && MessageBoxW(window, L"¿Olvidar la lista de recientes y las posiciones guardadas?", L"Historial de Chucao", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES) return false;
-        if (!ReadingStateStore(readingStateFile).Clear()) { status = L"No se pudo guardar el cambio del historial."; Redraw(); return false; }
+        if (!ReadingStateStore(readingStateFile).Clear()) { status = L"No se pudo guardar el cambio del historial. Se conserva el archivo anterior."; Redraw(); return false; }
         recentEntries.clear(); suppressCurrentState = true; pendingReadingState.reset();
         status = L"Historial y posiciones olvidados."; Redraw(); return true;
     }
@@ -1614,8 +1614,11 @@ public:
                 else { ++passwordChecks; passwordStage = 11; BenchmarkResult(true); }
             }
             break;
-        case Result::Failure:
-            status = result->message; Redraw();
+        case Result::Failure: {
+            auto slash = path.find_last_of(L"\\/");
+            auto name = path.substr(slash == std::wstring::npos ? 0 : slash + 1);
+            status = name.empty() ? result->message : name + L": " + result->message;
+            Redraw();
             if (recentTest && recentStep == 2 && path == recentMissing) {
                 HMENU menu = BuildOpenMenu();
                 bool retained = false;
@@ -1625,6 +1628,7 @@ public:
                 ++recentChecks; recentStep = 3; OpenRecentForTest(recentOther);
             } else BenchmarkResult(false);
             break;
+        }
         }
     }
     void Draw(HDC target, RECT rc) {

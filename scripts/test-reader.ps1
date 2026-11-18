@@ -14,6 +14,8 @@ foreach ($name in @('aes256-ascii.pdf', 'aes256-unicode.pdf', 'aes128.pdf', 'rc4
 }
 [IO.File]::Copy([IO.Path]::Combine($root, 'test-results', 'sample.pdf'), [IO.Path]::Combine($passwordOutput, 'plain.pdf'), $true)
 & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Executable $Executable -Pdf ([IO.Path]::Combine($passwordOutput, 'aes256-ascii.pdf')) -Runs 1 -Passwords
+& ([IO.Path]::Combine($root, 'build', 'messages-test.exe'))
+if ($LASTEXITCODE -ne 0) { throw 'Fallaron los mensajes de error.' }
 & ([IO.Path]::Combine($root, 'build', 'layout-test.exe'))
 if ($LASTEXITCODE -ne 0) { throw 'Falló la geometría del documento.' }
 & ([IO.Path]::Combine($root, 'build', 'outline-test.exe')) ([IO.Path]::Combine($root, 'test-results'))

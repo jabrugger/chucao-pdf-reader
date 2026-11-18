@@ -50,8 +50,11 @@ El contexto de las etapas está en [roadmap.md](roadmap.md).
   coordenada (la API numérica usada no distingue null de cero).
 - [ ] Mejorar accesibilidad y navegación por teclado, incluidos foco y controles.
 - [ ] Adaptar la interfaz a distintos DPI por monitor.
-- [ ] Revisar y pulir los mensajes de error.
+- [x] Revisar y pulir los mensajes de error.
   - [x] Distinguir el primer pedido de contraseña del aviso de contraseña incorrecta.
+  - [x] Distinguir formato, archivo ausente, protección no admitida, documento sin
+    páginas y errores desconocidos; agregar el nombre del archivo y el número de
+    página cuando corresponde. Evidencia: [error-messages.md](error-messages.md).
 
 ## Validación de funciones implementadas
 
