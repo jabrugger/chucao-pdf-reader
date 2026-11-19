@@ -56,6 +56,12 @@ $startup = & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Executab
 if (!$startup -or $startup.first_bitmap_ms -le 0 -or $startup.first_compose_ms -lt $startup.first_bitmap_ms) { throw 'Falló la medición del arranque.' }
 & ([IO.Path]::Combine($root, 'build', 'outline-test.exe')) ([IO.Path]::Combine($root, 'test-results'))
 if ($LASTEXITCODE -ne 0) { throw 'Falló el índice del documento.' }
+$filterReport = [IO.Path]::Combine($results, 'outline-filter.json')
+$filterProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', $Executable)) -ArgumentList @('--benchmark-outline-filter', 'test-results\outline.pdf', 'test-results\outline-filter.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
+if (!$filterProcess.WaitForExit(15000)) { $filterProcess.Kill(); throw 'La prueba del filtro del índice excedió 15 segundos.' }
+if ($filterProcess.ExitCode -ne 0) { throw 'Falló la prueba del filtro del índice.' }
+$filterResult = [IO.File]::ReadAllText($filterReport) | ConvertFrom-Json
+if (!$filterResult.success) { throw 'El filtro del índice no conservó padres, recuento o limpieza.' }
 & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Executable $Executable -Pdf ([IO.Path]::Combine($root, 'test-results', 'outline.pdf')) -Runs 1 -Interface
 & ([IO.Path]::Combine($root, 'build', 'links-test.exe')) ([IO.Path]::Combine($root, 'test-results'))
 if ($LASTEXITCODE -ne 0) { throw 'Fallaron los enlaces internos.' }

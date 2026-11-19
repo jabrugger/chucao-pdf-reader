@@ -13,6 +13,17 @@ Escape cierra primero esa barra. El panel se limpia al cambiar de documento.
 No se genera un índice a partir del texto. Si se pide explícitamente el índice de
 un PDF sin marcadores, se informa que el documento no tiene índice.
 
+## Filtro
+
+El índice incluye un cuadro **Filtrar el índice** sobre el árbol. Al escribir, se
+muestran solo las entradas cuyo título coincide (sin distinguir mayúsculas ni
+acentos) y los padres necesarios para conservar la jerarquía. Las coincidencias se
+despliegan y el pie muestra **N de M secciones**. Enter lleva a la primera
+coincidencia, Escape limpia el filtro y la flecha abajo pasa al árbol. Al cambiar
+de documento el filtro se limpia y se vuelve a mostrar el índice completo. El
+sombreado de la sección en lectura sigue funcionando entre los resultados
+visibles; si su entrada está oculta, se sombrea el padre visible.
+
 Los marcadores se solicitan después de encolar el primer render, en el mismo worker
 que posee PDFium. No se recorren páginas ni se cargan sus dimensiones al leer el
 índice. La UI recibe metadatos simples; no maneja objetos PDFium. Se descartan los
@@ -44,3 +55,10 @@ anteriores y cambio a un documento sin índice. Se inspecciona una pintura local
 del aspecto con distintos DPI. El clic único, Ctrl+F, Escape y la vista temporal se
 comprobaron también en una instancia visible con fixtures. Ver
 [reader-interface.md](reader-interface.md) para la nueva disposición de controles.
+
+`--benchmark-outline-filter` (integrado en `test-reader.ps1`) comprueba el filtro
+con el fixture con acentos: una coincidencia raíz, una coincidencia hija que
+conserva su padre, el recuento «1 de 5», el caso sin resultados, la limpieza con
+Escape equivalente y la restauración de las cinco secciones. Guarda una captura
+del panel filtrado. La interacción manual con el cuadro (mouse, IME, DPI) sigue
+pendiente de validación.

@@ -65,13 +65,12 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   abrir, activar y cerrar pestañas; bienvenida con recientes y Abrir directo.
 - [ ] Validar manualmente el diálogo de Opciones (mouse, teclado, DPI, tema oscuro)
   y la restauración con documentos reales, protegidos y remotos.
-- [ ] Filtro del índice: cuadro de búsqueda arriba del índice que oculte lo que no
-  coincide y conserve los padres de cada coincidencia (propuesta del 2026-11-18).
-  El árbol nativo no filtra: se reconstruye desde `outline.entries` con las
-  coincidencias, desplegado. Ignorar mayúsculas y acentos; pie «N de M secciones»;
-  Enter va a la primera coincidencia, Escape limpia, flecha abajo pasa a la lista;
-  el sombreado de la sección actual debe seguir funcionando mientras esté entre los
-  resultados. Va después de validar el resaltado con documentos reales.
+- [x] Filtro del índice: cuadro sobre el árbol que oculta lo que no coincide y
+  conserva los padres de cada coincidencia. Ignora mayúsculas y acentos, muestra
+  «N de M secciones», Enter va a la primera coincidencia, Escape limpia y flecha
+  abajo pasa al árbol; el sombreado sigue funcionando entre los resultados.
+  Evidencia: [document-outline.md](document-outline.md). Queda la validación
+  manual del cuadro con mouse, IME y distintos DPI.
 - [x] Sombrear en el índice la sección que se está leyendo (por página; un capítulo
   plegado sombrea su padre visible). Pendiente: validarlo a mano con documentos
   reales grandes y a distintos DPI.

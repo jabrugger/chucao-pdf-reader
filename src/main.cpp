@@ -55,6 +55,7 @@ constexpr UINT Ready = WM_APP + 1;
 constexpr UINT ChromeHover = WM_APP + 2;
 
 constexpr int RecentBase = 4000;
+constexpr int OutlineFilterId = 3100;
 constexpr int HomeList = 4200;
 enum { Open = 100, Previous, Next, Smaller, Larger, Fit, Find, Print, Query, FindNext, FindPrevious, Copy, Outline, OpenMenu, ForgetHistory,
     FindClose, OutlineClose, OutlinePin, OutlineRail, About, Theme, NewTabCmd, CloseTabCmd, NextTabCmd, PrevTabCmd };
@@ -123,6 +124,31 @@ int WindowDpi(HWND window) {
 
 #pragma comment(lib, "advapi32.lib")
 // Windows "app mode": 0 = dark, 1 = light. Missing or unreadable means light.
+wchar_t FoldChar(wchar_t c) {
+    switch (c) {
+    case L'à': case L'á': case L'â': case L'ã': case L'ä': case L'å': return L'a';
+    case L'ç': return L'c';
+    case L'è': case L'é': case L'ê': case L'ë': return L'e';
+    case L'ì': case L'í': case L'î': case L'ï': return L'i';
+    case L'ñ': return L'n';
+    case L'ò': case L'ó': case L'ô': case L'õ': case L'ö': return L'o';
+    case L'ù': case L'ú': case L'û': case L'ü': return L'u';
+    case L'ý': case L'ÿ': return L'y';
+    default: return c;
+    }
+}
+// Case- and accent-insensitive folding for the outline filter.
+std::wstring FoldText(const std::wstring& text) {
+    if (text.empty()) return {};
+    std::wstring lower(text.size(), 0);
+    int written = LCMapStringW(LOCALE_INVARIANT, LCMAP_LOWERCASE, text.data(), static_cast<int>(text.size()),
+        &lower[0], static_cast<int>(lower.size()));
+    if (written <= 0) lower = text;
+    std::wstring result; result.reserve(lower.size());
+    for (wchar_t c : lower) result.push_back(FoldChar(c));
+    return result;
+}
+
 bool SystemPrefersDark() {
     DWORD value = 1, size = sizeof(value);
     if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
@@ -614,6 +640,10 @@ public:
     std::vector<HTREEITEM> outlineItems;   // tree item of each outline entry
     HTREEITEM outlineHighlight = nullptr;  // row shaded for the section being read
     int outlineChecks = 0, outlineStep = 0;
+    HWND outlineFilter = nullptr;
+    std::wstring outlineFilterQuery;
+    bool outlineFilterTest = false;
+    int outlineFilterChecks = 0;
     bool destinationsTest = false;
     double testedDestinationZoom = 3;
     bool linksTest = false;
@@ -819,6 +849,7 @@ public:
         if (!outlineTree) return;
         SendMessageW(outlineTree, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         if (outlineLabel) SendMessageW(outlineLabel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        if (outlineFilter) SendMessageW(outlineFilter, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         TreeView_SetBkColor(outlineTree, UiTheme().bar);
         TreeView_SetTextColor(outlineTree, UiTheme().ink);
         SetWindowTheme(outlineTree, UsingHighContrast() ? L"" : (UiDark() ? L"DarkMode_Explorer" : L"Explorer"), nullptr);
@@ -1159,26 +1190,54 @@ public:
     }
     void PopulateOutline() {
         if (!outlineTree) return;
+        auto foldedQuery = FoldText(outlineFilterQuery);
+        std::vector<bool> visible(outline.entries.size(), false);
+        int matches = 0;
+        if (foldedQuery.empty()) {
+            std::fill(visible.begin(), visible.end(), true);
+            matches = static_cast<int>(outline.entries.size());
+        } else {
+            for (size_t i = 0; i < outline.entries.size(); ++i) {
+                if (FoldText(outline.entries[i].title).find(foldedQuery) == std::wstring::npos) continue;
+                visible[i] = true; ++matches;
+                for (int parent = outline.entries[i].parent; parent >= 0 && parent < static_cast<int>(visible.size());
+                    parent = outline.entries[parent].parent) visible[parent] = true;
+            }
+        }
         SendMessageW(outlineTree, WM_SETREDRAW, FALSE, 0);
         TreeView_DeleteAllItems(outlineTree);
         outlineHighlight = nullptr;
-        auto& items = outlineItems; items.clear();
-        for (const auto& entry : outline.entries) {
+        outlineItems.assign(outline.entries.size(), nullptr);
+        for (size_t i = 0; i < outline.entries.size(); ++i) {
+            if (!visible[i]) continue;
+            const auto& entry = outline.entries[i];
             auto label = entry.title + (entry.page >= 0 ? L"  ·  " + std::to_wstring(entry.page + 1) : L"");
             TVINSERTSTRUCTW item{};
-            item.hParent = entry.parent >= 0 ? items[entry.parent] : TVI_ROOT;
+            item.hParent = entry.parent >= 0 && outlineItems[entry.parent] ? outlineItems[entry.parent] : TVI_ROOT;
             item.hInsertAfter = TVI_LAST; item.item.mask = TVIF_TEXT | TVIF_PARAM;
-            item.item.pszText = &label[0]; item.item.lParam = static_cast<LPARAM>(items.size());
-            items.push_back(TreeView_InsertItem(outlineTree, &item));
+            item.item.pszText = &label[0]; item.item.lParam = static_cast<LPARAM>(i);
+            outlineItems[i] = TreeView_InsertItem(outlineTree, &item);
         }
-        for (size_t i = 0; i < items.size(); ++i) if (outline.entries[i].parent < 0) TreeView_Expand(outlineTree, items[i], TVE_EXPAND);
+        for (size_t i = 0; i < outlineItems.size(); ++i) {
+            if (!outlineItems[i]) continue;
+            // While filtering, expand everything so the matches are visible.
+            if (outline.entries[i].parent < 0 || !foldedQuery.empty())
+                TreeView_Expand(outlineTree, outlineItems[i], TVE_EXPAND);
+        }
         SendMessageW(outlineTree, WM_SETREDRAW, TRUE, 0); InvalidateRect(outlineTree, nullptr, TRUE);
         const wchar_t* label = !outlineLoaded ? (outlinePending ? L"Cargando índice…" : L"Abrí un PDF para consultar su índice.") :
             outline.entries.empty() ? L"Este documento no tiene índice." :
             outline.limited ? L"Índice limitado. Clic o Enter para ir." : L"Clic o Enter para ir al capítulo.";
         SetWindowTextW(outlineLabel, label);
         if (outlineLoaded && !outline.entries.empty()) {
-            auto summary = std::to_wstring(outline.entries.size()) + (outline.entries.size() == 1 ? L" sección" : L" secciones") + (outline.limited ? L" · Índice parcial" : L"");
+            std::wstring summary;
+            if (!foldedQuery.empty())
+                summary = std::to_wstring(matches) + L" de " + std::to_wstring(outline.entries.size()) +
+                    (outline.entries.size() == 1 ? L" sección" : L" secciones");
+            else
+                summary = std::to_wstring(outline.entries.size()) +
+                    (outline.entries.size() == 1 ? L" sección" : L" secciones");
+            if (outline.limited) summary += L" · Índice parcial";
             SetWindowTextW(outlineLabel, summary.c_str());
             UpdateOutlineHighlight();
         }
@@ -1205,10 +1264,11 @@ public:
             std::vector<int> chain;
             for (int i = entry; i >= 0 && chain.size() < 70; i = outline.entries[i].parent) chain.push_back(i);
             std::reverse(chain.begin(), chain.end());
-            target = outlineItems[chain[0]];
-            for (size_t k = 1; k < chain.size(); ++k) {
-                if (!(TreeView_GetItemState(outlineTree, outlineItems[chain[k - 1]], TVIS_EXPANDED) & TVIS_EXPANDED)) break;
-                target = outlineItems[chain[k]];
+            for (int index : chain) {
+                if (index < 0 || index >= static_cast<int>(outlineItems.size()) || !outlineItems[index]) continue;
+                if (!target) { target = outlineItems[index]; continue; }
+                if (!(TreeView_GetItemState(outlineTree, target, TVIS_EXPANDED) & TVIS_EXPANDED)) break;
+                target = outlineItems[index];
             }
         }
         if (target == outlineHighlight) return;
@@ -1236,6 +1296,55 @@ public:
         RECT edge{row.left, row.top + D(4), row.left + std::max(2, D(3)), row.bottom - D(4)};
         SetDCBrushColor(dc, UiTheme().accent);
         FillRect(dc, &edge, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+    }
+    void ApplyOutlineFilter() {
+        outlineFilterQuery = outlineFilter ? Text(outlineFilter) : std::wstring{};
+        PopulateOutline();
+    }
+    bool ClearOutlineFilterText() {
+        bool had = !outlineFilterQuery.empty() || (outlineFilter && GetWindowTextLengthW(outlineFilter) > 0);
+        if (!had) return false;
+        outlineFilterQuery.clear();
+        if (outlineFilter) SetWindowTextW(outlineFilter, L"");
+        PopulateOutline();
+        return true;
+    }
+    void FocusOutlineTree() {
+        if (!outlineTree) return;
+        SetFocus(outlineTree);
+        if (!TreeView_GetSelection(outlineTree)) {
+            auto first = TreeView_GetRoot(outlineTree);
+            if (first) TreeView_SelectItem(outlineTree, first);
+        }
+    }
+    void NavigateFirstOutlineMatch() {
+        auto folded = FoldText(outlineFilterQuery);
+        for (size_t i = 0; i < outline.entries.size(); ++i) {
+            if (i >= outlineItems.size() || !outlineItems[i]) continue;
+            if (folded.empty() || FoldText(outline.entries[i].title).find(folded) != std::wstring::npos) {
+                TreeView_SelectItem(outlineTree, outlineItems[i]);
+                NavigateOutline();
+                return;
+            }
+        }
+    }
+    void CheckOutlineFilter() {
+        bool ok = outlineLoaded && outline.entries.size() == 5;
+        SetWindowTextW(outlineFilter, L"café"); ApplyOutlineFilter();
+        ok = ok && TreeView_GetCount(outlineTree) == 1 && Text(outlineLabel).find(L"1 de 5") != std::wstring::npos;
+        auto root = TreeView_GetRoot(outlineTree);
+        ok = ok && root != nullptr;
+        NavigateFirstOutlineMatch();
+        ok = ok && TreeView_GetSelection(outlineTree) == root;
+        SetWindowTextW(outlineFilter, L"sub"); ApplyOutlineFilter();
+        ok = ok && TreeView_GetCount(outlineTree) == 2 && Text(outlineLabel).find(L"1 de 5") != std::wstring::npos;
+        SaveTestImage(benchmarkReport + L".outline-filter.bmp", outlineWindow);
+        SetWindowTextW(outlineFilter, L"zzz"); ApplyOutlineFilter();
+        ok = ok && TreeView_GetCount(outlineTree) == 0 && Text(outlineLabel).find(L"0 de 5") != std::wstring::npos;
+        ClearOutlineFilterText();
+        ok = ok && TreeView_GetCount(outlineTree) == 5 && Text(outlineLabel).find(L"5 secciones") != std::wstring::npos;
+        ++outlineFilterChecks;
+        BenchmarkResult(ok);
     }
     void RequestOutline() {
         if (pages && !outlineLoaded && !outlinePending) {
@@ -1874,6 +1983,8 @@ public:
         outlinePinned = outlinePeek = false; outlineAutoShow = autoShowOutline; KillTimer(window, 7);
         suppressCurrentState = false;
         pageLinks.clear(); pendingLinks.clear(); linkHistory.clear();
+        outlineFilterQuery.clear();
+        if (outlineFilter) SetWindowTextW(outlineFilter, L"");
         outline = {}; outlineLoaded = outlinePending = false; PopulateOutline();
         EndSelection(); ClearSelection(); textPages.clear(); pendingText.clear(); searchPage = -1; searchBoxes.clear();
         path = file; ++document; pages = 0; canCopy = canPrint = false; page = 0; scroll = 0; horizontal = 0; zoom = 0; searching = false;
@@ -2135,7 +2246,8 @@ public:
             outlinePending = false; outlineLoaded = true; outline = std::move(result->outline); PopulateOutline();
             if (outlineAutoShow) { outlinePinned = !outline.entries.empty(); outlinePeek = false; }
             ArrangeChrome(); Render();
-            if (interfaceTest) CheckInterface();
+            if (outlineFilterTest) CheckOutlineFilter();
+            else if (interfaceTest) CheckInterface();
             else if (outlineTest) CheckOutline();
             break;
         case Result::LinksReady: {
@@ -2623,6 +2735,11 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     case WM_CREATE:
         app->IconButton(window, OutlinePin, L"Fijar el índice abierto");
         app->IconButton(window, OutlineClose, L"Plegar el índice (Ctrl+B)");
+        app->outlineFilter = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+            0, 0, 1, 1, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(OutlineFilterId)), nullptr, nullptr);
+        SendMessageW(app->outlineFilter, EM_SETCUEBANNER, FALSE, reinterpret_cast<LPARAM>(L"Filtrar el índice"));
+        SendMessageW(app->outlineFilter, EM_SETLIMITTEXT, 128, 0);
+        SetAccessibleName(app->outlineFilter, L"Filtrar el índice");
         app->outlineTree = CreateWindowExW(0, WC_TREEVIEWW, L"Índice del documento", WS_CHILD | WS_VISIBLE | WS_TABSTOP |
             TVS_LINESATROOT | TVS_HASBUTTONS | TVS_SHOWSELALWAYS | TVS_FULLROWSELECT, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
         app->outlineLabel = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 8, 0, 1, 1, window, nullptr, nullptr, nullptr);
@@ -2631,14 +2748,24 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         RECT rc{}; GetClientRect(window, &rc);
         MoveWindow(GetDlgItem(window, OutlinePin), rc.right - app->D(80), app->D(6), app->D(36), app->D(36), TRUE);
         MoveWindow(GetDlgItem(window, OutlineClose), rc.right - app->D(42), app->D(6), app->D(36), app->D(36), TRUE);
-        MoveWindow(app->outlineTree, app->D(12), app->D(52), std::max<LONG>(1, rc.right - app->D(24)), std::max<LONG>(1, rc.bottom - app->D(96)), TRUE);
+        MoveWindow(app->outlineFilter, app->D(12), app->D(52), std::max<LONG>(1, rc.right - app->D(24)), app->D(28), TRUE);
+        MoveWindow(app->outlineTree, app->D(12), app->D(88), std::max<LONG>(1, rc.right - app->D(24)), std::max<LONG>(1, rc.bottom - app->D(132)), TRUE);
         MoveWindow(app->outlineLabel, app->D(20), std::max<LONG>(0, rc.bottom - app->D(36)), std::max<LONG>(1, rc.right - app->D(32)), app->D(28), TRUE); return 0;
     }
-    case WM_COMMAND: app->Command(LOWORD(wp)); return 0;
+    case WM_COMMAND:
+        if (LOWORD(wp) == OutlineFilterId && HIWORD(wp) == EN_CHANGE) { app->ApplyOutlineFilter(); return 0; }
+        app->Command(LOWORD(wp)); return 0;
     case WM_DRAWITEM: app->PaintButton(*reinterpret_cast<DRAWITEMSTRUCT*>(lp)); return TRUE;
     case WM_CTLCOLORSTATIC:
         SetTextColor(reinterpret_cast<HDC>(wp), UiTheme().muted); SetBkColor(reinterpret_cast<HDC>(wp), UiTheme().bar);
         return reinterpret_cast<LRESULT>(UiBackgroundBrush());
+    case WM_CTLCOLOREDIT:
+        if (reinterpret_cast<HWND>(lp) == app->outlineFilter) {
+            SetTextColor(reinterpret_cast<HDC>(wp), UiTheme().ink); SetBkColor(reinterpret_cast<HDC>(wp), UiTheme().field);
+            SetDCBrushColor(reinterpret_cast<HDC>(wp), UiTheme().field);
+            return reinterpret_cast<LRESULT>(GetStockObject(DC_BRUSH));
+        }
+        break;
     case WM_PAINT: { PAINTSTRUCT ps{}; HDC dc = BeginPaint(window, &ps); paint(dc); EndPaint(window, &ps); return 0; }
     case WM_PRINTCLIENT: paint(reinterpret_cast<HDC>(wp)); return 0;
     case WM_NOTIFY: {
@@ -2669,7 +2796,7 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         return 0;
     }
     case WM_CLOSE: app->SetOutlinePinned(false); SetFocus(app->window); return 0;
-    case WM_DESTROY: app->outlineWindow = app->outlineTree = app->outlineLabel = nullptr; return 0;
+    case WM_DESTROY: app->outlineWindow = app->outlineTree = app->outlineLabel = app->outlineFilter = nullptr; return 0;
     }
     return DefWindowProcW(window, message, wp, lp);
 }
@@ -2937,9 +3064,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool hcTest = argv && argc == 3 && std::wstring(argv[1]) == L"--benchmark-highcontrast";
     bool rapidTest = argv && argc == 5 && std::wstring(argv[1]) == L"--benchmark-rapid";
     bool tabsTest = argv && argc == 6 && std::wstring(argv[1]) == L"--benchmark-tabs";
+    bool outlineFilterTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-outline-filter";
     int sessionTest = argv ? (argc == 6 && std::wstring(argv[1]) == L"--benchmark-session-write" ? 1 : argc == 4 && std::wstring(argv[1]) == L"--benchmark-session-read" ? 2 : argc == 4 && std::wstring(argv[1]) == L"--benchmark-session-off" ? 3 : 0) : 0;
     bool interfaceTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-interface";
-    bool benchmark = sessionTest || interfaceTest || recentTest || themeTest || startupTest || dpiTest || keysTest || hcTest || rapidTest || tabsTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
+    bool benchmark = sessionTest || interfaceTest || recentTest || themeTest || startupTest || dpiTest || keysTest || hcTest || rapidTest || tabsTest || outlineFilterTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
     bool previewHome = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-home";
     bool previewAbout = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-about";
     bool forceDark = false;
@@ -2976,6 +3104,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.hcTest = hcTest;
     app.rapidTest = rapidTest;
     app.tabsTest = tabsTest;
+    app.outlineFilterTest = outlineFilterTest;
     app.readingStateEnabled = !benchmark && !shellBenchmark;
     app.settingsEnabled = !benchmark && !shellBenchmark;
     if (dpiTest || keysTest || hcTest) app.benchmarkReport = argv[2];
@@ -3027,6 +3156,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     else if (hcTest) app.RunHcTest();
     else if (rapidTest) { app.Load(argv[2]); app.Load(argv[3]); SetTimer(window, 2, 30000, nullptr); }
     else if (tabsTest) { app.RunTabsTest(); SetTimer(window, 2, 30000, nullptr); }
+    else if (outlineFilterTest) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
     else if (benchmark) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
     else if (argv && argc > 1) {
         // Diagnostic switches are not document paths; every other argument opens a tab.
@@ -3048,6 +3178,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         if (msg.message == WM_KEYDOWN && msg.wParam == VK_F1) { app.Command(About); continue; }
         if (msg.message == WM_KEYDOWN && msg.wParam == VK_F6) { app.CycleFocus(); continue; }
         if (app.outlineWindow && (msg.hwnd == app.outlineWindow || IsChild(app.outlineWindow, msg.hwnd))) {
+            if (msg.message == WM_KEYDOWN && GetFocus() == app.outlineFilter) {
+                if (msg.wParam == VK_ESCAPE && app.ClearOutlineFilterText()) continue;
+                if (msg.wParam == VK_RETURN) { app.NavigateFirstOutlineMatch(); continue; }
+                if (msg.wParam == VK_DOWN) { app.FocusOutlineTree(); continue; }
+            }
             if (msg.message == WM_KEYDOWN && msg.wParam == 'F' && GetKeyState(VK_CONTROL) < 0) { app.ShowSearch(); continue; }
             if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN && GetFocus() == app.outlineTree) { app.NavigateOutline(); continue; }
             if (msg.message == WM_KEYDOWN && (msg.wParam == VK_ESCAPE || (msg.wParam == 'B' && GetKeyState(VK_CONTROL) < 0))) {

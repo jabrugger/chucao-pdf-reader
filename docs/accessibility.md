@@ -21,8 +21,10 @@ orden de creación:
 9. Acerca de
 
 El panel del índice se agrega como contenedor y el árbol recibe el foco con sus
-flechas, Enter para navegar y Escape/Ctrl+B para plegarlo. Los controles de la
-búsqueda inferior aparecen en el recorrido solo cuando la barra está visible.
+flechas, Enter para navegar y Escape/Ctrl+B para plegarlo. Su cuadro **Filtrar el
+índice** se recorre con Tab; Enter va a la primera coincidencia, Escape limpia el
+filtro y la flecha abajo pasa al árbol. Los controles de la búsqueda inferior
+aparecen en el recorrido solo cuando la barra está visible.
 
 ## Atajos
 

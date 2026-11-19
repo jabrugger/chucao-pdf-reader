@@ -13,6 +13,8 @@ y PDFium; no incorpora un framework visual ni dependencias gráficas nuevas.
   Cerrar cancela la búsqueda pendiente, limpia el resaltado y conserva la consulta.
 - Índice como panel hijo de la ventana principal. Se abre al detectar marcadores;
   permanece cerrado al abrir un PDF sin ellos. Botón, Ctrl+B y plegado en la cabecera.
+  Un cuadro superior filtra por título sin distinguir mayúsculas ni acentos y
+  conserva los padres de las coincidencias.
 - Vista temporal al acercarse al borde izquierdo, sin cambiar el ancho del documento
   ni generar otro render. Se retira al alejarse el puntero y se puede fijar con la
   chincheta. Elegir un capítulo no fija la vista temporal. Clic único y Enter navegan; expandir una rama

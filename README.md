@@ -84,8 +84,9 @@ documento. Ver [alcance y pruebas](docs/reading-state.md).
 - Índice integrado a la izquierda: se muestra al abrir si el PDF tiene marcadores
   (configurable en Opciones). El botón del índice o Ctrl+B lo pliega/despliega. Acercar el puntero al borde
   izquierdo permite verlo temporalmente; la chincheta permite fijarlo abierto.
-  Un clic o Enter lleva al destino; las flechas expanden los capítulos.
-  Alt+Izquierda vuelve al punto anterior.
+  El cuadro superior filtra por título sin distinguir mayúsculas ni acentos; Enter
+  va a la primera coincidencia y Escape limpia el filtro. Un clic o Enter lleva al
+  destino; las flechas expanden los capítulos. Alt+Izquierda vuelve al punto anterior.
 - Buscar: Ctrl+F o el icono de lupa muestra la barra inferior. Busca al escribir;
   Enter/F3 avanza y Mayús+Enter/Mayús+F3 retrocede. Escape o × oculta la barra,
   conserva la consulta y devuelve el espacio al documento.
