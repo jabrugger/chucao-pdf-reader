@@ -82,7 +82,8 @@ actualizar el motor (ver [pdfium-update.md](pdfium-update.md)).
 
 ## Instalador
 
-Todavía no hay instalador. Antes de prepararlo hay que validar la versión
-portable en otras PC y decidir si se ofrecerá asociación opcional de archivos
-PDF, accesos directos y desinstalación. En esta fase no se cambian asociaciones
-ni se instalan servicios.
+`scripts/package-installer.ps1` genera un instalador con Inno Setup 7 a partir del
+paquete portable. Instala por usuario, ofrece la asociación opcional de PDF y un
+acceso directo opcional, y desinstala archivos, accesos y sus entradas de
+asociación. El instalador no está firmado. Ver [installer.md](installer.md) para
+el detalle y las pruebas manuales pendientes.

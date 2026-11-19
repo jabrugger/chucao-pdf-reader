@@ -20,7 +20,7 @@ BEGIN
     CONTROL "<a href=""https://github.com/jabrugger/chucao-pdf-reader"">github.com/jabrugger/chucao-pdf-reader</a>", IDC_ABOUT_REPOSITORY, "SysLink", WS_TABSTOP, 150, 99, 246, 18
 END
 
-IDD_SETTINGS DIALOGEX 0, 0, 332, 214
+IDD_SETTINGS DIALOGEX 0, 0, 332, 274
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Opciones de Chucao"
 FONT 9, "Segoe UI"
@@ -31,8 +31,11 @@ BEGIN
     LTEXT "Al iniciar sin elegir un archivo. Los PDF protegidos volverán a pedir contraseña.", -1, 28, 69, 280, 28
     CONTROL "Mostrar automáticamente el índice", IDC_SETTINGS_OUTLINE, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 16, 104, 300, 16
     LTEXT "Al abrir un PDF con marcadores. Si se desmarca, el índice aparece al acercar el puntero al borde izquierdo o con Ctrl+B.", -1, 28, 125, 280, 28
-    CONTROL "<a>Olvidar recientes y posiciones guardadas</a>", IDC_SETTINGS_CLEAR, "SysLink", WS_TABSTOP, 16, 160, 300, 18
-    LTEXT "", IDC_SETTINGS_STATUS, 16, 184, 300, 22
+    CONTROL "Abrir los PDF con Chucao", IDC_SETTINGS_ASSOCIATE, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 16, 152, 300, 16
+    LTEXT "Registra a Chucao para abrir archivos PDF. Windows puede pedir confirmación; si no se aplica, usá el enlace de abajo.", -1, 28, 173, 280, 26
+    CONTROL "<a>Abrir Configuración de aplicaciones predeterminadas</a>", IDC_SETTINGS_DEFAULTAPPS, "SysLink", WS_TABSTOP, 16, 202, 300, 18
+    CONTROL "<a>Olvidar recientes y posiciones guardadas</a>", IDC_SETTINGS_CLEAR, "SysLink", WS_TABSTOP, 16, 226, 300, 18
+    LTEXT "", IDC_SETTINGS_STATUS, 16, 250, 300, 20
 END
 
 1 VERSIONINFO

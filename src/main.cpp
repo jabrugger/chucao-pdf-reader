@@ -23,6 +23,7 @@
 #include "settings.h"
 #include "session-state.h"
 #include "render-budget.h"
+#include "file-association.h"
 #include "pdf-errors.h"
 #include <algorithm>
 #include <atomic>
@@ -149,6 +150,12 @@ std::wstring FoldText(const std::wstring& text) {
     std::wstring result; result.reserve(lower.size());
     for (wchar_t c : lower) result.push_back(FoldChar(c));
     return result;
+}
+
+std::wstring ExecutablePath() {
+    wchar_t buffer[32768]{};
+    DWORD length = GetModuleFileNameW(nullptr, buffer, 32768);
+    return length > 0 && length < 32768 ? std::wstring(buffer, length) : std::wstring{};
 }
 
 bool SystemPrefersDark() {
@@ -2798,6 +2805,8 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
         SendMessageW(theme, CB_SETCURSEL, app->followSystemTheme ? 0 : app->darkTheme ? 2 : 1, 0);
         CheckDlgButton(dialog, IDC_SETTINGS_RESTORE, app->restoreLastSession ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(dialog, IDC_SETTINGS_OUTLINE, app->autoShowOutline ? BST_CHECKED : BST_UNCHECKED);
+        CheckDlgButton(dialog, IDC_SETTINGS_ASSOCIATE,
+            AssociationState(FileAssociationTarget{}) == FileAssociationState::Default ? BST_CHECKED : BST_UNCHECKED);
         ApplyWindowTheme(dialog, UiDark());
         RECT owner{}, bounds{}; GetWindowRect(app->window, &owner); GetWindowRect(dialog, &bounds);
         SetWindowPos(dialog, nullptr, owner.left + ((owner.right - owner.left) - (bounds.right - bounds.left)) / 2,
@@ -2812,6 +2821,20 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
     if (message == WM_COMMAND) {
         int id = LOWORD(wp);
         if (id == IDOK || id == IDCANCEL) { EndDialog(dialog, id); return TRUE; }
+        if (id == IDC_SETTINGS_ASSOCIATE && HIWORD(wp) == BN_CLICKED) {
+            bool want = IsDlgButtonChecked(dialog, IDC_SETTINGS_ASSOCIATE) == BST_CHECKED;
+            std::wstring error;
+            bool ok = want ? RegisterFileAssociation(ExecutablePath(), FileAssociationTarget{}, error) :
+                UnregisterFileAssociation(FileAssociationTarget{}, error);
+            auto state = AssociationState(FileAssociationTarget{});
+            CheckDlgButton(dialog, IDC_SETTINGS_ASSOCIATE,
+                state == FileAssociationState::Default ? BST_CHECKED : BST_UNCHECKED);
+            SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, !ok ? L"No se pudo cambiar la asociación de PDF." :
+                want && state != FileAssociationState::Default ?
+                L"Chucao quedó registrado. Si Windows mantiene otra app, elegí Chucao en Configuración > Aplicaciones predeterminadas." :
+                want ? L"Chucao quedó asociado a los PDF." : L"Asociación quitada.");
+            return TRUE;
+        }
         if ((id == IDC_SETTINGS_THEME && HIWORD(wp) == CBN_SELCHANGE) ||
             ((id == IDC_SETTINGS_RESTORE || id == IDC_SETTINGS_OUTLINE) && HIWORD(wp) == BN_CLICKED)) {
             auto choice = SendDlgItemMessageW(dialog, IDC_SETTINGS_THEME, CB_GETCURSEL, 0, 0);
@@ -2842,6 +2865,11 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
         auto notice = reinterpret_cast<NMHDR*>(lp);
         if (notice->idFrom == IDC_SETTINGS_CLEAR && (notice->code == NM_CLICK || notice->code == NM_RETURN)) {
             app->ClearReadingHistory(); return TRUE;
+        }
+        if (notice->idFrom == IDC_SETTINGS_DEFAULTAPPS && (notice->code == NM_CLICK || notice->code == NM_RETURN)) {
+            if (reinterpret_cast<INT_PTR>(ShellExecuteW(dialog, L"open", L"ms-settings:defaultapps", nullptr, nullptr, SW_SHOWNORMAL)) <= 32)
+                SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, L"No se pudo abrir la configuración de Windows.");
+            return TRUE;
         }
     }
     return FALSE;

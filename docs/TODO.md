@@ -19,7 +19,8 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
    nuevas funciones grandes.
 4. [x] Preparar la entrega portable 0.2.0 con versión/fecha y binario coherentes;
    ZIP regenerado y verificado localmente.
-   [ ] Probar esa entrega en otra PC antes de preparar un instalador.
+   [x] Preparar el instalador Inno Setup con asociación opcional de PDF.
+   [ ] Probar el ZIP y el instalador en otra PC antes de publicarlos.
 
 ## Funciones y diseño
 
@@ -64,6 +65,9 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 - [x] Ajustar al ancho, a la página completa o al alto con Ctrl+0/1/2, indicador
   de modo y reajuste al cambiar el tamaño de la ventana. Evidencia:
   [reader-interface.md](reader-interface.md).
+- [x] Ofrecer asociar los PDF en el instalador y en Opciones, con registro por
+  usuario, aviso de `UserChoice` y limpieza al desinstalar. Evidencia:
+  [installer.md](installer.md).
 - [x] Diálogo de Opciones (tema, reabrir la última sesión opcional, olvidar
   historial y sesión). Evidencia automatizada: [preferences.md](preferences.md).
 - [x] Preferencia de apertura automática del índice y guardado de la sesión al
@@ -158,6 +162,11 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   distintos. Evidencia: [reader-interface.md](reader-interface.md).
 - [x] Validar automáticamente que la barra de estado sea visible y su nombre
   accesible coincida con el mensaje. Evidencia: [accessibility.md](accessibility.md).
+- [x] Validar automáticamente la asociación con una extensión desechable:
+  registro, comando, icono, desregistro y conservación del default ajeno.
+  Evidencia: [installer.md](installer.md).
+- [ ] Validar manualmente la instalación, la asociación real de `.pdf`, la
+  actualización y la desinstalación en otra PC.
 - [ ] Validar manualmente los ajustes de zoom con PDF reales, ventanas extremas y
   DPI altos.
 - [ ] Validar manualmente tamaño/posición entre monitores reales, maximizar,
@@ -251,7 +260,11 @@ lectura por bloques permanece fuera del visor hasta que haya evidencia favorable
 - [x] Preparar un paquete portable con dependencias y avisos necesarios.
   Evidencia: [distribution.md](distribution.md). `package.ps1` genera el ZIP y
   `test-package.ps1` lo descomprime y lo ejecuta.
-- [ ] Preparar un instalador después de validar la versión portable.
+- [x] Preparar el instalador con Inno Setup 7, instalación por usuario, tarea
+  opcional de asociación de PDF y opción equivalente en Opciones.
+  Evidencia: [installer.md](installer.md).
+- [ ] Validar instalación, asociación, actualización y desinstalación en otra PC
+  antes de publicar el instalador.
 - [x] Definir la licencia del código propio: MIT en [LICENSE](../LICENSE).
 - [x] Revisar e incluir los avisos y licencias de PDFium y sus dependencias.
   Evidencia: [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) y `licenses/`

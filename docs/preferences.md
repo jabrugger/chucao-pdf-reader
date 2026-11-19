@@ -12,6 +12,10 @@ Ctrl+D sigue alternando el tema directamente.
 - **Reabrir los PDF de la última sesión**: desactivado por defecto. Al activarlo,
   al iniciar sin indicar un archivo se reabren las pestañas y la activa.
   Los PDF protegidos vuelven a pedir contraseña; no se guarda ninguna.
+- **Abrir los PDF con Chucao**: registra la aplicación como lector de PDF en el
+  usuario actual. Windows 10/11 puede mantener otra aplicación por `UserChoice`;
+  en ese caso el aviso indica usar el enlace **Abrir Configuración de aplicaciones
+  predeterminadas**. Al desmarcar se quitan solo las entradas de Chucao.
 - **Olvidar recientes y posiciones guardadas**: además del historial, vacía la
   sesión guardada. Si la opción de reabrir sigue activa, al cerrar se vuelve a
   guardar lo que haya abierto en ese momento.

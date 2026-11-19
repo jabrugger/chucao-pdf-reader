@@ -51,8 +51,17 @@ powershell -ExecutionPolicy Bypass -File scripts/test-package.ps1
 El primero compila y genera `dist/Chucao-0.2.0-win-x64.zip` con el ejecutable,
 `pdfium.dll`, el LEEME, la licencia MIT y los avisos de PDFium y sus
 dependencias. El segundo descomprime el paquete, comprueba los archivos
-obligatorios y ejecuta el lector empaquetado contra un PDF sintético. No hay
-instalador todavía; ver [distribución](docs/distribution.md).
+obligatorios y ejecuta el lector empaquetado contra un PDF sintético.
+
+Para generar el instalador (Inno Setup 7, instalación por usuario y asociación de
+PDF opcional):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/package-installer.ps1
+```
+
+Produce `dist/Chucao-0.2.0-setup.exe`. Ver [distribución](docs/distribution.md) e
+[instalador](docs/installer.md).
 
 ## Uso del prototipo
 
@@ -111,8 +120,10 @@ tamaño, la posición y si la ventana estaba maximizada; ver
   Ctrl+Tab y Ctrl+Mayús+Tab alternan; el clic medio cierra una pestaña. Cada una
   recuerda su posición. Ver [pestañas](docs/tabs.md).
 - Opciones: el icono de tema abre un diálogo con el tema (claro, oscuro o igual que
-  el sistema), mostrar automáticamente el índice y la opción (desactivada por
-  defecto) de reabrir los PDF de la última sesión. Ver [opciones](docs/preferences.md).
+  el sistema), mostrar automáticamente el índice, reabrir los PDF de la última
+  sesión (desactivado por defecto), **Abrir los PDF con Chucao** y un enlace a la
+  configuración de aplicaciones predeterminadas de Windows. Ver
+  [opciones](docs/preferences.md).
 - El índice sombrea suavemente la sección que se está leyendo (por página; un
   capítulo plegado sombrea su padre visible) y la muestra sin tocar la selección.
 - Los documentos cifrados solicitan contraseña y avisan si es incorrecta; no se
@@ -192,9 +203,10 @@ manuales; ver [plan de trabajo](docs/roadmap.md).
 El código propio se distribuye con la licencia [MIT](LICENSE). No se incorpora
 código de SumatraPDF, KillerPDF o MarkPad. PDFium y sus dependencias conservan sus
 licencias: ver [avisos de terceros](THIRD-PARTY-NOTICES.md). El proceso de
-actualización del motor está en [pdfium-update.md](docs/pdfium-update.md). No hay
-telemetría ni conexión de red en el visor; el navegador puede conectarse al sitio
-elegido al hacer clic en un enlace web.
+actualización del motor está en [pdfium-update.md](docs/pdfium-update.md). El
+instalador preparado no está firmado y debe validarse en otra PC; ver
+[instalador](docs/installer.md). No hay telemetría ni conexión de red en el visor;
+el navegador puede conectarse al sitio elegido al hacer clic en un enlace web.
 
 La imagen elegida por el usuario está en [assets/branding](assets/branding/README.md).
 El icono y la bienvenida se incluyen en el EXE; no requieren imágenes externas al ejecutarlo.

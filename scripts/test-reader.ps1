@@ -17,6 +17,8 @@ $robustFolder = 'test-results\robustness-' + [Guid]::NewGuid().ToString('N')
 $robustProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', 'robustness-test.exe')) -ArgumentList @($robustFolder) -WorkingDirectory $root -WindowStyle Hidden -PassThru
 if (!$robustProcess.WaitForExit(30000)) { $robustProcess.Kill(); throw 'La prueba de PDF dañados/extremos excedió 30 segundos.' }
 if ($robustProcess.ExitCode -ne 0) { throw 'Falló la prueba de PDF dañados o dimensiones extremas.' }
+& ([IO.Path]::Combine($root, 'build', 'association-test.exe'))
+if ($LASTEXITCODE -ne 0) { throw 'Falló la prueba de asociación de archivos.' }
 $passwordFixtures = [IO.Path]::Combine($root, 'tests', 'fixtures', 'passwords')
 & ([IO.Path]::Combine($root, 'build', 'password-test.exe')) $passwordFixtures
 if ($LASTEXITCODE -ne 0) { throw 'Falló la validación de contraseñas del motor.' }
