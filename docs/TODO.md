@@ -1,6 +1,6 @@
 # Pendientes de Chucao PDF Reader
 
-Actualizado: 2026-11-18.
+Actualizado: 2026-11-19.
 
 Lista consolidada de trabajo pendiente. Las casillas se marcan cuando el resultado
 está implementado y verificado; las validaciones manuales se registran por separado.
@@ -51,7 +51,8 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   marcos nativos, separador propio para Acerca de (icono de información) y sol/luna
   para el tema. Evidencia: [reader-interface.md](reader-interface.md) y
   [accessibility.md](accessibility.md).
-- [x] Incorporar temas claro y oscuro, con botón, Ctrl+D y preferencia local.
+- [x] Incorporar temas claro/oscuro y «Igual que el sistema», con Opciones,
+  Ctrl+D para alternar explícitamente y preferencia local.
   Evidencia: [themes.md](themes.md).
 - [x] Incorporar pestañas para varios documentos, con franja, reutilización,
   cierre (×, clic medio, Ctrl+W), Ctrl+T y Ctrl+Tab. Evidencia: [tabs.md](tabs.md).
@@ -59,6 +60,8 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   o cambiar de PDF. Evidencia: [reading-state.md](reading-state.md).
 - [x] Diálogo de Opciones (tema, reabrir la última sesión opcional, olvidar
   historial y sesión). Evidencia automatizada: [preferences.md](preferences.md).
+- [x] Preferencia de apertura automática del índice y guardado de la sesión al
+  abrir, activar y cerrar pestañas; bienvenida con recientes y Abrir directo.
 - [ ] Validar manualmente el diálogo de Opciones (mouse, teclado, DPI, tema oscuro)
   y la restauración con documentos reales, protegidos y remotos.
 - [ ] Filtro del índice: cuadro de búsqueda arriba del índice que oculte lo que no
@@ -99,6 +102,9 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
     página cuando corresponde. Evidencia: [error-messages.md](error-messages.md).
 
 ## Validación de funciones implementadas
+
+- [x] Revisar `07de759`, recompilar y ejecutar la suite completa el 2026-11-19.
+  Estado y límites: [review-2026-11-19.md](review-2026-11-19.md).
 
 - [x] Corregir la suite para que todos los modos nuevos respeten `-Executable`,
   sin mezclar pruebas de otra compilación de Chucao.

@@ -51,5 +51,6 @@ con Ctrl+D.
 
 Pendiente de validación manual: contraste con monitores a 150–200 %, modo de alto
 contraste de Windows, cambio de tema con varias ventanas abiertas, apariencia de
-las barras de desplazamiento en versiones antiguas de Windows 10 y preferencia
-automática según el tema del sistema (hoy el valor inicial es claro).
+las barras de desplazamiento en versiones antiguas de Windows 10 y seguimiento
+real de los cambios del tema de Windows. «Igual que el sistema» ya está disponible
+en Opciones; Ctrl+D selecciona un tema explícito. Ver [preferences.md](preferences.md).

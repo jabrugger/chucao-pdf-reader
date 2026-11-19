@@ -1,5 +1,9 @@
 # Estado y orden de continuación — 2026-11-18
 
+Actualización posterior: [revisión del 2026-11-19](review-2026-11-19.md), con
+Opciones, sesión, bienvenida y resaltado del índice ya incorporados. El filtro
+del índice sigue pendiente después de validar el resaltado con documentos reales.
+
 Base revisada: `3f55ece`, rama `main`, sincronizada con `origin/main` al iniciar.
 El árbol estaba limpio. Se revisaron los 14 commits posteriores a `0c89272` y sus
 documentos de alcance. No se revirtieron cambios de DS ni se modificó el motor.
