@@ -75,11 +75,12 @@ ventana, del EXE y del diálogo Acerca de.
 ## Acerca de — 2026-11-16
 
 El pajarito es un botón accesible con ayuda contextual; clic, activación por teclado
-o F1 abre un diálogo nativo. Muestra versión 0.1.0, Jorge Andres Brugger,
-jbrugger@ideaworks.com.ar, fecha de release 16/11/2026 y el repositorio privado
-https://github.com/jabrugger/chucao-pdf-reader. Solo el enlace de GitHub abre el
-navegador; consultar Acerca de no hace conexiones de red ni carga PDFium.
-Escape y la X del diálogo regresan al lector.
+o F1 abre un diálogo nativo. En esa fecha mostraba versión 0.1.0, Jorge Andres
+Brugger, jbrugger@ideaworks.com.ar, fecha de release 16/11/2026 y el repositorio
+privado https://github.com/jabrugger/chucao-pdf-reader. La versión actual es
+**0.2.0** (release 19/11/2026). Solo el enlace de GitHub abre el navegador;
+consultar Acerca de no hace conexiones de red ni carga PDFium. Escape y la X del
+diálogo regresan al lector.
 
 Los metadatos se mantienen en `src/app-info.h`; versión y autor también se incluyen
 en las propiedades del EXE de Windows. La fecha es explícita para cada entrega,

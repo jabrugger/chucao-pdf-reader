@@ -3082,7 +3082,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
             }
             int command = 0;
             if (!edit && msg.wParam == VK_ESCAPE) { app.EndSelection(); app.ClearSelection(); SetFocus(window); continue; }
-            if (ctrl && msg.wParam == 'O') command = GetKeyState(VK_SHIFT) < 0 ? OpenMenu : Open;
+            if (ctrl && msg.wParam == 'O') command = Open;
             else if (ctrl && msg.wParam == 'B') command = Outline;
             else if (ctrl && msg.wParam == 'F') command = Find;
             else if (ctrl && msg.wParam == 'P') command = Print;

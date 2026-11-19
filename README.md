@@ -48,7 +48,7 @@ powershell -ExecutionPolicy Bypass -File scripts/package.ps1
 powershell -ExecutionPolicy Bypass -File scripts/test-package.ps1
 ```
 
-El primero compila y genera `dist/Chucao-0.1.0-win-x64.zip` con el ejecutable,
+El primero compila y genera `dist/Chucao-0.2.0-win-x64.zip` con el ejecutable,
 `pdfium.dll`, el LEEME, la licencia MIT y los avisos de PDFium y sus
 dependencias. El segundo descomprime el paquete, comprueba los archivos
 obligatorios y ejecuta el lector empaquetado contra un PDF sintético. No hay
@@ -69,18 +69,20 @@ documento. Ver [alcance y pruebas](docs/reading-state.md).
 - Enlaces web HTTP/HTTPS: clic para abrirlos en el navegador predeterminado.
   Pasar el mouse, seleccionar texto o abrir el PDF no abre el navegador.
 
-- Abrir: Ctrl+O, arrastrar un PDF o pasar su ruta como argumento.
-- Recientes: menú **Abrir ▾** o Ctrl+Shift+O; muestra hasta diez documentos.
-  **Olvidar historial y posiciones…** elimina ambos del perfil local, previa
-  confirmación. No modifica los PDF. Ver [alcance y pruebas](docs/recent-files.md).
+- Abrir: el icono de carpeta, Ctrl+O, arrastrar un PDF o pasar su ruta como argumento.
+  El botón abre directamente el selector, sin menú intermedio.
+- Recientes: en la pantalla de bienvenida aparece una lista con hasta diez PDF
+  abiertos antes; clic o Enter abre el elegido. Se leen bajo demanda, sin recorrer
+  carpetas. **Olvidar recientes y posiciones** está en Opciones y no modifica los
+  PDF. Ver [alcance y pruebas](docs/recent-files.md).
 - Página anterior/siguiente: botones y flechas izquierda/derecha.
 - Lectura continua: rueda, barra de desplazamiento, Page Up/Page Down y flechas arriba/abajo.
 - Home/End: principio/final del documento.
 - Zoom: botones +/−, Ctrl+rueda. Ajustar al ancho: Ctrl+0.
 - Desplazamiento horizontal: barra inferior, Shift+rueda o rueda horizontal.
   La búsqueda lleva también a las coincidencias fuera del ancho visible.
-- Índice integrado a la izquierda: se muestra al abrir si el PDF tiene marcadores.
-  El botón del índice o Ctrl+B lo pliega/despliega. Acercar el puntero al borde
+- Índice integrado a la izquierda: se muestra al abrir si el PDF tiene marcadores
+  (configurable en Opciones). El botón del índice o Ctrl+B lo pliega/despliega. Acercar el puntero al borde
   izquierdo permite verlo temporalmente; la chincheta permite fijarlo abierto.
   Un clic o Enter lleva al destino; las flechas expanden los capítulos.
   Alt+Izquierda vuelve al punto anterior.
@@ -91,7 +93,8 @@ documento. Ver [alcance y pruebas](docs/reading-state.md).
 - Seleccionar: arrastrar sobre el texto, incluso entre páginas. Ctrl+C copia;
   Escape limpia la selección. Al arrastrar cerca de un borde la vista se desplaza.
 - Imprimir: Ctrl+P (diálogo de Windows, documento completo o rango de páginas).
-- Tema claro u oscuro: el botón de luna/sol o Ctrl+D. La elección se recuerda en
+- Tema: el botón de tema abre **Opciones** (claro, oscuro o igual que el sistema);
+  Ctrl+D alterna claro/oscuro directamente. La elección se recuerda en
   `%LOCALAPPDATA%\ChucaoPDFReader\settings.dat`; ver [temas](docs/themes.md).
   Las páginas del PDF se mantienen blancas.
 - La interfaz se adapta al DPI de cada monitor, con fuentes e iconos vectoriales
@@ -120,8 +123,8 @@ Las dimensiones de las páginas lejanas se estiman hasta visitarlas, para evitar
 recorrer el PDF completo al abrir. La geometría del texto se obtiene bajo demanda
 al seleccionar, con caché acotada. La copia respeta los permisos del PDF y usa
 Unicode en el portapapeles. El índice del PDF se carga al pedirlo y permite saltar
-a capítulos y subcapítulos. Todavía faltan pestañas
-y pulido visual/accesibilidad. Buscar o seleccionar en escaneos requiere
+a capítulos y subcapítulos. Todavía falta pulido visual y los anuncios de estado
+para lectores de pantalla. Buscar o seleccionar en escaneos requiere
 una capa de texto ya existente. No se implementará OCR.
 
 PDFium se carga e inicializa al abrir el primer documento; abrir la ventana vacía

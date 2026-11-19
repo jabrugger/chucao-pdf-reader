@@ -1,9 +1,10 @@
 # Temas claro y oscuro — 2026-11-18
 
 Chucao tiene dos paletas completas para la interfaz: clara (predeterminada) y
-oscura. El botón de luna/sol de la barra superior o **Ctrl+D** alterna entre
-ellas. La elección se guarda para el usuario actual y se restaura al abrir el
-lector.
+oscura. El botón de tema de la barra superior abre **Opciones**, donde se elige
+claro, oscuro o **igual que el sistema**; **Ctrl+D** alterna directamente entre
+claro y oscuro. La elección se guarda para el usuario actual y se restaura al
+abrir el lector.
 
 Las páginas del PDF se dibujan siempre sobre blanco: el documento es el
 contenido y no cambia con el tema. Sí cambian la barra, el índice, la búsqueda
@@ -16,11 +17,12 @@ La preferencia se guarda en:
 
 `%LOCALAPPDATA%\ChucaoPDFReader\settings.dat`
 
-El archivo contiene solo `theme=light` o `theme=dark`, se escribe con un temporal
-y un reemplazo atómico, y nunca incluye rutas, contenido del PDF ni contraseñas.
-Si falta, está corrupto o no se puede leer, se usa el tema claro sin interrumpir
-la apertura. Para volver al valor predeterminado alcanza con borrarlo o alternar
-con Ctrl+D.
+El archivo contiene `theme=light`, `theme=dark` o `theme=system`, junto con las
+preferencias `restore` y `outline` descritas en [preferences.md](preferences.md).
+Se escribe con un temporal y un reemplazo atómico, y nunca incluye rutas, contenido
+del PDF ni contraseñas. Si falta, está corrupto o no se puede leer, se usa el tema
+claro sin interrumpir la apertura. Para volver al valor predeterminado alcanza con
+borrarlo o alternar con Ctrl+D.
 
 ## Implementación
 

@@ -17,8 +17,9 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
    de cierre; una lectura de I/O bloqueante sigue siendo un límite aparte.
 3. [ ] Validar uso cotidiano y rendimiento con documentos reales antes de agregar
    nuevas funciones grandes.
-4. [ ] Preparar la próxima entrega portable con versión/fecha y binario coherentes,
-   y probarla en otra PC antes de hacer un instalador.
+4. [x] Preparar la entrega portable 0.2.0 con versión/fecha y binario coherentes;
+   ZIP regenerado y verificado localmente.
+   [ ] Probar esa entrega en otra PC antes de preparar un instalador.
 
 ## Funciones y diseño
 
@@ -124,6 +125,8 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   apertura/renderizado del ejecutable empaquetado. Evidencia:
   [distribution.md](distribution.md). Queda pendiente probarlo en otra PC y a
   distintos DPI antes de preparar un instalador.
+- [x] Cortar la entrega 0.2.0: versión y fecha actualizadas en `app-info.h`, CMake
+  y documentación; ZIP `Chucao-0.2.0-win-x64` regenerado y verificado localmente.
 
 - [x] Comprobar la recuperación de posición entre procesos, rutas Unicode, dos
   documentos distintos y PDF protegido, sin guardar la contraseña.
