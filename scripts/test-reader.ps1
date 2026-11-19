@@ -85,6 +85,12 @@ foreach ($mode in @('Fit', 'FitH-200', 'FitV-150', 'XYZ-150-200-2', 'XYZ-150-200
     & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Executable $Executable -Pdf ([IO.Path]::Combine($root, 'test-results', ('destination-' + $mode + '.pdf'))) -Runs 1 -Destinations
     & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Executable $Executable -Pdf ([IO.Path]::Combine($root, 'test-results', ('rotated-destination-' + $mode + '.pdf'))) -Runs 1 -Destinations
 }
+$fitReport = [IO.Path]::Combine($results, 'fit.json')
+$fitProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', $Executable)) -ArgumentList @('--benchmark-fit', 'test-results\mixed-pages.pdf', 'test-results\fit.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
+if (!$fitProcess.WaitForExit(15000)) { $fitProcess.Kill(); throw 'La prueba de ajuste de página/alto excedió 15 segundos.' }
+if ($fitProcess.ExitCode -ne 0) { throw 'Falló la prueba de ajuste de página/alto.' }
+$fitResult = [IO.File]::ReadAllText($fitReport) | ConvertFrom-Json
+if (!$fitResult.success) { throw 'Los modos ajustar a página, alto y ancho no coincidieron.' }
 foreach ($name in @('sample.pdf', 'mixed-pages.pdf')) {
     & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Executable $Executable -Pdf ([IO.Path]::Combine($root, 'test-results', $name)) -Runs 1 -Navigation
 }

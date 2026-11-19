@@ -61,6 +61,9 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   o cambiar de PDF. Evidencia: [reading-state.md](reading-state.md).
 - [x] Recordar tamaño, posición y estado maximizado de la ventana; ignorar
   posiciones fuera de todo monitor. Evidencia: [preferences.md](preferences.md).
+- [x] Ajustar al ancho, a la página completa o al alto con Ctrl+0/1/2, indicador
+  de modo y reajuste al cambiar el tamaño de la ventana. Evidencia:
+  [reader-interface.md](reader-interface.md).
 - [x] Diálogo de Opciones (tema, reabrir la última sesión opcional, olvidar
   historial y sesión). Evidencia automatizada: [preferences.md](preferences.md).
 - [x] Preferencia de apertura automática del índice y guardado de la sesión al
@@ -149,6 +152,10 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 - [x] Validar automáticamente restaurar/guardar la posición de ventana, el estado
   maximizado y el descarte de posiciones fuera de pantalla. Evidencia:
   [preferences.md](preferences.md).
+- [x] Validar automáticamente ajuste a página, alto y ancho con páginas de tamaños
+  distintos. Evidencia: [reader-interface.md](reader-interface.md).
+- [ ] Validar manualmente los ajustes de zoom con PDF reales, ventanas extremas y
+  DPI altos.
 - [ ] Validar manualmente tamaño/posición entre monitores reales, maximizar,
   cerrar y reabrir, y escalas de DPI distintas.
 - [ ] Validar manualmente con Narrator/NVDA, alto contraste, IME y navegación

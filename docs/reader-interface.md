@@ -155,6 +155,24 @@ no demuestra una mejora de velocidad ni mide la presentación física en pantall
 No se observó una regresión en esta comprobación. La ventana vacía sigue sin
 inicializar PDFium. Los informes e imágenes quedan en `test-results`, fuera de Git.
 
+## Ajustes de zoom — 2026-11-19
+
+Además de ajustar al ancho (Ctrl+0), se puede ajustar a la **página completa**
+(Ctrl+1) y al **alto** (Ctrl+2). El modo se aplica página por página, se reajusta
+al cambiar el tamaño de la ventana o la barra de búsqueda, y el indicador de zoom
+muestra «Ancho», «Página» o «Alto» en lugar del porcentaje. Los botones +/− pasan
+a zoom manual usando la escala efectiva.
+
+El cálculo vive en `DocumentLayout` (`ZoomMode`) y el worker aplica la misma regla
+para elegir la resolución del bitmap; el presupuesto de 16 000 px/12 MP se mantiene.
+Al reabrir un documento, los modos de página/alto se restauran como zoom fijo
+efectivo, porque el perfil de lectura guarda una escala numérica.
+
+La prueba `--benchmark-fit` (en `test-reader.ps1`) abre un PDF de páginas
+distintas y verifica que página, alto y ancho encajen en el área de lectura;
+`layout-test` comprueba los tres modos con dimensiones conocidas. Pendiente manual:
+validar la sensación con PDF reales, ventanas extremas y DPI altos.
+
 ## Barra unificada — 2026-11-18
 
 La barra superior se rediseñó para mantener un solo lenguaje visual:

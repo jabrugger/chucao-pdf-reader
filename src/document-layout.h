@@ -3,6 +3,9 @@
 #include <cmath>
 #include <cstdint>
 #include <vector>
+#include "render-budget.h"
+
+enum class ZoomMode { Manual, FitWidth, FitPage, FitHeight };
 
 // Geometry only. Unknown pages use an estimate until their first render; opening
 // a document never walks its full PDF page tree just to obtain dimensions.
@@ -11,14 +14,24 @@ class DocumentLayout {
     std::vector<Size> sizes_;
     std::vector<std::int64_t> tops_;
     std::vector<int> widths_, heights_;
+    std::vector<double> scales_;
     double estimateWidth_ = 612, estimateHeight_ = 792;
     bool estimated_ = false;
     int maxWidth_ = 0;
     int gap_ = Gap;
+    double FitScale(double pageWidth, double pageHeight, int viewportWidth, int viewportHeight, ZoomMode mode) const {
+        double widthScale = std::max(100.0, static_cast<double>(viewportWidth - 2 * gap_ - 16)) / pageWidth;
+        double heightScale = viewportHeight > 0 ?
+            std::max(100.0, static_cast<double>(viewportHeight - 2 * gap_ - 16)) / pageHeight : widthScale;
+        if (mode == ZoomMode::FitWidth) return widthScale;
+        if (mode == ZoomMode::FitHeight) return heightScale;
+        if (mode == ZoomMode::FitPage) return std::min(widthScale, heightScale);
+        return 0;
+    }
 public:
     static constexpr int Gap = 24;
     void Reset(int pages) {
-        sizes_.assign(pages, {}); tops_.clear(); widths_.clear(); heights_.clear();
+        sizes_.assign(pages, {}); tops_.clear(); widths_.clear(); heights_.clear(); scales_.clear();
         estimateWidth_ = 612; estimateHeight_ = 792; estimated_ = false;
         maxWidth_ = 0;
     }
@@ -27,23 +40,31 @@ public:
         sizes_[page] = {width, height};
         if (!estimated_) { estimateWidth_ = width; estimateHeight_ = height; estimated_ = true; }
     }
-    void Rebuild(int viewportWidth, double zoom, int gap = Gap) {
+    void Rebuild(int viewportWidth, int viewportHeight, double zoom, ZoomMode mode, int gap = Gap) {
         gap_ = gap > 0 ? gap : Gap;
         tops_.resize(sizes_.size() + 1); widths_.resize(sizes_.size()); heights_.resize(sizes_.size());
+        scales_.resize(sizes_.size());
         tops_[0] = gap_;
         maxWidth_ = 0;
         for (size_t i = 0; i < sizes_.size(); ++i) {
             double pw = sizes_[i].width > 0 ? sizes_[i].width : estimateWidth_;
             double ph = sizes_[i].height > 0 ? sizes_[i].height : estimateHeight_;
-            double scale = zoom > 0 ? zoom : std::max(100, viewportWidth - 2 * gap_ - 16) / pw;
-            double w = std::max(1.0, pw * scale), h = std::max(1.0, ph * scale);
-            double reduction = std::min(1.0, std::min(16000.0 / std::max(w, h), std::sqrt(12000000.0 / (w * h))));
-            widths_[i] = std::max(1, static_cast<int>(w * reduction));
-            heights_[i] = std::max(1, static_cast<int>(h * reduction));
+            double scale = mode == ZoomMode::Manual && zoom > 0 ? zoom : FitScale(pw, ph, viewportWidth, viewportHeight, mode);
+            if (!(scale > 0) || !std::isfinite(scale)) scale = FitScale(pw, ph, viewportWidth, viewportHeight, ZoomMode::FitWidth);
+            scales_[i] = scale;
+            auto target = LimitRenderSize(pw, ph, scale);
+            widths_[i] = std::max(1, target.width);
+            heights_[i] = std::max(1, target.height);
             maxWidth_ = std::max(maxWidth_, widths_[i]);
             tops_[i + 1] = tops_[i] + heights_[i] + gap_;
         }
     }
+    // Compatibility for tests and callers that only know width: zoom > 0 is a
+    // manual scale, zero means fit width, as before.
+    void Rebuild(int viewportWidth, double zoom, int gap = Gap) {
+        Rebuild(viewportWidth, 0, zoom, zoom > 0 ? ZoomMode::Manual : ZoomMode::FitWidth, gap);
+    }
+    double Scale(int page) const { return page >= 0 && page < static_cast<int>(scales_.size()) ? scales_[page] : 0; }
     int Count() const { return static_cast<int>(sizes_.size()); }
     int PageAt(std::int64_t y) const {
         if (sizes_.empty() || tops_.empty()) return 0;

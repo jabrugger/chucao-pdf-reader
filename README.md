@@ -80,7 +80,8 @@ tamaño, la posición y si la ventana estaba maximizada; ver
 - Página anterior/siguiente: botones y flechas izquierda/derecha.
 - Lectura continua: rueda, barra de desplazamiento, Page Up/Page Down y flechas arriba/abajo.
 - Home/End: principio/final del documento.
-- Zoom: botones +/−, Ctrl+rueda. Ajustar al ancho: Ctrl+0.
+- Zoom: botones +/−, Ctrl+rueda. Ajustar al ancho con Ctrl+0, a la página con
+  Ctrl+1 y al alto con Ctrl+2. El indicador muestra Ancho, Página o Alto.
 - Desplazamiento horizontal: barra inferior, Shift+rueda o rueda horizontal.
   La búsqueda lleva también a las coincidencias fuera del ancho visible.
 - Índice integrado a la izquierda: se muestra al abrir si el PDF tiene marcadores

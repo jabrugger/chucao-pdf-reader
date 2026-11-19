@@ -34,12 +34,20 @@ int main() {
         Check(layout.Total() > 2147483647LL, "64-bit scroll extent");
         Check(layout.PageAt(layout.Top(199999)) == 199999, "last page in large layout");
         Check(layout.Width(0) * static_cast<long long>(layout.Height(0)) <= 12000000, "bitmap bound");
+        DocumentLayout fits; fits.Reset(1); fits.Learn(0, 612, 792);
+        auto near = [](int value, int expected) { return std::abs(value - expected) <= 1; };
+        fits.Rebuild(1000, 800, 0, ZoomMode::FitWidth); Check(near(fits.Width(0), 936) && near(fits.Height(0), 1211), "fit width page");
+        fits.Rebuild(1000, 800, 0, ZoomMode::FitHeight); Check(near(fits.Width(0), 568) && near(fits.Height(0), 736), "fit height page");
+        fits.Rebuild(1000, 800, 0, ZoomMode::FitPage); Check(near(fits.Width(0), 568) && near(fits.Height(0), 736), "fit whole page");
+        fits.Rebuild(1000, 800, 2, ZoomMode::Manual); Check(near(fits.Width(0), 1224) && near(fits.Height(0), 1584), "manual zoom");
+        Check(std::abs(fits.Scale(0) - 2) < 1e-9, "manual scale");
+        Check(std::abs(fits.Scale(1) - 0) < 1e-9, "out-of-range scale");
         std::vector<TextBox> boxes{{.1, .1, .2, .2}, {.21, .1, .3, .2}, {}, {.1, .3, .2, .4}};
         Check(NearestCharacter(boxes, .25, .15, 1) == 1, "character hit");
         Check(NearestCharacter(boxes, .15, .35, 1) == 3, "line hit");
         Check(NearestCharacter({}, .1, .1, 1) == -1, "empty text page");
         Check(SelectionBoxes(boxes, 0, 3).size() == 2, "line selection merging");
         Check(SelectionBoxes(boxes, 3, 1).empty(), "empty selection interval");
-        std::puts("layout: bounds, mixed pages, estimates, zoom anchor and 64-bit extent OK"); return 0;
+        std::puts("layout: bounds, mixed pages, fit modes, estimates, zoom anchor and 64-bit extent OK"); return 0;
     } catch (const std::exception& error) { std::fprintf(stderr, "%s\n", error.what()); return 1; }
 }

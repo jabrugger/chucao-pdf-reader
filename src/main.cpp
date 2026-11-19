@@ -59,7 +59,8 @@ constexpr int RecentBase = 4000;
 constexpr int OutlineFilterId = 3100;
 constexpr int HomeList = 4200;
 enum { Open = 100, Previous, Next, Smaller, Larger, Fit, Find, Print, Query, FindNext, FindPrevious, Copy, Outline, OpenMenu, ForgetHistory,
-    FindClose, OutlineClose, OutlinePin, OutlineRail, About, Theme, NewTabCmd, CloseTabCmd, NextTabCmd, PrevTabCmd };
+    FindClose, OutlineClose, OutlinePin, OutlineRail, About, Theme, NewTabCmd, CloseTabCmd, NextTabCmd, PrevTabCmd,
+    FitPageCmd, FitHeightCmd };
 
 // Best-effort dark title bar. Older Windows builds ignore both attributes.
 void ApplyWindowTheme(HWND window, bool dark) {
@@ -375,9 +376,10 @@ public:
             if (!cancelled_ && document == wantedDocument_) Send(std::move(result));
         });
     }
-    unsigned long long Render(std::vector<int> requested, int viewport, double zoom, unsigned long long document, unsigned long long viewVersion) {
+    unsigned long long Render(std::vector<int> requested, int viewportWidth, int viewportHeight, double zoom, ZoomMode mode,
+        unsigned long long document, unsigned long long viewVersion) {
         auto revision = ++revision_;
-        Queue([this, requested, viewport, zoom, revision, document, viewVersion] {
+        Queue([this, requested, viewportWidth, viewportHeight, zoom, mode, revision, document, viewVersion] {
           for (int page : requested) {
             if (cancelled_ || !pdf_ || document != document_ || revision != revision_) return;
             LARGE_INTEGER start{}, end{}, frequency{};
@@ -389,7 +391,13 @@ public:
             if (!(width > 0 && height > 0 && std::isfinite(width) && std::isfinite(height))) {
                 FPDF_ClosePage(pdfPage); result->message = PageFailureMessage(page, PageFailure::Dimensions); Send(std::move(result)); continue;
             }
-            double scale = zoom > 0 ? zoom : std::max(100, viewport - 64) / width;
+            double scale = zoom;
+            if (mode != ZoomMode::Manual || !(scale > 0)) {
+                double widthScale = std::max(100, viewportWidth - 64) / width;
+                double heightScale = viewportHeight > 0 ? std::max(100, viewportHeight - 64) / height : widthScale;
+                scale = mode == ZoomMode::FitHeight ? heightScale :
+                    mode == ZoomMode::FitPage ? std::min(widthScale, heightScale) : widthScale;
+            }
             result->pageWidth = width; result->pageHeight = height;
             // Bound allocations before conversion to integers; never render giant pages unchecked.
             auto target = LimitRenderSize(width, height, scale);
@@ -685,6 +693,8 @@ public:
     bool hcTest = false;
     bool rapidTest = false;
     int rapidPages = 0;
+    bool fitTest = false;
+    int fitStep = 0;
     bool tabsTest = false;
     bool windowTest = false;
     bool tabsTestFailed = false;
@@ -702,8 +712,9 @@ public:
     DocumentLayout layout;
     std::vector<int> planned;
     unsigned long long viewVersion = 0, plannedVersion = 0, useClock = 0;
-    int renderWidth = 0;
+    int renderWidth = 0, renderHeight = 0;
     double renderZoom = -1;
+    ZoomMode renderMode = ZoomMode::FitWidth;
     size_t cacheBytes = 0;
     static constexpr size_t CacheLimit = 96u * 1024u * 1024u;
     unsigned long long document = 0, revision = 0;
@@ -711,6 +722,7 @@ public:
     std::int64_t scroll = 0;
     int horizontal = 0;
     double zoom = 0;
+    ZoomMode zoomMode = ZoomMode::FitWidth;
     bool searching = false, printing = false;
     struct TextPoint { int page = 0; double x = 0, y = 0; };
     struct Endpoint { int page = 0, character = -1; };
@@ -1182,8 +1194,8 @@ public:
             if (!outlinePinned || outline.entries.empty() || GetParent(outlineWindow) != window ||
                 !(GetWindowLongPtrW(outlineWindow, GWL_STYLE) & WS_CHILD) || searchVisible ||
                 (GetWindowLongPtrW(query, GWL_STYLE) & WS_VISIBLE)) { BenchmarkResult(false); return; }
-            int pinnedWidth = ViewWidth(); double oldZoom = zoom;
-            zoom = 3; Reflow(); Render(); ScrollHorizontal(layout.MaxHorizontal(ViewWidth()) / 2);
+            int pinnedWidth = ViewWidth(); double oldZoom = zoom; ZoomMode oldMode = zoomMode;
+            zoom = 3; zoomMode = ZoomMode::Manual; Reflow(); Render(); ScrollHorizontal(layout.MaxHorizontal(ViewWidth()) / 2);
             int anchor = layout.PageAt(scroll);
             double beforeCenter = (ViewWidth() / 2.0 - layout.Left(anchor, ViewWidth(), horizontal)) / layout.Width(anchor);
             SetOutlinePinned(false);
@@ -1199,7 +1211,7 @@ public:
             ++linkEpoch; // Navigation itself is covered by the outline diagnostic; ignore this pending reply.
             SetOutlinePinned(true);
             if (ViewWidth() != pinnedWidth) { BenchmarkResult(false); return; }
-            zoom = oldZoom; Reflow(); Render();
+            zoom = oldZoom; zoomMode = oldMode; Reflow(); Render();
             int height = ViewHeight(); ShowSearch(false);
             if (!searchVisible || ViewHeight() != height - 44 || !(GetWindowLongPtrW(query, GWL_STYLE) & WS_VISIBLE)) { BenchmarkResult(false); return; }
             interfaceStep = 1; SetWindowTextW(query, L"Chucao"); Search(); return;
@@ -1415,7 +1427,7 @@ public:
         auto root = TreeView_GetRoot(outlineTree), child = TreeView_GetChild(outlineTree, root);
         TreeView_SelectItem(outlineTree, child);
         SaveTestImage(benchmarkReport + L".outline.bmp", outlineWindow);
-        zoom = 3; Reflow(); Render();
+        zoom = 3; zoomMode = ZoomMode::Manual; Reflow(); Render();
         outlineStep = 1;
         ActivateOutlineItem(child);
     }
@@ -1543,7 +1555,7 @@ public:
             if (pageLinks[0].size() != 4 || webOpenAttempts) { BenchmarkResult(false); return; }
             auto box = pageLinks[0][0].box; TextPoint point{0, (box.left + box.right) / 2, (box.top + box.bottom) / 2};
             if (!LinkAt(point)) { BenchmarkResult(false); return; }
-            zoom = 3; Reflow(); Render();
+            zoom = 3; zoomMode = ZoomMode::Manual; Reflow(); Render();
             ScrollHorizontal(static_cast<int>(layout.Left(0, ViewWidth()) + point.x * layout.Width(0) - ViewWidth() / 2.0));
         int sx = ViewLeft() + layout.Left(0, ViewWidth(), horizontal) + static_cast<int>(point.x * layout.Width(0));
             int sy = ContentTop() + static_cast<int>(layout.Top(0) - scroll + point.y * layout.Height(0)); TextPoint hit;
@@ -1630,7 +1642,7 @@ public:
             SaveTestImage(benchmarkReport + L".bmp");
             if (zoom == 0) {
                 ClearSelection(); textPages.clear(); pendingText.clear();
-                textStep = -1; zoom = 3; Reflow(); Render(); return;
+                textStep = -1; zoom = 3; zoomMode = ZoomMode::Manual; Reflow(); Render(); return;
             }
             BenchmarkResult(true);
         }
@@ -1669,7 +1681,7 @@ public:
             if (std::abs(before - after) > 0.01 && scroll > 0 && scroll < MaxScroll()) { BenchmarkResult(false); return; }
             break;
         }
-        case 2: navigationStep = 3; zoom = 4; Reflow(); Render(); break;
+        case 2: navigationStep = 3; zoom = 4; zoomMode = ZoomMode::Manual; Reflow(); Render(); break;
         case 3: {
             auto before = revision;
             SendMessageW(window, WM_HSCROLL, SB_RIGHT, 0);
@@ -1707,6 +1719,28 @@ public:
         if (navigationStep < 9) PostMessageW(window, WM_TIMER, 3, 0);
     }
 
+    void CheckFit() {
+        if (!fitTest || !pages) return;
+        int margin = 2 * PageGap() + 16;
+        int expectedWidth = ViewWidth() - margin, expectedHeight = ViewHeight() - margin;
+        int width = layout.Width(page), height = layout.Height(page);
+        if (fitStep == 0) { fitStep = 1; Command(FitPageCmd); return; }
+        if (fitStep == 1) {
+            bool fits = zoomMode == ZoomMode::FitPage && width <= expectedWidth + 1 && height <= expectedHeight + 1 &&
+                (std::abs(width - expectedWidth) <= 2 || std::abs(height - expectedHeight) <= 2);
+            if (!fits) { BenchmarkResult(false); return; }
+            fitStep = 2; Command(FitHeightCmd); return;
+        }
+        if (fitStep == 2) {
+            bool fits = zoomMode == ZoomMode::FitHeight && std::abs(height - expectedHeight) <= 2;
+            if (!fits) { BenchmarkResult(false); return; }
+            fitStep = 3; Command(Fit); return;
+        }
+        if (fitStep == 3) {
+            bool fits = zoomMode == ZoomMode::FitWidth && std::abs(width - expectedWidth) <= 2;
+            BenchmarkResult(fits);
+        }
+    }
     void Redraw() { InvalidateRect(window, nullptr, FALSE); }
     bool ClearReadingHistory(bool confirm = true) {
         if (!readingStateWrites || !ConfigureReadingState() || (!confirm && !recentTest)) return false;
@@ -1785,7 +1819,8 @@ public:
         return ReadingStateStore(readingStateFile).Update(CurrentReadingState());
     }
     void ApplyReadingState(const ReadingState& state) {
-        zoom = state.zoom; layout.Rebuild(ViewWidth(), zoom, PageGap());
+        zoom = state.zoom; zoomMode = state.zoom > 0 ? ZoomMode::Manual : ZoomMode::FitWidth;
+        layout.Rebuild(ViewWidth(), ViewHeight(), zoom, zoomMode, PageGap());
         ScrollTo(layout.Top(state.page) + static_cast<std::int64_t>(state.vertical * layout.Height(state.page)) + state.gap, false);
         ScrollHorizontal(static_cast<int>(layout.Left(state.page, ViewWidth()) + state.horizontal * layout.Width(state.page) - ViewWidth() / 2.0));
         PageStatus();
@@ -1863,7 +1898,9 @@ public:
         ++linkEpoch;
         if (linkHistory.empty() || !pages) return;
         auto previous = linkHistory.back(); linkHistory.pop_back();
-        ClearSelection(); zoom = previous.zoom; Reflow();
+        ClearSelection(); zoom = previous.zoom;
+        zoomMode = previous.zoom > 0 ? ZoomMode::Manual : ZoomMode::FitWidth;
+        Reflow();
         ScrollTo(layout.Top(previous.page) + static_cast<std::int64_t>(previous.fraction * layout.Height(previous.page)));
         ScrollHorizontal(static_cast<int>(layout.Left(previous.page, ViewWidth()) + previous.horizontal * layout.Width(previous.page) - ViewWidth() / 2.0));
         PageStatus();
@@ -1960,10 +1997,11 @@ public:
         double fraction = pages && layout.Count() ? (scroll - layout.Top(anchor)) / static_cast<double>(layout.Height(anchor)) : 0;
         int beforeWidth = oldWidth > 0 ? oldWidth : ViewWidth();
         double center = pages && layout.Count() ? (beforeWidth / 2.0 - layout.Left(anchor, beforeWidth, horizontal)) / layout.Width(anchor) : 0.5;
-        layout.Rebuild(ViewWidth(), zoom, PageGap());
+        layout.Rebuild(ViewWidth(), ViewHeight(), zoom, zoomMode, PageGap());
         if (keepAnchor && pages) scroll = layout.Top(anchor) + static_cast<std::int64_t>(fraction * layout.Height(anchor));
         if (keepAnchor && pages) horizontal = static_cast<int>(layout.Left(anchor, ViewWidth()) + center * layout.Width(anchor) - ViewWidth() / 2.0);
         ScrollTo(scroll, false);
+        if (pages) zoom = zoomMode == ZoomMode::FitWidth ? 0 : zoomMode == ZoomMode::Manual ? zoom : layout.Scale(page);
     }
     void TrimCache() {
         int first = pages ? layout.PageAt(scroll) : 0, last = pages ? layout.PageAt(scroll + ViewHeight()) : 0;
@@ -1985,9 +2023,9 @@ public:
     void Render() {
         KillTimer(window, 1); // An immediate render supersedes a pending resize render.
         if (!pages) return;
-        int width = ViewWidth();
-        if (renderWidth != width || renderZoom != zoom) {
-            renderWidth = width; renderZoom = zoom; ++viewVersion;
+        int width = ViewWidth(), height = ViewHeight();
+        if (renderWidth != width || renderHeight != height || renderZoom != zoom || renderMode != zoomMode) {
+            renderWidth = width; renderHeight = height; renderZoom = zoom; renderMode = zoomMode; ++viewVersion;
         }
         int first = layout.PageAt(scroll), last = layout.PageAt(scroll + ViewHeight());
         std::vector<int> wanted;
@@ -2005,7 +2043,7 @@ public:
             if (found == cache.end() || found->second.version != viewVersion) missing.push_back(i);
         }
         // Even an empty batch cancels work from a view that is no longer visible.
-        revision = worker->Render(std::move(missing), width, zoom, document, viewVersion);
+        revision = worker->Render(std::move(missing), width, height, zoom, zoomMode, document, viewVersion);
         Redraw();
     }
     void ResetDocument(const std::wstring& file) {
@@ -2018,9 +2056,10 @@ public:
         if (outlineFilter) SetWindowTextW(outlineFilter, L"");
         outline = {}; outlineLoaded = outlinePending = false; PopulateOutline();
         EndSelection(); ClearSelection(); textPages.clear(); pendingText.clear(); searchPage = -1; searchBoxes.clear();
-        path = file; ++document; pages = 0; canCopy = canPrint = false; page = 0; scroll = 0; horizontal = 0; zoom = 0; searching = false;
-        cache.clear(); cacheBytes = 0; layout.Reset(0); layout.Rebuild(ViewWidth(), zoom, PageGap());
-        planned.clear(); renderWidth = 0; renderZoom = -1; ++viewVersion;
+        path = file; ++document; pages = 0; canCopy = canPrint = false; page = 0; scroll = 0; horizontal = 0; zoom = 0;
+        zoomMode = ZoomMode::FitWidth; searching = false;
+        cache.clear(); cacheBytes = 0; layout.Reset(0); layout.Rebuild(ViewWidth(), ViewHeight(), zoom, zoomMode, PageGap());
+        planned.clear(); renderWidth = renderHeight = 0; renderZoom = -1; renderMode = ZoomMode::FitWidth; ++viewVersion;
         ScrollHorizontal(0);
         ArrangeChrome();
     }
@@ -2253,9 +2292,15 @@ public:
         case Open: ChooseFile(); break;
         case Previous: ChangePage(page - 1); break;
         case Next: ChangePage(page + 1); break;
-        case Fit: zoom = 0; Reflow(); Render(); break;
+        case Fit: zoomMode = ZoomMode::FitWidth; zoom = 0; Reflow(); Render(); break;
+        case FitPageCmd: zoomMode = ZoomMode::FitPage; zoom = 0; Reflow(); Render(); break;
+        case FitHeightCmd: zoomMode = ZoomMode::FitHeight; zoom = 0; Reflow(); Render(); break;
         case Larger: case Smaller: {
-            // Start manual zoom from the current fit-width image scale.
+            // Any manual zoom leaves the fit modes and uses the current effective scale.
+            if (zoomMode != ZoomMode::Manual) {
+                zoom = pages ? layout.Scale(page) : 0;
+                zoomMode = ZoomMode::Manual;
+            }
             if (!zoom) {
                 auto found = cache.find(page);
                 zoom = found != cache.end() ? found->second.image->scale : 1.0;
@@ -2297,7 +2342,7 @@ public:
             if (!pendingReadingState && ConfigureReadingState()) pendingReadingState = ReadingStateStore(readingStateFile).Find(path, pages);
             readingStateFound = pendingReadingState.has_value();
             if (pendingReadingState) ApplyReadingState(*pendingReadingState);
-            else { layout.Rebuild(ViewWidth(), zoom, PageGap()); ScrollTo(0, false); }
+            else { layout.Rebuild(ViewWidth(), ViewHeight(), zoom, zoomMode, PageGap()); ScrollTo(0, false); }
             SetWindowTextW(window, (L"Chucao — " + path.substr(path.find_last_of(L"\\/") + 1)).c_str()); PageStatus(); Render();
             RequestOutline();
             break;
@@ -2333,7 +2378,7 @@ public:
                     (ViewWidth() / 2.0 - layout.Left(anchor, ViewWidth(), horizontal)) / layout.Width(anchor), zoom});
                 auto target = result->linkTarget;
                 ClearSelection(); layout.Learn(target.page, target.width, target.height);
-                zoom = DestinationZoom(target, ViewWidth(), ViewHeight(), zoom, D(48)); Reflow();
+                zoom = DestinationZoom(target, ViewWidth(), ViewHeight(), zoom, D(48)); zoomMode = ZoomMode::Manual; Reflow();
                 ScrollTo(layout.Top(target.page) + static_cast<std::int64_t>(target.y * layout.Height(target.page)) - PageGap());
                 // Whole-width modes center the page; rectangles and vertical fits anchor on their left edge.
                 bool centered = target.view == PDFDEST_VIEW_FIT || target.view == PDFDEST_VIEW_FITB || target.view == PDFDEST_VIEW_FITBH;
@@ -2383,6 +2428,7 @@ public:
                 }
                 else if (sessionTest) CheckSessionImage();
                 else if (tabsTest) CheckTabsImage();
+                else if (fitTest) CheckFit();
                 else if (textTest) CheckText(Result::Image);
                 else if (navigationTest) { PostMessageW(window, WM_TIMER, 3, 0); }
                 else if (interfaceTest) { /* Wait for the outline and search diagnostics. */ }
@@ -2643,7 +2689,10 @@ public:
         auto pageLabel = pages ? std::to_wstring(page + 1) + L" / " + std::to_wstring(pages) : L"— / —";
         SelectObject(dc, strongFont); DrawTextW(dc, pageLabel.c_str(), -1, &pageField, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
         RECT zoomField{D(440), 0, D(500), BarPixels()};
-        auto zoomLabel = zoom > 0 ? std::to_wstring(static_cast<int>(std::round(zoom * 100))) + L"%" : L"Ancho";
+        auto zoomLabel = zoomMode == ZoomMode::FitWidth ? std::wstring(L"Ancho") :
+            zoomMode == ZoomMode::FitPage ? std::wstring(L"Página") :
+            zoomMode == ZoomMode::FitHeight ? std::wstring(L"Alto") :
+            zoom > 0 ? std::to_wstring(static_cast<int>(std::round(zoom * 100))) + L"%" : std::wstring(L"Ancho");
         SelectObject(dc, font); SetTextColor(dc, UiTheme().muted);
         DrawTextW(dc, zoomLabel.c_str(), -1, &zoomField, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         if (searchVisible) {
@@ -2917,7 +2966,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         Control buttons[] = {{L"Abrir PDF (Ctrl+O)", OpenMenu, 16},
             {L"Mostrar u ocultar el índice (Ctrl+B)", Outline, 140}, {L"Buscar en el documento (Ctrl+F)", Find, 180},
             {L"Página anterior", Previous, 248}, {L"Página siguiente", Next, 396}, {L"Alejar", Smaller, 460},
-            {L"Acercar", Larger, 564}, {L"Ajustar al ancho (Ctrl+0)", Fit, 604}, {L"Imprimir (Ctrl+P)", Print, 664}};
+            {L"Acercar", Larger, 564}, {L"Ajustar al ancho (Ctrl+0); página (Ctrl+1); alto (Ctrl+2)", Fit, 604},
+            {L"Imprimir (Ctrl+P)", Print, 664}};
         for (const auto& button : buttons) app->IconButton(window, button.id, button.text);
         app->IconButton(window, Theme, L"Opciones de tema y sesión");
         app->IconButton(window, About, L"Acerca de Chucao (F1)");
@@ -2933,7 +2983,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         struct Accessible { int id; const wchar_t* name; };
         const Accessible names[] = {{OpenMenu, L"Abrir PDF y recientes"}, {Outline, L"Mostrar u ocultar el índice"},
             {Find, L"Buscar en el documento"}, {Previous, L"Página anterior"}, {Next, L"Página siguiente"},
-            {Smaller, L"Alejar"}, {Larger, L"Acercar"}, {Fit, L"Ajustar al ancho"}, {Print, L"Imprimir"},
+            {Smaller, L"Alejar"}, {Larger, L"Acercar"}, {Fit, L"Ajustar al ancho, a la página o al alto"}, {Print, L"Imprimir"},
             {Theme, L"Opciones de tema y sesión"}, {About, L"Acerca de Chucao"}};
         for (const auto& entry : names) SetAccessibleName(GetDlgItem(window, entry.id), entry.name);
         app->findLabel = CreateWindowW(L"STATIC", L"Buscar", WS_CHILD, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
@@ -3130,9 +3180,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool tabsTest = argv && argc == 6 && std::wstring(argv[1]) == L"--benchmark-tabs";
     bool outlineFilterTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-outline-filter";
     bool windowTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-window";
+    bool fitTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-fit";
     int sessionTest = argv ? (argc == 6 && std::wstring(argv[1]) == L"--benchmark-session-write" ? 1 : argc == 4 && std::wstring(argv[1]) == L"--benchmark-session-read" ? 2 : argc == 4 && std::wstring(argv[1]) == L"--benchmark-session-off" ? 3 : 0) : 0;
     bool interfaceTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-interface";
-    bool benchmark = sessionTest || interfaceTest || recentTest || themeTest || startupTest || dpiTest || keysTest || hcTest || rapidTest || tabsTest || outlineFilterTest || windowTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
+    bool benchmark = sessionTest || interfaceTest || recentTest || themeTest || startupTest || dpiTest || keysTest || hcTest || rapidTest || tabsTest || outlineFilterTest || windowTest || fitTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
     bool previewHome = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-home";
     bool previewAbout = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-about";
     bool forceDark = false;
@@ -3171,6 +3222,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.tabsTest = tabsTest;
     app.outlineFilterTest = outlineFilterTest;
     app.windowTest = windowTest;
+    app.fitTest = fitTest;
     app.readingStateEnabled = !benchmark && !shellBenchmark;
     app.settingsEnabled = !benchmark && !shellBenchmark;
     if (windowTest) { app.settingsEnabled = true; app.settingsFile = argv[2]; app.settingsConfigured = true; }
@@ -3230,6 +3282,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     else if (tabsTest) { app.RunTabsTest(); SetTimer(window, 2, 30000, nullptr); }
     else if (outlineFilterTest) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
     else if (windowTest) app.RunWindowTest();
+    else if (fitTest) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
     else if (benchmark) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
     else if (argv && argc > 1) {
         // Diagnostic switches are not document paths; every other argument opens a tab.
@@ -3297,6 +3350,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
             else if (ctrl && !edit && msg.wParam == 'C') command = Copy;
             else if (ctrl && msg.wParam == 'D') { app.ToggleTheme(); continue; }
             else if (ctrl && msg.wParam == '0') command = Fit;
+            else if (ctrl && msg.wParam == '1') command = FitPageCmd;
+            else if (ctrl && msg.wParam == '2') command = FitHeightCmd;
             else if (ctrl && msg.wParam == VK_TAB) command = GetKeyState(VK_SHIFT) < 0 ? PrevTabCmd : NextTabCmd;
             else if (ctrl && !edit && msg.wParam == 'W') command = CloseTabCmd;
             else if (ctrl && !edit && msg.wParam == 'T') command = NewTabCmd;

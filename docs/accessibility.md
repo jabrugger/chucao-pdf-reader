@@ -39,8 +39,9 @@ aparecen en el recorrido solo cuando la barra está visible.
 | Alt+Izquierda | Volver al punto anterior |
 | Escape | Cerrar la búsqueda; en la barra, devolver el foco al documento |
 
-Los atajos existentes (Ctrl+O, Ctrl+B, Ctrl+F, Ctrl+P, Ctrl+C, Ctrl+0, F1, F3,
-Mayús+F3) se mantienen. En la bienvenida, las flechas recorren la lista de
+Los atajos existentes (Ctrl+O, Ctrl+B, Ctrl+F, Ctrl+P, Ctrl+C, Ctrl+0, Ctrl+1,
+Ctrl+2, F1, F3, Mayús+F3) se mantienen. Ctrl+0 ajusta al ancho, Ctrl+1 a la página
+completa y Ctrl+2 al alto. En la bienvenida, las flechas recorren la lista de
 recientes y Enter abre la entrada elegida.
 
 ## Nombres accesibles
