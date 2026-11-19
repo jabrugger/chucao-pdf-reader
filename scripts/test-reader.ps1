@@ -13,6 +13,10 @@ if (!$windowProcess.WaitForExit(15000)) { $windowProcess.Kill(); throw 'La prueb
 if ($windowProcess.ExitCode -ne 0) { throw 'Falló la prueba de posición de ventana.' }
 $windowResult = [IO.File]::ReadAllText($windowReport) | ConvertFrom-Json
 if (!$windowResult.success) { throw 'La posición/tamaño de ventana no se guardó o restauró correctamente.' }
+$robustFolder = 'test-results\robustness-' + [Guid]::NewGuid().ToString('N')
+$robustProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', 'robustness-test.exe')) -ArgumentList @($robustFolder) -WorkingDirectory $root -WindowStyle Hidden -PassThru
+if (!$robustProcess.WaitForExit(30000)) { $robustProcess.Kill(); throw 'La prueba de PDF dañados/extremos excedió 30 segundos.' }
+if ($robustProcess.ExitCode -ne 0) { throw 'Falló la prueba de PDF dañados o dimensiones extremas.' }
 $passwordFixtures = [IO.Path]::Combine($root, 'tests', 'fixtures', 'passwords')
 & ([IO.Path]::Combine($root, 'build', 'password-test.exe')) $passwordFixtures
 if ($LASTEXITCODE -ne 0) { throw 'Falló la validación de contraseñas del motor.' }

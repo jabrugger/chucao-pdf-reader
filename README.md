@@ -176,6 +176,9 @@ powershell -ExecutionPolicy Bypass -File scripts/test-reader.ps1
 
 Genera un PDF sintético (sin datos personales) y verifica apertura,
 renderizado, búsqueda y error de archivo con el mismo motor del visor.
+La prueba de robustez genera PDF truncados, basura, vacíos, con página faltante y
+páginas de dimensiones extremas, y comprueba el presupuesto de renderizado; ver
+[robustez](docs/robustness.md).
 Las pruebas de contraseñas incluyen archivos cifrados AES-256, AES-128 y RC4,
 Unicode, reintentos, cancelación y permisos; ver [passwords.md](docs/passwords.md).
 El diálogo visible todavía requiere comprobación manual de foco y teclado.

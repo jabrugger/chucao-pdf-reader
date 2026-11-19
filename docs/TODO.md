@@ -205,7 +205,11 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 - [ ] Cambiar zoom y tamaño de ventana durante el renderizado.
 - [ ] Cerrar durante lectura, búsqueda o renderizado, sin bloqueos ni fugas.
 - [ ] Medir CPU y memoria tras muchas aperturas y recorridos.
-- [ ] Probar documentos dañados y de dimensiones extremas.
+- [x] Validar automáticamente PDF truncados, basura, vacíos, con página faltante,
+  caja cero y páginas de 5000×5000/1×1, además del presupuesto de 16 000 px y
+  12 MP. Evidencia: [robustness.md](robustness.md).
+- [ ] Validar manualmente documentos dañados y de dimensiones extremas reales,
+  incluida la ventana visible y la impresión.
 - [ ] Validar documentos grandes y remotos con diferentes estados de caché.
 
 ## Rendimiento

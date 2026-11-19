@@ -37,6 +37,8 @@ cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX t
 if errorlevel 1 exit /b 1
 cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /I deps\pdfium\include tools\messages-test.cpp /Fo:build\messages-test.obj /Fe:build\messages-test.exe /link /LIBPATH:deps\pdfium\lib pdfium.dll.lib
 if errorlevel 1 exit /b 1
+cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /I deps\pdfium\include tools\robustness-test.cpp /Fo:build\robustness-test.obj /Fe:build\robustness-test.exe /link /LIBPATH:deps\pdfium\lib pdfium.dll.lib
+if errorlevel 1 exit /b 1
 cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX tools\preferences-test.cpp /Fo:build\preferences-test.obj /Fe:build\preferences-test.exe
 if errorlevel 1 exit /b 1
 echo Compilacion completada: build\Chucao.exe

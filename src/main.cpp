@@ -22,6 +22,7 @@
 #include "recent-files.h"
 #include "settings.h"
 #include "session-state.h"
+#include "render-budget.h"
 #include "pdf-errors.h"
 #include <algorithm>
 #include <atomic>
@@ -390,12 +391,13 @@ public:
             }
             double scale = zoom > 0 ? zoom : std::max(100, viewport - 64) / width;
             result->pageWidth = width; result->pageHeight = height;
-            double w = std::max(1.0, width * scale), h = std::max(1.0, height * scale);
             // Bound allocations before conversion to integers; never render giant pages unchecked.
-            double reduction = std::min(1.0, std::min(16000.0 / std::max(w, h), std::sqrt(12000000.0 / (w * h))));
-            result->width = std::max(1, static_cast<int>(w * reduction));
-            result->height = std::max(1, static_cast<int>(h * reduction));
-            result->scale = result->width / width;
+            auto target = LimitRenderSize(width, height, scale);
+            if (target.width <= 0 || target.height <= 0) {
+                FPDF_ClosePage(pdfPage); result->message = PageFailureMessage(page, PageFailure::Dimensions);
+                Send(std::move(result)); continue;
+            }
+            result->width = target.width; result->height = target.height; result->scale = target.scale;
             result->pixels.resize(static_cast<size_t>(result->width) * result->height * 4);
             FPDF_BITMAP bitmap = FPDFBitmap_CreateEx(result->width, result->height, FPDFBitmap_BGRA, result->pixels.data(), result->width * 4);
             if (bitmap) {
