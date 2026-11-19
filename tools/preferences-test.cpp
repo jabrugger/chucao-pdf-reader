@@ -32,6 +32,13 @@ int wmain(int argc, wchar_t** argv) {
         Check(read && !read->autoShowOutline && read->restoreSession, "outline preference alongside restore");
         Raw(settingsFile, "ChucaoSettings 1\ntheme=dark\noutline=maybe\n"); Check(!settings.Read(), "invalid outline preference ignored safely");
         Raw(settingsFile, "ChucaoSettings 1\ntheme=dark\nrestore=oops\n"); Check(!settings.Read(), "invalid restore ignored safely");
+        Check(settings.Write({false, false, false, true, true, {10, 20, 1010, 720}, false}), "save window placement");
+        read = settings.Read();
+        Check(read && read->hasWindow && read->windowRect.left == 10 && read->windowRect.bottom == 720 && !read->maximized, "window placement round trip");
+        Raw(settingsFile, "ChucaoSettings 1\ntheme=dark\nwindow=10 20 1010 720 1\n"); read = settings.Read();
+        Check(read && read->hasWindow && read->maximized, "maximized window flag");
+        Raw(settingsFile, "ChucaoSettings 1\ntheme=dark\nwindow=oops\n"); Check(!settings.Read(), "invalid window ignored safely");
+        Raw(settingsFile, "ChucaoSettings 1\ntheme=dark\nwindow=10 20 20 20 0\n"); Check(!settings.Read(), "degenerate window ignored safely");
         SavedSession session{{folder + L"\\lectura-café.pdf", folder + L"\\漢字.pdf"}, 1};
         Check(sessions.Write(session), "save Unicode session"); auto saved = sessions.Read();
         Check(saved.paths.size() == 2 && saved.active == 1 && saved.paths[1] == ReadingStateStore::NormalizePath(session.paths[1]), "paths, order and active tab round trip");
@@ -42,6 +49,6 @@ int wmain(int argc, wchar_t** argv) {
         Raw(sessionFile, std::string(1024 * 1024 + 1, 'x')); Check(sessions.Read().paths.empty(), "oversized session ignored");
         Check(sessions.Write({}) && sessions.Read().paths.empty(), "clear and recover corrupt session");
         Check(!SessionStore(folder).Write({}), "write failure preserves directory");
-        std::puts("preferences: legacy, opt-in, round trip, Unicode, active tab, bounds, corruption and clear OK"); return 0;
+        std::puts("preferences: legacy, opt-in, window placement, Unicode, active tab, bounds, corruption and clear OK"); return 0;
     } catch (const std::exception& error) { std::fprintf(stderr, "%s\n", error.what()); return 1; }
 }

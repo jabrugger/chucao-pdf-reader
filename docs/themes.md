@@ -18,7 +18,8 @@ La preferencia se guarda en:
 `%LOCALAPPDATA%\ChucaoPDFReader\settings.dat`
 
 El archivo contiene `theme=light`, `theme=dark` o `theme=system`, junto con las
-preferencias `restore` y `outline` descritas en [preferences.md](preferences.md).
+preferencias `restore`, `outline` y la posición de la ventana descritas en
+[preferences.md](preferences.md).
 Se escribe con un temporal y un reemplazo atómico, y nunca incluye rutas, contenido
 del PDF ni contraseñas. Si falta, está corrupto o no se puede leer, se usa el tema
 claro sin interrumpir la apertura. Para volver al valor predeterminado alcanza con

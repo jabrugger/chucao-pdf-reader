@@ -62,7 +62,9 @@ autor, contacto, fecha de release y un enlace al repositorio de GitHub.
 El lector recuerda la página, el zoom y la posición al cerrar o cambiar de PDF.
 El estado es local a cada PC y se guarda en
 `%LOCALAPPDATA%\ChucaoPDFReader\reading-state.dat`, sin contraseñas ni texto del
-documento. Ver [alcance y pruebas](docs/reading-state.md).
+documento. Ver [alcance y pruebas](docs/reading-state.md). También recuerda el
+tamaño, la posición y si la ventana estaba maximizada; ver
+[opciones](docs/preferences.md).
 
 - Enlaces internos: clic para ir al destino; Alt+Izquierda vuelve al punto anterior.
   El cursor cambia a una mano cuando se reconoce un enlace interno.

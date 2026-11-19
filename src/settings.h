@@ -13,6 +13,10 @@ struct AppSettings {
     bool followSystem = false;
     // true: the index opens docked when a PDF has bookmarks; false: only on hover/toggle.
     bool autoShowOutline = true;
+    // Window placement in physical pixels; restored only if it lands on a monitor.
+    bool hasWindow = false;
+    RECT windowRect{};
+    bool maximized = false;
 };
 
 class SettingsStore {
@@ -57,6 +61,19 @@ public:
             else if (line == "restore=0") settings.restoreSession = false;
             else if (line == "outline=1") settings.autoShowOutline = true;
             else if (line == "outline=0") settings.autoShowOutline = false;
+            else if (line.rfind("window=", 0) == 0) {
+                std::istringstream window(line.substr(7));
+                int left = 0, top = 0, right = 0, bottom = 0, maximized = 0;
+                std::string extra;
+                if (!(window >> left >> top >> right >> bottom >> maximized) || (window >> extra)) return {};
+                int width = right - left, height = bottom - top;
+                if (width < 200 || height < 150 || width > 20000 || height > 20000 ||
+                    left < -100000 || top < -100000 || right > 100000 || bottom > 100000 ||
+                    (maximized != 0 && maximized != 1)) return {};
+                settings.hasWindow = true;
+                settings.windowRect = {left, top, right, bottom};
+                settings.maximized = maximized != 0;
+            }
             else if (line.empty()) continue;
             else return {};
         }
@@ -68,6 +85,10 @@ public:
         if (slash == std::wstring::npos) return false;
         if (!CreateDirectoryW(filename_.substr(0, slash).c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) return false;
         std::string data = std::string("ChucaoSettings 1\n") + (settings.followSystem ? "theme=system\n" : settings.dark ? "theme=dark\n" : "theme=light\n") + (settings.restoreSession ? "restore=1\n" : "restore=0\n") + (settings.autoShowOutline ? "outline=1\n" : "outline=0\n");
+        if (settings.hasWindow)
+            data += "window=" + std::to_string(settings.windowRect.left) + " " + std::to_string(settings.windowRect.top) + " " +
+                std::to_string(settings.windowRect.right) + " " + std::to_string(settings.windowRect.bottom) + " " +
+                (settings.maximized ? "1\n" : "0\n");
         auto temporary = filename_ + L"." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64()) + L".tmp";
         HANDLE file = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
         bool ok = file != INVALID_HANDLE_VALUE;

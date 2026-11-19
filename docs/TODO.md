@@ -59,6 +59,8 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   cierre (×, clic medio, Ctrl+W), Ctrl+T y Ctrl+Tab. Evidencia: [tabs.md](tabs.md).
 - [x] Recordar página, zoom y posición vertical/horizontal por documento, al cerrar
   o cambiar de PDF. Evidencia: [reading-state.md](reading-state.md).
+- [x] Recordar tamaño, posición y estado maximizado de la ventana; ignorar
+  posiciones fuera de todo monitor. Evidencia: [preferences.md](preferences.md).
 - [x] Diálogo de Opciones (tema, reabrir la última sesión opcional, olvidar
   historial y sesión). Evidencia automatizada: [preferences.md](preferences.md).
 - [x] Preferencia de apertura automática del índice y guardado de la sesión al
@@ -144,6 +146,11 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   [accessibility.md](accessibility.md).
 - [x] Validar automáticamente que la paleta de alto contraste use los colores del
   sistema y guarde captura. Evidencia: [accessibility.md](accessibility.md).
+- [x] Validar automáticamente restaurar/guardar la posición de ventana, el estado
+  maximizado y el descarte de posiciones fuera de pantalla. Evidencia:
+  [preferences.md](preferences.md).
+- [ ] Validar manualmente tamaño/posición entre monitores reales, maximizar,
+  cerrar y reabrir, y escalas de DPI distintas.
 - [ ] Validar manualmente con Narrator/NVDA, alto contraste, IME y navegación
   completa solo con teclado en documentos reales.
 

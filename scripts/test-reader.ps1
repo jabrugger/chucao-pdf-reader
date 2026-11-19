@@ -5,6 +5,14 @@ $root = [IO.Path]::GetFullPath([IO.Path]::Combine($PSScriptRoot, '..'))
 & ([IO.Path]::Combine($PSScriptRoot, 'test-reading-state.ps1')) -Executable $Executable
 & ([IO.Path]::Combine($PSScriptRoot, 'test-recents.ps1')) -Executable $Executable
 & ([IO.Path]::Combine($PSScriptRoot, 'test-preferences.ps1')) -Executable $Executable
+$windowProfile = [IO.Path]::Combine($root, 'test-results', 'window-settings.dat')
+Remove-Item -LiteralPath $windowProfile -ErrorAction SilentlyContinue
+$windowReport = [IO.Path]::Combine($root, 'test-results', 'window.json')
+$windowProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', $Executable)) -ArgumentList @('--benchmark-window', 'test-results\window-settings.dat', 'test-results\window.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
+if (!$windowProcess.WaitForExit(15000)) { $windowProcess.Kill(); throw 'La prueba de posición de ventana excedió 15 segundos.' }
+if ($windowProcess.ExitCode -ne 0) { throw 'Falló la prueba de posición de ventana.' }
+$windowResult = [IO.File]::ReadAllText($windowReport) | ConvertFrom-Json
+if (!$windowResult.success) { throw 'La posición/tamaño de ventana no se guardó o restauró correctamente.' }
 $passwordFixtures = [IO.Path]::Combine($root, 'tests', 'fixtures', 'passwords')
 & ([IO.Path]::Combine($root, 'build', 'password-test.exe')) $passwordFixtures
 if ($LASTEXITCODE -ne 0) { throw 'Falló la validación de contraseñas del motor.' }

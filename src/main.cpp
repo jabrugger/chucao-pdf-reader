@@ -684,6 +684,7 @@ public:
     bool rapidTest = false;
     int rapidPages = 0;
     bool tabsTest = false;
+    bool windowTest = false;
     bool tabsTestFailed = false;
     std::wstring tabsTestA, tabsTestB, tabsTestProtected, tabsTestMissing;
     int tabsStep = 0, tabsChecks = 0, tabsPrompts = 0, tabsClosed = 0;
@@ -891,6 +892,34 @@ public:
         }
         return !settingsFile.empty();
     }
+    AppSettings CollectSettings() const {
+        AppSettings value{darkTheme, restoreLastSession, followSystemTheme, autoShowOutline};
+        if (window) {
+            WINDOWPLACEMENT placement{}; placement.length = sizeof(placement);
+            if (GetWindowPlacement(window, &placement)) {
+                value.hasWindow = true;
+                value.windowRect = placement.rcNormalPosition;
+                value.maximized = placement.showCmd == SW_SHOWMAXIMIZED || IsZoomed(window) != 0 ||
+                    (placement.flags & WPF_RESTORETOMAXIMIZED) != 0;
+            }
+        }
+        return value;
+    }
+    void SaveWindowPlacement() {
+        if (!settingsEnabled || !ConfigureSettings()) return;
+        SettingsStore(settingsFile).Write(CollectSettings());
+    }
+    bool PrepareWindowPlacement() {
+        if (!settingsEnabled || !ConfigureSettings()) return false;
+        auto settings = SettingsStore(settingsFile).Read();
+        if (!settings || !settings->hasWindow) return false;
+        RECT bounds = settings->windowRect;
+        if (bounds.right - bounds.left < 200 || bounds.bottom - bounds.top < 150) return false;
+        if (!MonitorFromRect(&bounds, MONITOR_DEFAULTTONULL)) return false;
+        SetWindowPos(window, nullptr, bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top,
+            SWP_NOZORDER | SWP_NOACTIVATE);
+        return settings->maximized;
+    }
     void ApplyPalette(bool dark, bool persist) {
         if (applyingPalette) return;
         applyingPalette = true;
@@ -907,7 +936,7 @@ public:
             SetWindowTheme(outlineWindow, highContrast ? L"" : (dark ? L"DarkMode_Explorer" : L"Explorer"), nullptr);
         }
         if (outlineTree) StyleOutline();
-        if (persist && ConfigureSettings()) SettingsStore(settingsFile).Write({dark, restoreLastSession, followSystemTheme, autoShowOutline});
+        if (persist && ConfigureSettings()) SettingsStore(settingsFile).Write(CollectSettings());
         if (!window) { applyingPalette = false; return; }
         RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
         for (HWND control : {outlineWindow, query, findFeedback, findLabel}) if (control) InvalidateRect(control, nullptr, TRUE);
@@ -2050,6 +2079,34 @@ public:
         expected = {path, pages, pages - 1, scale, .3, .65, 0};
         pendingReadingState = expected; ApplyReadingState(expected); Render();
     }
+    void RunWindowTest() {
+        bool ok = true;
+        AppSettings saved{};
+        saved.hasWindow = true; saved.windowRect = {120, 90, 1020, 710}; saved.maximized = false;
+        ok = ok && SettingsStore(settingsFile).Write(saved);
+        bool maximized = PrepareWindowPlacement();
+        RECT rc{}; GetWindowRect(window, &rc);
+        ok = ok && !maximized && std::abs(rc.left - 120) <= 2 && std::abs(rc.top - 90) <= 2 &&
+            std::abs((rc.right - rc.left) - 900) <= 4 && std::abs((rc.bottom - rc.top) - 620) <= 4;
+        SetWindowPos(window, nullptr, 150, 120, 1000, 750, SWP_NOZORDER | SWP_NOACTIVATE);
+        SaveWindowPlacement();
+        auto read = SettingsStore(settingsFile).Read();
+        ok = ok && read && read->hasWindow && std::abs(read->windowRect.left - 150) <= 2 &&
+            std::abs(read->windowRect.top - 120) <= 2 && !read->maximized;
+        // A placement on a monitor that no longer exists must be ignored.
+        AppSettings offscreen{}; offscreen.hasWindow = true; offscreen.windowRect = {-30000, -30000, -29000, -29000};
+        ok = ok && SettingsStore(settingsFile).Write(offscreen);
+        RECT before{}; GetWindowRect(window, &before);
+        PrepareWindowPlacement();
+        RECT after{}; GetWindowRect(window, &after);
+        ok = ok && before.left == after.left && before.top == after.top;
+        // The maximized flag survives a round trip.
+        AppSettings maximizedSettings{}; maximizedSettings.hasWindow = true;
+        maximizedSettings.windowRect = {200, 150, 1100, 850}; maximizedSettings.maximized = true;
+        ok = ok && SettingsStore(settingsFile).Write(maximizedSettings);
+        ok = ok && PrepareWindowPlacement();
+        BenchmarkResult(ok);
+    }
     void RunTabsTest() {
         tabsTestMissing = tabsTestA.substr(0, tabsTestA.find_last_of(L"\\/") + 1) + L"unavailable.pdf";
         tabsStep = 0; OpenDocument(tabsTestA);
@@ -2689,9 +2746,12 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
             ((id == IDC_SETTINGS_RESTORE || id == IDC_SETTINGS_OUTLINE) && HIWORD(wp) == BN_CLICKED)) {
             auto choice = SendDlgItemMessageW(dialog, IDC_SETTINGS_THEME, CB_GETCURSEL, 0, 0);
             bool system = choice == 0;
-            AppSettings value{system ? SystemPrefersDark() : choice == 2,
-                IsDlgButtonChecked(dialog, IDC_SETTINGS_RESTORE) == BST_CHECKED, system,
-                IsDlgButtonChecked(dialog, IDC_SETTINGS_OUTLINE) == BST_CHECKED};
+            // Keep the current window placement while changing the other options.
+            AppSettings value = app->CollectSettings();
+            value.dark = system ? SystemPrefersDark() : choice == 2;
+            value.followSystem = system;
+            value.restoreSession = IsDlgButtonChecked(dialog, IDC_SETTINGS_RESTORE) == BST_CHECKED;
+            value.autoShowOutline = IsDlgButtonChecked(dialog, IDC_SETTINGS_OUTLINE) == BST_CHECKED;
             if (!app->ConfigureSettings() || !SettingsStore(app->settingsFile).Write(value)) {
                 SendDlgItemMessageW(dialog, IDC_SETTINGS_THEME, CB_SETCURSEL, app->followSystemTheme ? 0 : app->darkTheme ? 2 : 1, 0);
                 CheckDlgButton(dialog, IDC_SETTINGS_RESTORE, app->restoreLastSession ? BST_CHECKED : BST_UNCHECKED);
@@ -3029,11 +3089,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     }
     case WM_ERASEBKGND: return 1;
     case WM_CLOSE:
-        app->SaveReadingState(); app->SaveSession(); app->savedOnClose = true; DestroyWindow(window); return 0;
-    case WM_ENDSESSION: if (wp) { app->SaveReadingState(); app->SaveSession(); } return 0;
+        app->SaveReadingState(); app->SaveSession(); app->SaveWindowPlacement();
+        app->savedOnClose = true; DestroyWindow(window); return 0;
+    case WM_ENDSESSION:
+        if (wp) { app->SaveReadingState(); app->SaveSession(); app->SaveWindowPlacement(); } return 0;
     case WM_PAINT: app->Paint(); return 0;
     case WM_DESTROY: {
-        if (!app->savedOnClose) app->SaveReadingState();
+        if (!app->savedOnClose) { app->SaveReadingState(); app->SaveWindowPlacement(); }
         app->worker.reset();
         if (app->outlineWindow) DestroyWindow(app->outlineWindow);
         MSG pending{}; while (PeekMessageW(&pending, window, Ready, Ready, PM_REMOVE)) delete reinterpret_cast<Result*>(pending.lParam);
@@ -3065,9 +3127,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool rapidTest = argv && argc == 5 && std::wstring(argv[1]) == L"--benchmark-rapid";
     bool tabsTest = argv && argc == 6 && std::wstring(argv[1]) == L"--benchmark-tabs";
     bool outlineFilterTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-outline-filter";
+    bool windowTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-window";
     int sessionTest = argv ? (argc == 6 && std::wstring(argv[1]) == L"--benchmark-session-write" ? 1 : argc == 4 && std::wstring(argv[1]) == L"--benchmark-session-read" ? 2 : argc == 4 && std::wstring(argv[1]) == L"--benchmark-session-off" ? 3 : 0) : 0;
     bool interfaceTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-interface";
-    bool benchmark = sessionTest || interfaceTest || recentTest || themeTest || startupTest || dpiTest || keysTest || hcTest || rapidTest || tabsTest || outlineFilterTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
+    bool benchmark = sessionTest || interfaceTest || recentTest || themeTest || startupTest || dpiTest || keysTest || hcTest || rapidTest || tabsTest || outlineFilterTest || windowTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
     bool previewHome = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-home";
     bool previewAbout = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-about";
     bool forceDark = false;
@@ -3105,8 +3168,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.rapidTest = rapidTest;
     app.tabsTest = tabsTest;
     app.outlineFilterTest = outlineFilterTest;
+    app.windowTest = windowTest;
     app.readingStateEnabled = !benchmark && !shellBenchmark;
     app.settingsEnabled = !benchmark && !shellBenchmark;
+    if (windowTest) { app.settingsEnabled = true; app.settingsFile = argv[2]; app.settingsConfigured = true; }
     if (dpiTest || keysTest || hcTest) app.benchmarkReport = argv[2];
     if (themeTest) { app.settingsFile = argv[2]; app.settingsConfigured = true; app.settingsEnabled = true; }
     if (sessionTest) {
@@ -3137,7 +3202,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         if (SUCCEEDED(comResult)) CoUninitialize();
         return 1;
     }
-    if (!benchmark && !shellBenchmark) { ShowWindow(window, show); UpdateWindow(window); }
+    bool startMaximized = false;
+    if (!benchmark && !shellBenchmark) startMaximized = app.PrepareWindowPlacement();
+    if (!benchmark && !shellBenchmark) {
+        ShowWindow(window, (startMaximized || show == SW_SHOWMAXIMIZED) ? SW_SHOWMAXIMIZED : show);
+        UpdateWindow(window);
+    }
     app.shellMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     if (shellBenchmark) {
         bool success = true;
@@ -3157,6 +3227,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     else if (rapidTest) { app.Load(argv[2]); app.Load(argv[3]); SetTimer(window, 2, 30000, nullptr); }
     else if (tabsTest) { app.RunTabsTest(); SetTimer(window, 2, 30000, nullptr); }
     else if (outlineFilterTest) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
+    else if (windowTest) app.RunWindowTest();
     else if (benchmark) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
     else if (argv && argc > 1) {
         // Diagnostic switches are not document paths; every other argument opens a tab.
