@@ -682,6 +682,8 @@ public:
     bool suppressCurrentState = false;
     std::vector<ReadingState> recentEntries;
     HWND homeList = nullptr;
+    HWND statusBar = nullptr;
+    std::wstring announcedStatus;
     bool restoreLastSession = false, sessionWrites = true;
     int sessionTest = 0, sessionStep = 0, sessionChecks = 0;
     std::wstring sessionTestA, sessionTestB;
@@ -836,6 +838,7 @@ public:
         int x = left + D(78) + width;
         for (int id : {FindPrevious, FindNext, FindClose}) { MoveWindow(GetDlgItem(window, id), x, y + D(4), D(36), D(36), TRUE); x += D(36); }
         MoveWindow(findFeedback, x + D(8), y + D(13), std::max(1, static_cast<int>(rc.right) - x - D(16)), D(22), TRUE);
+        MoveWindow(statusBar, D(16), bottom + D(2), std::max(1, static_cast<int>(rc.right) - D(32)), D(22), TRUE);
         for (HWND control : {query, findLabel, findFeedback, GetDlgItem(window, FindPrevious), GetDlgItem(window, FindNext), GetDlgItem(window, FindClose)})
             ShowWindow(control, searchVisible ? SW_SHOWNA : SW_HIDE);
         ShowWindow(findLabel, SW_HIDE);
@@ -872,7 +875,7 @@ public:
         TreeView_SetIndent(outlineTree, D(16));
     }
     void ApplyFonts() {
-        for (HWND control : {query, findLabel, findFeedback})
+        for (HWND control : {query, findLabel, findFeedback, statusBar})
             if (control) SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         StyleOutline();
     }
@@ -1101,6 +1104,11 @@ public:
         ok = ok && queryName.find(L"Buscar") != std::wstring::npos;
         ok = ok && themeName.find(L"Opciones") != std::wstring::npos;
         ok = ok && previousName.find(L"Página anterior") != std::wstring::npos;
+        status = L"Estado accesible de prueba"; Redraw();
+        auto statusName = accessibleName(statusBar);
+        debug += L"status=" + statusName + L"\n";
+        ok = ok && statusBar && (GetWindowLongPtrW(statusBar, GWL_STYLE) & WS_VISIBLE) &&
+            statusName == L"Estado accesible de prueba";
         SetFocus(window); CycleFocus();
         debug += L"focus1=" + std::to_wstring(GetFocus() ? GetDlgCtrlID(GetFocus()) : -1) + L"\n";
         ok = ok && GetFocus() == GetDlgItem(window, OpenMenu);
@@ -1741,7 +1749,15 @@ public:
             BenchmarkResult(fits);
         }
     }
-    void Redraw() { InvalidateRect(window, nullptr, FALSE); }
+    // Screen readers follow the status line through a real control: changing its
+    // text raises an accessibility event only when the message actually changed.
+    void SyncStatus() {
+        if (!statusBar || status == announcedStatus) return;
+        announcedStatus = status;
+        SetWindowTextW(statusBar, status.c_str());
+        NotifyWinEvent(EVENT_OBJECT_NAMECHANGE, statusBar, OBJID_CLIENT, CHILDID_SELF);
+    }
+    void Redraw() { SyncStatus(); InvalidateRect(window, nullptr, FALSE); }
     bool ClearReadingHistory(bool confirm = true) {
         if (!readingStateWrites || !ConfigureReadingState() || (!confirm && !recentTest)) return false;
         if (confirm && MessageBoxW(window, L"¿Olvidar la lista de recientes y las posiciones guardadas?", L"Historial de Chucao", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES) return false;
@@ -1969,7 +1985,10 @@ public:
         info.nPage = ViewWidth(); info.nPos = horizontal;
         SetScrollInfo(window, SB_HORZ, &info, TRUE); Redraw();
     }
-    void PageStatus() { if (pages) status = L"Página " + std::to_wstring(page + 1) + L" de " + std::to_wstring(pages); }
+    void PageStatus() {
+        if (pages) status = L"Página " + std::to_wstring(page + 1) + L" de " + std::to_wstring(pages);
+        SyncStatus();
+    }
     void ScrollTo(std::int64_t value, bool request = true) {
         RECT rc{}; GetClientRect(window, &rc);
         ScrollHorizontal(horizontal);
@@ -2718,7 +2737,7 @@ public:
         SetDCBrushColor(dc, UiTheme().bar); FillRect(dc, &footerBar, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         RECT footer{D(16), rc.bottom - D(24), rc.right - D(16), rc.bottom};
         SelectObject(dc, font); SetTextColor(dc, UiTheme().muted);
-        DrawTextW(dc, status.c_str(), -1, &footer, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+        if (!statusBar) DrawTextW(dc, status.c_str(), -1, &footer, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
         BitBlt(target, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
         SelectObject(dc, oldBuffer); DeleteObject(buffer); DeleteDC(dc);
     }
@@ -2753,7 +2772,7 @@ public:
             PaintUiChildren(dc, control);
             if (control == window) drawButtons(dc);
         }
-        else { Draw(dc, rc); drawButtons(dc); }
+        else { Draw(dc, rc); PaintUiChildren(dc, window); drawButtons(dc); }
         GdiFlush();
         BITMAPFILEHEADER header{}; header.bfType = 0x4d42;
         header.bfOffBits = sizeof(header) + sizeof(BITMAPINFOHEADER);
@@ -2988,12 +3007,15 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         for (const auto& entry : names) SetAccessibleName(GetDlgItem(window, entry.id), entry.name);
         app->findLabel = CreateWindowW(L"STATIC", L"Buscar", WS_CHILD, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
         app->findFeedback = CreateWindowW(L"STATIC", L"", WS_CHILD, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
+        app->statusBar = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE | SS_NOPREFIX,
+            0, 0, 1, 1, window, nullptr, nullptr, nullptr);
         app->IconButton(window, FindPrevious, L"Coincidencia anterior (Mayús+Enter)");
         app->IconButton(window, FindNext, L"Coincidencia siguiente (Enter / F3)");
         app->IconButton(window, FindClose, L"Cerrar búsqueda (Escape)");
         SendMessageW(app->query, EM_SETLIMITTEXT, 256, 0);
         app->ApplyFonts();
         app->LoadTheme();
+        app->SyncStatus();
         app->ArrangeChrome(); DragAcceptFiles(window, TRUE); return 0;
     }
     case WM_DPICHANGED: {
@@ -3153,6 +3175,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         MSG pending{}; while (PeekMessageW(&pending, window, Ready, Ready, PM_REMOVE)) delete reinterpret_cast<Result*>(pending.lParam);
         DeleteObject(app->font); DeleteObject(app->strongFont); DeleteObject(app->welcomeFont);
         if (app->welcomeImage) DeleteObject(app->welcomeImage);
+        app->statusBar = nullptr;
         PostQuitMessage(0); return 0;
     }
     }

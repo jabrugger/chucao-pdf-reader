@@ -56,6 +56,18 @@ de sugerencia no es un rótulo accesible.
 Si `IAccPropServices` no está disponible, el lector sigue funcionando: el nombre
 del campo de búsqueda simplemente queda vacío.
 
+## Estado para lectores de pantalla
+
+La barra de estado es un control `STATIC` real, no solo texto dibujado. Cuando el
+mensaje cambia (página, búsqueda, error, copia, impresión) se actualiza su texto y
+se emite `NotifyWinEvent(EVENT_OBJECT_NAMECHANGE, …)` una sola vez por cambio, de
+modo que un lector de pantalla puede anunciarlo. El nombre accesible del control es
+su propio texto; es visible, no tiene `WS_TABSTOP` y usa la misma fuente, color y
+fondo que el resto de la barra en ambos temas y en alto contraste.
+
+El texto se sincroniza desde `Redraw()` y `PageStatus()`, que cubren los cambios
+normales de la interfaz. Los mensajes idénticos repetidos no generan eventos.
+
 ## Alto contraste
 
 Cuando Windows tiene el **modo de alto contraste** activo, Chucao reemplaza su
@@ -84,6 +96,8 @@ generar capturas para revisión visual sin alterar el perfil.
   vuelva al primero, y que todos tengan `WS_TABSTOP`;
 - que los nombres MSAA de la búsqueda, el tema y la página anterior sean los
   esperados;
+- que la barra de estado sea visible y que su nombre accesible cambie al cambiar
+  el mensaje;
 - que F6 alterne el foco entre el documento y el primer botón;
 - que `IsDialogMessage` mueva el foco con Tab del botón Abrir al botón Índice;
 - que se genere una captura de la interfaz con foco.
@@ -97,8 +111,9 @@ tema oscuro. El estado presionado, el foco y el hover se calculan en el subclass
 
 ## Pendiente manual
 
-- Narrator/NVDA: anuncio del nombre de los botones, del campo de búsqueda y del
-  cambio de documento.
+- Narrator/NVDA: anuncio del nombre de los botones, del campo de búsqueda, del
+  cambio de documento y de la barra de estado; ajustar la verbosidad si resulta
+  ruidosa al recorrer páginas.
 - Modo de alto contraste real del sistema: legibilidad con cada tema de alto
   contraste de Windows y con el modo de alto contraste activo desde el arranque.
 - Anuncios de la barra de estado (resultado de búsqueda, página, errores) como

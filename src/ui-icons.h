@@ -3,6 +3,8 @@
 #include <gdiplus.h>
 #include <cmath>
 #include <algorithm>
+#include <utility>
+#include <vector>
 
 enum class UiIcon { Folder, Previous, Next, Minus, Plus, Fit, Outline, Search, Printer, Close, Pin, Moon, Sun, Info, Gear };
 
@@ -56,12 +58,16 @@ inline const UiPalette& UiTheme() { return *CurrentPalette(); }
 inline bool UiDark() { return CurrentPalette() == &DarkPalette(); }
 inline void SetUiTheme(bool dark) { CurrentPalette() = dark ? &DarkPalette() : &LightPalette(); }
 
-// Shared background brush for dialogs and static controls, replaced only when
-// the theme changes. The two possible brushes are intentionally kept alive.
+// Shared background brush for dialogs and static controls. Brushes are cached by
+// color and kept alive, so light, dark and any high-contrast scheme can change at
+// runtime without leaking one brush per paint.
 inline HBRUSH UiBackgroundBrush() {
-    static HBRUSH light = CreateSolidBrush(LightPalette().bar);
-    static HBRUSH dark = CreateSolidBrush(DarkPalette().bar);
-    return UiDark() ? dark : light;
+    static std::vector<std::pair<COLORREF, HBRUSH>> brushes;
+    COLORREF color = UiTheme().bar;
+    for (const auto& entry : brushes) if (entry.first == color) return entry.second;
+    HBRUSH brush = CreateSolidBrush(color);
+    brushes.emplace_back(color, brush);
+    return brush;
 }
 
 namespace UiDraw {

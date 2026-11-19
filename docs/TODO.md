@@ -97,7 +97,9 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 - [x] Paleta de alto contraste de Windows: se sustituye la paleta propia por los
   colores del sistema y se reevalúa ante cambios. Evidencia:
   [accessibility.md](accessibility.md).
-- [ ] Anuncios para lectores de pantalla (barra de estado como región viva).
+- [x] Anuncios para lectores de pantalla: la barra de estado es un control
+  accesible visible y emite un evento al cambiar el mensaje. Evidencia:
+  [accessibility.md](accessibility.md). Queda la validación manual con Narrator.
 - [x] Adaptar la interfaz a distintos DPI por monitor, con fuentes, iconos,
   márgenes y controles reescalados y `WM_DPICHANGED`. Evidencia: [dpi.md](dpi.md).
 - [x] Revisar y pulir los mensajes de error.
@@ -154,6 +156,8 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   [preferences.md](preferences.md).
 - [x] Validar automáticamente ajuste a página, alto y ancho con páginas de tamaños
   distintos. Evidencia: [reader-interface.md](reader-interface.md).
+- [x] Validar automáticamente que la barra de estado sea visible y su nombre
+  accesible coincida con el mensaje. Evidencia: [accessibility.md](accessibility.md).
 - [ ] Validar manualmente los ajustes de zoom con PDF reales, ventanas extremas y
   DPI altos.
 - [ ] Validar manualmente tamaño/posición entre monitores reales, maximizar,

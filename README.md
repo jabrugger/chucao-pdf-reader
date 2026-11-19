@@ -105,7 +105,8 @@ tamaño, la posición y si la ventana estaba maximizada; ver
   suavizados; ver [DPI por monitor](docs/dpi.md).
 - Teclado: Tab recorre la barra, F6 alterna documento/índice/barra, Espacio y
   Mayús+Espacio desplazan una pantalla, `+`/`-` ajustan el zoom y Escape devuelve
-  el foco al documento. Ver [accesibilidad](docs/accessibility.md).
+  el foco al documento. La barra de estado es un control accesible que anuncia sus
+  cambios a lectores de pantalla. Ver [accesibilidad](docs/accessibility.md).
 - Pestañas: varios documentos abiertos a la vez. Ctrl+T abre, Ctrl+W cierra,
   Ctrl+Tab y Ctrl+Mayús+Tab alternan; el clic medio cierra una pestaña. Cada una
   recuerda su posición. Ver [pestañas](docs/tabs.md).
