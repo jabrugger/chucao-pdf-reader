@@ -118,7 +118,9 @@ tamaño, la posición y si la ventana estaba maximizada; ver
   cambios a lectores de pantalla. Ver [accesibilidad](docs/accessibility.md).
 - Pestañas: varios documentos abiertos a la vez. Ctrl+T abre, Ctrl+W cierra,
   Ctrl+Tab y Ctrl+Mayús+Tab alternan; el clic medio cierra una pestaña. Cada una
-  recuerda su posición. Ver [pestañas](docs/tabs.md).
+  recuerda su posición. Mientras un PDF grande o remoto se abre, la pestaña muestra
+  un indicador central animado con el nombre del archivo. Ver
+  [pestañas](docs/tabs.md).
 - Opciones: el icono de tema abre un diálogo con el tema (claro, oscuro o igual que
   el sistema), mostrar automáticamente el índice, reabrir los PDF de la última
   sesión (desactivado por defecto), **Abrir los PDF con Chucao** y un enlace a la

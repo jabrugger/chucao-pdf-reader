@@ -68,6 +68,11 @@ if (!$rapidResult.success -or $rapidResult.pages -ne 4) { throw 'La apertura con
 if ($LASTEXITCODE -ne 0) { throw 'Falló la geometría del documento.' }
 $startup = & ([IO.Path]::Combine($PSScriptRoot, 'benchmark-open.ps1')) -Executable $Executable -Pdf ([IO.Path]::Combine($root, 'test-results', 'sample.pdf')) -Runs 1 -Startup
 if (!$startup -or $startup.first_bitmap_ms -le 0 -or $startup.first_compose_ms -lt $startup.first_bitmap_ms) { throw 'Falló la medición del arranque.' }
+$loadingReport = [IO.Path]::Combine($results, 'loading.json')
+Remove-Item -LiteralPath ($loadingReport + '.loading.bmp') -ErrorAction SilentlyContinue
+$loadingProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', $Executable)) -ArgumentList @('--preview-loading', 'test-results\sample.pdf', 'test-results\loading.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
+if (!$loadingProcess.WaitForExit(15000)) { $loadingProcess.Kill(); throw 'La vista previa de carga excedió 15 segundos.' }
+if ($loadingProcess.ExitCode -ne 0 -or !(Test-Path ($loadingReport + '.loading.bmp'))) { throw 'Falló la vista previa del indicador de carga.' }
 & ([IO.Path]::Combine($root, 'build', 'outline-test.exe')) ([IO.Path]::Combine($root, 'test-results'))
 if ($LASTEXITCODE -ne 0) { throw 'Falló el índice del documento.' }
 $filterReport = [IO.Path]::Combine($results, 'outline-filter.json')

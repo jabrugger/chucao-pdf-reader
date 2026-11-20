@@ -68,6 +68,9 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 - [x] Ofrecer asociar los PDF en el instalador y en Opciones, con registro por
   usuario, aviso de `UserChoice` y limpieza al desinstalar. Evidencia:
   [installer.md](installer.md).
+- [x] Indicador central de carga animado por pestaña, con nombre de archivo y
+  estados de apertura/primera página, que se detiene al llegar el bitmap o fallar.
+  Evidencia: [reader-interface.md](reader-interface.md).
 - [x] Diálogo de Opciones (tema, reabrir la última sesión opcional, olvidar
   historial y sesión). Evidencia automatizada: [preferences.md](preferences.md).
 - [x] Preferencia de apertura automática del índice y guardado de la sesión al
@@ -165,6 +168,11 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 - [x] Validar automáticamente la asociación con una extensión desechable:
   registro, comando, icono, desregistro y conservación del default ajeno.
   Evidencia: [installer.md](installer.md).
+- [x] Validar automáticamente que la vista previa del indicador de carga genere
+  su captura sin esperar al worker. Evidencia:
+  [reader-interface.md](reader-interface.md).
+- [ ] Validar manualmente la animación y el contraste de la carga con PDF grandes,
+  unidades cloud, DPI altos y alto contraste.
 - [ ] Validar manualmente la instalación, la asociación real de `.pdf`, la
   actualización y la desinstalación en otra PC.
 - [ ] Validar manualmente los ajustes de zoom con PDF reales, ventanas extremas y

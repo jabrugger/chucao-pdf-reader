@@ -647,10 +647,9 @@ public:
         auto na = TabKey(a), nb = TabKey(b);
         return !na.empty() && na == nb;
     }
-    const wchar_t* TabTitle(const std::wstring& file) const {
+    std::wstring TabTitle(const std::wstring& file) const {
         auto slash = file.find_last_of(L"\\/");
-        auto name = slash == std::wstring::npos ? file : file.substr(slash + 1);
-        return name.c_str();
+        return slash == std::wstring::npos ? file : file.substr(slash + 1);
     }
     DocumentOutline outline;
     bool outlineLoaded = false, outlinePending = false, outlineTest = false;
@@ -711,6 +710,8 @@ public:
     int tabsStep = 0, tabsChecks = 0, tabsPrompts = 0, tabsClosed = 0;
     ReadingState tabsExpectedA, tabsExpectedB;
     bool openingDocument = false;
+    bool loadingFailed = false, loadingTimer = false;
+    int spinAngle = 0;
     int startupStage = 0, startupPage = -1;
     double startupRenderMs = 0, startupBitmapMs = 0, startupComposeMs = 0;
     int recentStep = 0, recentChecks = 0;
@@ -1764,7 +1765,18 @@ public:
         SetWindowTextW(statusBar, status.c_str());
         NotifyWinEvent(EVENT_OBJECT_NAMECHANGE, statusBar, OBJID_CLIENT, CHILDID_SELF);
     }
-    void Redraw() { SyncStatus(); InvalidateRect(window, nullptr, FALSE); }
+    bool IsLoading() const { return !loadingFailed && (openingDocument || (pages > 0 && !viewReady)); }
+    void UpdateLoadingAnimation() {
+        bool loading = IsLoading();
+        if (loading && !loadingTimer) { SetTimer(window, 5, 40, nullptr); loadingTimer = true; }
+        else if (!loading && loadingTimer) { KillTimer(window, 5); loadingTimer = false; }
+    }
+    void TickLoading() {
+        if (!IsLoading()) { KillTimer(window, 5); loadingTimer = false; return; }
+        spinAngle = (spinAngle + 15) % 360;
+        InvalidateRect(window, nullptr, FALSE);
+    }
+    void Redraw() { UpdateLoadingAnimation(); SyncStatus(); InvalidateRect(window, nullptr, FALSE); }
     bool ClearReadingHistory(bool confirm = true) {
         if (!readingStateWrites || !ConfigureReadingState() || (!confirm && !recentTest)) return false;
         if (confirm && MessageBoxW(window, L"¿Olvidar la lista de recientes y las posiciones guardadas?", L"Historial de Chucao", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES) return false;
@@ -2073,7 +2085,7 @@ public:
         Redraw();
     }
     void ResetDocument(const std::wstring& file) {
-        RememberTabView(); openingDocument = false;
+        RememberTabView(); openingDocument = false; loadingFailed = false;
         SaveReadingState(); viewReady = false; pendingReadingState.reset();
         outlinePinned = outlinePeek = false; outlineAutoShow = autoShowOutline; KillTimer(window, 7);
         suppressCurrentState = false;
@@ -2538,7 +2550,7 @@ public:
             }
             break;
         case Result::Failure: {
-            openingDocument = false;
+            openingDocument = false; loadingFailed = true;
             ArrangeHome();
             auto slash = path.find_last_of(L"\\/");
             auto name = path.substr(slash == std::wstring::npos ? 0 : slash + 1);
@@ -2615,7 +2627,8 @@ public:
             }
             SetTextColor(dc, active ? UiTheme().ink : UiTheme().muted);
             RECT text{t.bounds.left + D(10), t.bounds.top, t.close.left - D(4), t.bounds.bottom};
-            DrawTextW(dc, TabTitle(tabs[i].path), -1, &text, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+            auto title = TabTitle(tabs[i].path);
+            DrawTextW(dc, title.c_str(), -1, &text, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
             // Small close cross with GDI+ so it stays crisp at every DPI.
             Gdiplus::Graphics graphics(dc);
             if (graphics.GetLastStatus() == Gdiplus::Ok) {
@@ -2631,6 +2644,38 @@ public:
             }
         }
     }
+    void DrawLoading(HDC dc) {
+        int width = ViewWidth(), height = ViewHeight();
+        if (width < D(160) || height < D(100)) return;
+        int cardWidth = std::min(D(400), std::max(D(220), width - D(48)));
+        int cardHeight = D(154);
+        int cx = ViewLeft() + width / 2, cy = ContentTop() + height / 2;
+        RECT card{cx - cardWidth / 2, cy - cardHeight / 2, cx + cardWidth / 2, cy + cardHeight / 2};
+        UiRoundRect(dc, card, UiTheme().bar, UiTheme().line, D(16));
+        float scale = static_cast<float>(dpi) / 96.0f;
+        float size = static_cast<float>(D(34));
+        float sx = cx - size / 2, sy = static_cast<float>(card.top + D(22));
+        Gdiplus::Graphics graphics(dc);
+        if (graphics.GetLastStatus() == Gdiplus::Ok) {
+            graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+            float penWidth = std::max(2.0f, 3.0f * scale);
+            Gdiplus::Pen track(UiDraw::Color(UiTheme().line), penWidth);
+            graphics.DrawEllipse(&track, sx, sy, size, size);
+            Gdiplus::Pen arc(UiDraw::Color(UiTheme().accent), penWidth);
+            arc.SetStartCap(Gdiplus::LineCapRound);
+            arc.SetEndCap(Gdiplus::LineCapRound);
+            graphics.DrawArc(&arc, sx, sy, size, size, static_cast<float>(spinAngle), 110.0f);
+        }
+        SetBkMode(dc, TRANSPARENT);
+        SelectObject(dc, strongFont); SetTextColor(dc, UiTheme().ink);
+        auto title = pages > 0 ? L"Cargando la primera página…" : L"Abriendo documento…";
+        RECT titleRect{card.left + D(18), card.top + D(66), card.right - D(18), card.top + D(92)};
+        DrawTextW(dc, title, -1, &titleRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        SelectObject(dc, font); SetTextColor(dc, UiTheme().muted);
+        auto name = TabTitle(path);
+        RECT nameRect{card.left + D(18), card.top + D(94), card.right - D(18), card.top + D(122)};
+        DrawTextW(dc, name.c_str(), -1, &nameRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    }
     void Draw(HDC target, RECT rc) {
         HDC dc = CreateCompatibleDC(target);
         HBITMAP buffer = CreateCompatibleBitmap(target, std::max<LONG>(1, rc.right), std::max<LONG>(1, rc.bottom));
@@ -2639,6 +2684,7 @@ public:
         SetDCBrushColor(dc, UiTheme().bar);
         RECT bar{0, 0, rc.right, BarPixels()}; FillRect(dc, &bar, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         SelectObject(dc, font); SetBkMode(dc, TRANSPARENT); SetTextColor(dc, UiTheme().muted);
+        bool loading = IsLoading();
         if (pages) {
             IntersectClipRect(dc, ViewLeft(), ContentTop(), rc.right, ContentTop() + ViewHeight());
             int first = layout.PageAt(scroll), last = layout.PageAt(scroll + ViewHeight());
@@ -2668,11 +2714,15 @@ public:
                         Highlight(dc, x, y, width, height, SelectionBoxes(text->second, firstChar, lastChar), RGB(65, 130, 245));
                     }
                 } else {
-                    auto label = L"Página " + std::to_wstring(i + 1) + L" · Cargando…";
+                    auto label = loadingFailed ? L"No se pudo cargar la página" :
+                        L"Página " + std::to_wstring(i + 1) + L" · Cargando…";
                     sheet.top += D(24); DrawTextW(dc, label.c_str(), -1, &sheet, DT_CENTER | DT_TOP | DT_SINGLELINE);
                 }
             }
             SelectClipRgn(dc, nullptr);
+        } else if (loading) {
+            RECT empty{0, ContentTop(), rc.right, rc.bottom - D(26)};
+            SetDCBrushColor(dc, UiTheme().bar); FillRect(dc, &empty, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         } else if (!pages) {
             RECT empty{0, ContentTop(), rc.right, rc.bottom - D(26)};
             SetDCBrushColor(dc, UiTheme().bar); FillRect(dc, &empty, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
@@ -2698,6 +2748,7 @@ public:
                 DrawTextW(dc, L"Todavía no hay PDF recientes. Abrí uno con la carpeta o Ctrl+O.", -1, &hint, DT_WORDBREAK);
             }
         }
+        if (loading) DrawLoading(dc);
         HPEN separator = CreatePen(PS_SOLID, 1, UiTheme().line); auto oldPen = SelectObject(dc, separator);
         MoveToEx(dc, 0, BarPixels() - 1, nullptr); LineTo(dc, rc.right, BarPixels() - 1);
         SelectObject(dc, oldPen); DeleteObject(separator);
@@ -3146,6 +3197,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         else if (wp == 7) app->CheckOutlinePeek();
         else if (wp == 6) app->CheckReadingState();
         else if (wp == 3) app->CheckNavigation();
+        else if (wp == 5) app->TickLoading();
         else if (wp == 2) { KillTimer(window, 2); app->BenchmarkResult(false); }
         else { KillTimer(window, 1); app->Render(); }
         return 0;
@@ -3237,11 +3289,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool benchmark = sessionTest || interfaceTest || recentTest || themeTest || startupTest || dpiTest || keysTest || hcTest || rapidTest || tabsTest || outlineFilterTest || windowTest || fitTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
     bool previewHome = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-home";
     bool previewAbout = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-about";
+    bool previewLoading = argv && argc == 4 && std::wstring(argv[1]) == L"--preview-loading";
     bool forceDark = false;
     for (int i = 1; argv && i < argc; ++i) if (std::wstring(argv[i]) == L"--theme-dark") forceDark = true;
     bool forceHighContrast = false;
     for (int i = 1; argv && i < argc; ++i) if (std::wstring(argv[i]) == L"--force-highcontrast") forceHighContrast = true;
-    bool shellBenchmark = argv && argc >= 3 && (std::wstring(argv[1]) == L"--benchmark-shell" || previewHome || previewAbout);
+    bool shellBenchmark = argv && argc >= 3 && (std::wstring(argv[1]) == L"--benchmark-shell" || previewHome || previewAbout || previewLoading);
     EnablePerMonitorDpi();
     HRESULT comResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     Gdiplus::GdiplusStartupInput gdiplusInput;
@@ -3321,6 +3374,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
             HWND dialog = CreateDialogParamW(instance, MAKEINTRESOURCEW(IDD_ABOUT), window, AboutProc, 0);
             success = dialog != nullptr;
             if (dialog) { app.SaveTestImage(app.benchmarkReport + L".about.bmp", dialog); DestroyWindow(dialog); }
+        }
+        if (previewLoading) {
+            app.benchmarkReport = argv[3];
+            app.Load(argv[2]);
+            app.SaveTestImage(app.benchmarkReport + L".loading.bmp");
         }
         app.BenchmarkResult(success);
     }

@@ -173,6 +173,28 @@ distintas y verifica que página, alto y ancho encajen en el área de lectura;
 `layout-test` comprueba los tres modos con dimensiones conocidas. Pendiente manual:
 validar la sensación con PDF reales, ventanas extremas y DPI altos.
 
+## Indicador de carga — 2026-11-20
+
+Mientras se abre un documento —especialmente uno grande o desde una unidad
+cloud— la pestaña muestra un **indicador central animado**: una tarjeta con un
+aro giratorio, el texto «Abriendo documento…» o «Cargando la primera página…» y
+el nombre del archivo. Sustituye la dependencia del aviso pequeño de la barra de
+estado y deja claro a qué pestaña pertenece la espera.
+
+- La animación corre a 25 fps con un temporizador y GDI+ antialiasing; se detiene
+  en cuanto llega el primer bitmap o si la apertura falla.
+- El área de lectura queda libre para la tarjeta; no se bloquea la interfaz y los
+  controles siguen respondiendo (incluido cancelar una contraseña).
+- Si falla una página concreta, la tarjeta desaparece y el estado muestra el error;
+  las hojas pendientes dicen «No se pudo cargar la página».
+- `--preview-loading <pdf> <informe>` genera una captura del estado de carga sin
+  esperar al worker; `test-reader.ps1` comprueba que se genere.
+- El temporizador y el indicador se reinician al cambiar de pestaña y se limpian
+  al cerrar el documento.
+
+Pendiente manual: validar la animación y el contraste en PDF grandes, unidades
+cloud, DPI altos y alto contraste, y ajustar el tiempo si se percibe lento.
+
 ## Barra unificada — 2026-11-18
 
 La barra superior se rediseñó para mantener un solo lenguaje visual:

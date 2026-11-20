@@ -15,6 +15,8 @@ el texto en color principal.
   pestañas; **Ctrl+T** abre un documento nuevo y **Ctrl+W** cierra la activa.
 - El aspa, **clic del medio** o Ctrl+W cierran una pestaña. Al cerrar la activa
   se activa la vecina; al cerrar la última se vuelve a la pantalla de bienvenida.
+- Mientras el documento se abre, su pestaña muestra un indicador central animado
+  con el nombre del archivo; desaparece al recibir el primer bitmap o al fallar.
 - Los atajos se muestran en [accesibilidad](accessibility.md).
 
 ## Modelo de memoria y posición
