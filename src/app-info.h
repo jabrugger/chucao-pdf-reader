@@ -1,7 +1,7 @@
 #pragma once
 // Release metadata. Update these values when preparing a new release.
-#define CHUCAO_VERSION_STRING "0.2.1"
-#define CHUCAO_VERSION_NUMBERS 0,2,1,0
+#define CHUCAO_VERSION_STRING "0.2.2"
+#define CHUCAO_VERSION_NUMBERS 0,2,2,0
 #define CHUCAO_AUTHOR "Jorge Andres Brugger"
 #define CHUCAO_EMAIL "jbrugger@ideaworks.com.ar"
 #define CHUCAO_RELEASE_DATE "20/11/2026"

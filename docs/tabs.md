@@ -11,6 +11,8 @@ el texto en color principal.
 - Abrir un archivo (Ctrl+O, recientes, arrastrar o pasar la ruta como argumento)
   agrega una pestaña. Si ya está abierto, se activa la existente en lugar de
   duplicarla (comparando la ruta normalizada).
+- Un solo clic en un PDF de la lista de recientes lo abre, aunque ya estuviera
+  seleccionado.
 - Clic en una pestaña la activa. **Ctrl+Tab** y **Ctrl+Mayús+Tab** recorren las
   pestañas; **Ctrl+T** abre un documento nuevo y **Ctrl+W** cierra la activa.
 - El aspa, **clic del medio** o Ctrl+W cierran una pestaña. Al cerrar la activa

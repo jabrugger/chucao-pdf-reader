@@ -85,11 +85,11 @@ y `UserChoice`. Una asociación elegida para otra aplicación se conserva.
 
 ## Verificación pendiente
 
-La compilación y la lógica de asociación están automatizadas. La instalación 0.2.1
-se verificó localmente el 20/11/2026: tras actualizar sobre 0.2.0, «Acerca de» y
-«Opciones» abren desde el menú Inicio y el EXE carga Common Controls v6 sin ningún
-`Chucao.exe.manifest` externo. Antes de publicar el instalador hay que probar
-manualmente en otra PC:
+La compilación y la lógica de asociación están automatizadas. La instalación 0.2.2
+se verificó localmente el 20/11/2026: tras actualizar una instalación anterior,
+«Acerca de» y «Opciones» abren desde el menú Inicio y el EXE carga Common Controls
+v6 sin ningún `Chucao.exe.manifest` externo. Antes de publicar el instalador hay
+que probar manualmente en otra PC:
 
 - Instalación per-usuario, inicio desde el menú y desde el escritorio.
 - Apertura de **Acerca de** (icono o F1) y **Opciones** desde la instalación real.

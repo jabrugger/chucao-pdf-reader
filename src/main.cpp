@@ -626,6 +626,7 @@ bool PasswordDialog(HWND owner, std::wstring& password, const std::wstring& prom
 
 LRESULT CALLBACK OutlineProc(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK IconButtonProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
+LRESULT CALLBACK HomeListProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
 INT_PTR CALLBACK SettingsProc(HWND, UINT, WPARAM, LPARAM);
 
 class Reader {
@@ -3011,7 +3012,12 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
             DWORD position = GetMessagePos(); TVHITTESTINFO hit{};
             hit.pt = {GET_X_LPARAM(position), GET_Y_LPARAM(position)}; ScreenToClient(app->outlineTree, &hit.pt);
             auto item = TreeView_HitTest(app->outlineTree, &hit);
-            if (hit.flags & (TVHT_ONITEMLABEL | TVHT_ONITEMICON)) app->ActivateOutlineItem(item);
+            // TVS_FULLROWSELECT makes the whole row clickable, but the hit flags
+            // for the area after the label are TVHT_ONITEMRIGHT. Accept every part
+            // of the row except the expand/collapse button and a state icon.
+            if ((hit.flags & (TVHT_ONITEMLABEL | TVHT_ONITEMICON | TVHT_ONITEMRIGHT | TVHT_ONITEMINDENT)) &&
+                !(hit.flags & (TVHT_ONITEMBUTTON | TVHT_ONITEMSTATEICON)))
+                app->ActivateOutlineItem(item);
         }
         if (notification->hwndFrom == app->outlineTree && notification->code == TVN_KEYDOWN &&
             reinterpret_cast<NMTVKEYDOWN*>(lp)->wVKey == VK_RETURN) app->NavigateOutline();
@@ -3021,6 +3027,27 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     case WM_DESTROY: app->outlineWindow = app->outlineTree = app->outlineLabel = app->outlineFilter = nullptr; return 0;
     }
     return DefWindowProcW(window, message, wp, lp);
+}
+
+LRESULT CALLBACK HomeListProc(HWND window, UINT message, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR) {
+    if (message == WM_LBUTTONUP) {
+        // Let the list box finish its own selection/notification processing first.
+        LRESULT result = DefSubclassProc(window, message, wp, lp);
+        LRESULT item = SendMessageW(window, LB_ITEMFROMPOINT, 0, lp);
+        if (item == LB_ERR || HIWORD(item) != 0) return result;
+        int index = static_cast<int>(LOWORD(item));
+        RECT bounds{};
+        if (!SendMessageW(window, LB_GETITEMRECT, index, reinterpret_cast<LPARAM>(&bounds))) return result;
+        POINT point{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+        // LB_ITEMFROMPOINT can return the nearest row for an empty click below the
+        // list; only open when the pointer actually landed on the item.
+        if (!PtInRect(&bounds, point)) return result;
+        if (auto app = reinterpret_cast<Reader*>(GetWindowLongPtrW(GetAncestor(window, GA_ROOT), GWLP_USERDATA)))
+            app->Command(RecentBase + index);
+        return result;
+    }
+    if (message == WM_NCDESTROY) RemoveWindowSubclass(window, HomeListProc, 1);
+    return DefSubclassProc(window, message, wp, lp);
 }
 
 LRESULT CALLBACK IconButtonProc(HWND window, UINT message, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR) {
@@ -3085,6 +3112,9 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->homeList = CreateWindowW(L"LISTBOX", L"PDF abiertos recientemente", WS_CHILD | WS_TABSTOP | WS_VSCROLL |
             LBS_NOTIFY | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS | LBS_NOINTEGRALHEIGHT, 0, 0, 1, 1, window,
             reinterpret_cast<HMENU>(static_cast<INT_PTR>(HomeList)), nullptr, nullptr);
+        // A single click must open the recent PDF even when the item was already
+        // selected, so wait for the button-up instead of relying on LBN_SELCHANGE.
+        SetWindowSubclass(app->homeList, HomeListProc, 1, 0);
         app->IconButton(window, OutlineRail, L"Desplegar el índice");
         app->outlineWindow = CreateWindowExW(WS_EX_CONTROLPARENT, L"ChucaoOutline", L"Contenido del documento", WS_CHILD | WS_CLIPCHILDREN,
             0, app->ContentTop(), app->D(260), app->D(500), window, nullptr, GetModuleHandleW(nullptr), app);
@@ -3134,7 +3164,9 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         return 0;
     case WM_COMMAND:
         if (LOWORD(wp) == HomeList) {
-            if (HIWORD(wp) == LBN_DBLCLK || (HIWORD(wp) == LBN_SELCHANGE && (GetKeyState(VK_LBUTTON) & 0x8000))) {
+            // Single clicks are handled by HomeListProc. Keep the notification as
+            // a fallback for accessibility tools that simulate a double click.
+            if (HIWORD(wp) == LBN_DBLCLK) {
                 int index = static_cast<int>(SendMessageW(app->homeList, LB_GETCURSEL, 0, 0));
                 if (index >= 0) app->Command(RecentBase + index);
             }

@@ -39,7 +39,7 @@ no sustituyen monitores reales ni cambiar Windows a alto contraste. Impresión,
 IME, lectores de pantalla, archivos remotos y sensaciones de interacción siguen
 requiriendo las pruebas manuales registradas.
 
-**Entrega:** `src/app-info.h` y CMake indican 0.2.1 y fecha 20/11/2026, con el
+**Entrega:** `src/app-info.h` y CMake indican 0.2.2 y fecha 20/11/2026, con el
 manifiesto de Windows incrustado. El ZIP y el instalador se regeneraron y se
 verificaron localmente; falta probarlos en otra PC antes de publicarlos.
 

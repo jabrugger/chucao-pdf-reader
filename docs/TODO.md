@@ -24,6 +24,9 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 5. [x] Publicar la entrega 0.2.1 con el manifiesto de Windows incrustado para que
    «Acerca de» y «Opciones» funcionen desde la instalación y el ZIP, sin depender
    de un archivo externo. Evidencia: [installer.md](installer.md).
+6. [x] Publicar 0.2.2 con apertura de PDF recientes y capítulos del índice en un
+   solo clic, y el icono de información más grande. Evidencia: [tabs.md](tabs.md)
+   y [reader-interface.md](reader-interface.md).
 
 ## Funciones y diseño
 
@@ -180,9 +183,13 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 - [x] Validar automáticamente que el ejecutable compilado y el extraído del ZIP
   creen «Acerca de» sin manifiesto externo (`--preview-about`). Evidencia:
   [installer.md](installer.md).
-- [x] Verificar localmente la instalación 0.2.1: «Acerca de» y «Opciones» abren
+- [x] Verificar localmente la instalación 0.2.2: «Acerca de» y «Opciones» abren
   desde el acceso directo del menú Inicio y el EXE usa Common Controls v6.
   Evidencia: [installer.md](installer.md).
+- [x] Abrir con un clic los PDF recientes (incluido un ítem ya seleccionado) y
+  navegar con un clic en toda la fila del índice, sin activar destinos al
+  expandir una rama. Evidencia: [tabs.md](tabs.md) y
+  [reader-interface.md](reader-interface.md).
 - [ ] Validar manualmente la animación y el contraste de la carga con PDF grandes,
   unidades cloud, DPI altos y alto contraste.
 - [ ] Validar manualmente la instalación, la asociación real de `.pdf`, la

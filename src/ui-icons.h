@@ -191,10 +191,12 @@ inline void DrawUiIcon(HDC dc, RECT bounds, UiIcon icon, bool active, bool hover
         line(6.5f, 6.5f, 4.5f, 4.5f); line(13.5f, 6.5f, 15.5f, 4.5f);
         line(6.5f, 13.5f, 4.5f, 15.5f); line(13.5f, 13.5f, 15.5f, 15.5f); break;
     case UiIcon::Info: {
-        ellipse(4, 4, 16, 16);
+        // Fill the glyph box so the information symbol reads as clearly as the
+        // gear and the printer at every DPI and toolbar size.
+        ellipse(1.5f, 1.5f, 18.5f, 18.5f);
         Gdiplus::SolidBrush dot(UiDraw::Color(active ? palette.accent : palette.ink));
-        graphics.FillEllipse(&dot, sx(9.0f), sy(6.0f), 2 * scale, 2 * scale);
-        line(10, 9, 10, 14);
+        graphics.FillEllipse(&dot, sx(8.7f), sy(5.6f), 2.6f * scale, 2.6f * scale);
+        line(10, 9.2f, 10, 15.0f);
         break;
     }
     }

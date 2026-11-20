@@ -17,8 +17,9 @@ y PDFium; no incorpora un framework visual ni dependencias gráficas nuevas.
   conserva los padres de las coincidencias.
 - Vista temporal al acercarse al borde izquierdo, sin cambiar el ancho del documento
   ni generar otro render. Se retira al alejarse el puntero y se puede fijar con la
-  chincheta. Elegir un capítulo no fija la vista temporal. Clic único y Enter navegan; expandir una rama
-  no activa su destino.
+  chincheta. Elegir un capítulo no fija la vista temporal. Un clic en cualquier
+  parte de la fila (texto, icono o espacio a la derecha) y Enter navegan; el
+  botón de expandir/plegar una rama no activa su destino.
 
 El panel fijo cambia el ancho disponible, preservando página, posición vertical
 y centro horizontal al ampliar. La búsqueda reduce solamente la altura disponible.
@@ -80,7 +81,7 @@ El pajarito es un botón accesible con ayuda contextual; clic, activación por t
 o F1 abre un diálogo nativo. En esa fecha mostraba versión 0.1.0, Jorge Andres
 Brugger, jbrugger@ideaworks.com.ar, fecha de release 16/11/2026 y el repositorio
 privado https://github.com/jabrugger/chucao-pdf-reader. La versión actual es
-**0.2.1** (release 20/11/2026). Solo el enlace de GitHub abre el navegador;
+**0.2.2** (release 20/11/2026). Solo el enlace de GitHub abre el navegador;
 consultar Acerca de no hace conexiones de red ni carga PDFium. Escape y la X del
 diálogo regresan al lector.
 
