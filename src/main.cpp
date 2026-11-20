@@ -757,11 +757,15 @@ public:
     HFONT strongFont = nullptr;
     HFONT welcomeFont = nullptr;
     HBITMAP welcomeImage = nullptr;
+    HDC backDC = nullptr;
+    HBITMAP backBitmap = nullptr;
+    int backWidth = 0, backHeight = 0;
 
     bool readingStateEnabled = true, readingStateWrites = true, stateConfigured = false, viewReady = false;
     std::wstring readingStateFile;
     bool settingsEnabled = true, settingsConfigured = false, forceDarkTheme = false;
-    bool forceHighContrast = false, darkTheme = false, applyingPalette = false, followSystemTheme = false, autoShowOutline = true;
+    bool forceHighContrast = false, darkTheme = false, applyingPalette = false, paletteReady = false;
+bool followSystemTheme = false, autoShowOutline = true;
     std::wstring settingsFile;
     std::optional<ReadingState> pendingReadingState;
     int readingStateTest = 0, readingStateStep = 0, readingStateChecks = 0;
@@ -867,23 +871,42 @@ public:
     }
     void PaintButton(const DRAWITEMSTRUCT& item) {
         if (item.CtlID == HomeList) {
-            SetDCBrushColor(item.hDC, UiTheme().bar); FillRect(item.hDC, &item.rcItem, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
-            if (item.itemID >= recentEntries.size()) return;
-            RECT row = item.rcItem; InflateRect(&row, -D(2), -D(2));
-            if (item.itemState & ODS_SELECTED) UiRoundRect(item.hDC, row, UiTheme().hover, UiTheme().hover, D(10));
-            const auto& file = recentEntries[item.itemID].path;
-            auto slash = file.find_last_of(L"\\/");
-            auto name = file.substr(slash == std::wstring::npos ? 0 : slash + 1);
-            auto folder = slash == std::wstring::npos ? L"" : file.substr(0, slash);
-            int saved = SaveDC(item.hDC); SetBkMode(item.hDC, TRANSPARENT);
-            RECT title{row.left + D(16), row.top + D(6), row.right - D(16), row.top + D(27)};
-            SelectObject(item.hDC, strongFont); SetTextColor(item.hDC, UiTheme().ink);
-            DrawTextW(item.hDC, name.c_str(), -1, &title, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
-            RECT pathBox{title.left, row.top + D(27), title.right, row.bottom - D(4)};
-            SelectObject(item.hDC, font); SetTextColor(item.hDC, UiTheme().muted);
-            DrawTextW(item.hDC, folder.c_str(), -1, &pathBox, DT_SINGLELINE | DT_VCENTER | DT_PATH_ELLIPSIS | DT_NOPREFIX);
-            if ((item.itemState & (ODS_FOCUS | ODS_NOFOCUSRECT)) == ODS_FOCUS) DrawFocusRect(item.hDC, &row);
-            RestoreDC(item.hDC, saved); return;
+            auto paintItem = [&](HDC dc, RECT bounds) {
+                SetDCBrushColor(dc, UiTheme().bar); FillRect(dc, &bounds, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+                if (item.itemID >= recentEntries.size()) return;
+                RECT row = bounds; InflateRect(&row, -D(2), -D(2));
+                if (item.itemState & ODS_SELECTED) UiRoundRect(dc, row, UiTheme().hover, UiTheme().hover, D(10));
+                const auto& file = recentEntries[item.itemID].path;
+                auto slash = file.find_last_of(L"\\/");
+                auto name = file.substr(slash == std::wstring::npos ? 0 : slash + 1);
+                auto folder = slash == std::wstring::npos ? L"" : file.substr(0, slash);
+                int saved = SaveDC(dc); SetBkMode(dc, TRANSPARENT);
+                RECT title{row.left + D(16), row.top + D(6), row.right - D(16), row.top + D(27)};
+                SelectObject(dc, strongFont); SetTextColor(dc, UiTheme().ink);
+                DrawTextW(dc, name.c_str(), -1, &title, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+                RECT pathBox{title.left, row.top + D(27), title.right, row.bottom - D(4)};
+                SelectObject(dc, font); SetTextColor(dc, UiTheme().muted);
+                DrawTextW(dc, folder.c_str(), -1, &pathBox, DT_SINGLELINE | DT_VCENTER | DT_PATH_ELLIPSIS | DT_NOPREFIX);
+                if ((item.itemState & (ODS_FOCUS | ODS_NOFOCUSRECT)) == ODS_FOCUS) DrawFocusRect(dc, &row);
+                RestoreDC(dc, saved);
+            };
+            // Owner-drawn list rows are composed in a memory DC and presented in
+            // one blit, so the list background never flashes between rows.
+            int width = std::max(1L, item.rcItem.right - item.rcItem.left);
+            int height = std::max(1L, item.rcItem.bottom - item.rcItem.top);
+            HDC memory = CreateCompatibleDC(item.hDC);
+            HBITMAP bitmap = memory ? CreateCompatibleBitmap(item.hDC, width, height) : nullptr;
+            if (memory && bitmap) {
+                HGDIOBJ old = SelectObject(memory, bitmap);
+                paintItem(memory, {0, 0, width, height});
+                BitBlt(item.hDC, item.rcItem.left, item.rcItem.top, width, height, memory, 0, 0, SRCCOPY);
+                SelectObject(memory, old); DeleteObject(bitmap); DeleteDC(memory);
+            } else {
+                if (bitmap) DeleteObject(bitmap);
+                if (memory) DeleteDC(memory);
+                paintItem(item.hDC, item.rcItem);
+            }
+            return;
         }
         auto px = [&](int value) { return D(value); };
         UiIcon icon = UiIcon::Folder; bool active = false;
@@ -910,34 +933,48 @@ public:
         if (arranging) return;
         arranging = true;
         RECT rc{}; GetClientRect(window, &rc);
+        HDWP hdwp = BeginDeferWindowPos(20);
+        auto place = [&](HWND target, int x, int y, int width, int height) {
+            if (!target) return;
+            if (hdwp) {
+                HDWP next = DeferWindowPos(hdwp, target, nullptr, x, y, width, height,
+                    SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW | SWP_NOCOPYBITS);
+                if (next) { hdwp = next; return; }
+                hdwp = nullptr;
+            }
+            MoveWindow(target, x, y, width, height, FALSE);
+        };
         struct ToolbarItem { int id, x, width; };
         const ToolbarItem toolbar[] = {{OpenMenu, 16, 36}, {Outline, 76, 36}, {Find, 116, 36},
             {Previous, 184, 36}, {Next, 332, 36}, {Smaller, 400, 36}, {Larger, 508, 36},
             {Fit, 548, 36}, {Print, 612, 36}, {Theme, 664, 36}};
         for (const auto& item : toolbar)
-            MoveWindow(GetDlgItem(window, item.id), D(item.x), D(8), D(item.width), D(36), TRUE);
-        MoveWindow(GetDlgItem(window, About), rc.right - D(54), D(8), D(36), D(36), TRUE);
+            place(GetDlgItem(window, item.id), D(item.x), D(8), D(item.width), D(36));
+        place(GetDlgItem(window, About), rc.right - D(54), D(8), D(36), D(36));
         int left = ViewLeft(), bottom = static_cast<int>(rc.bottom) - D(26);
         int panelBottom = outlinePinned ? bottom : BarPixels() + ViewHeight();
-        MoveWindow(outlineWindow, 0, ContentTop(), OutlineWidth(), std::max(1, panelBottom - ContentTop()), TRUE);
-        ShowWindow(outlineWindow, outlinePinned || outlinePeek ? SW_SHOWNA : SW_HIDE);
+        place(outlineWindow, 0, ContentTop(), OutlineWidth(), std::max(1, panelBottom - ContentTop()));
         HWND rail = GetDlgItem(window, OutlineRail);
-        MoveWindow(rail, 0, ContentTop(), D(18), ViewHeight(), TRUE);
+        place(rail, 0, ContentTop(), D(18), ViewHeight());
+        int y = bottom - D(44), width = std::max(D(120), std::min(D(320), static_cast<int>(rc.right) - left - D(320)));
+        place(query, left + D(50), y + D(12), width, D(22));
+        int x = left + D(78) + width;
+        for (int id : {FindPrevious, FindNext, FindClose}) { place(GetDlgItem(window, id), x, y + D(4), D(36), D(36)); x += D(36); }
+        place(findFeedback, x + D(8), y + D(13), std::max(1, static_cast<int>(rc.right) - x - D(16)), D(22));
+        place(statusBar, D(16), bottom + D(2), std::max(1, static_cast<int>(rc.right) - D(32)), D(22));
+        if (hdwp) EndDeferWindowPos(hdwp);
+        ShowWindow(outlineWindow, outlinePinned || outlinePeek ? SW_SHOWNA : SW_HIDE);
         ShowWindow(rail, !outlinePinned && outlineLoaded && !outline.entries.empty() && !outlinePeek ? SW_SHOWNA : SW_HIDE);
         if (outlinePeek) SetWindowPos(outlineWindow, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-        int y = bottom - D(44), width = std::max(D(120), std::min(D(320), static_cast<int>(rc.right) - left - D(320)));
-        MoveWindow(query, left + D(50), y + D(12), width, D(22), TRUE);
-        int x = left + D(78) + width;
-        for (int id : {FindPrevious, FindNext, FindClose}) { MoveWindow(GetDlgItem(window, id), x, y + D(4), D(36), D(36), TRUE); x += D(36); }
-        MoveWindow(findFeedback, x + D(8), y + D(13), std::max(1, static_cast<int>(rc.right) - x - D(16)), D(22), TRUE);
-        MoveWindow(statusBar, D(16), bottom + D(2), std::max(1, static_cast<int>(rc.right) - D(32)), D(22), TRUE);
         for (HWND control : {query, findLabel, findFeedback, GetDlgItem(window, FindPrevious), GetDlgItem(window, FindNext), GetDlgItem(window, FindClose)})
             ShowWindow(control, searchVisible ? SW_SHOWNA : SW_HIDE);
         ShowWindow(findLabel, SW_HIDE);
-        Reflow(true, previousContentWidth); previousContentWidth = ViewWidth(); InvalidateRect(window, nullptr, TRUE);
-        InvalidateRect(GetDlgItem(window, Outline), nullptr, TRUE); InvalidateRect(GetDlgItem(window, Find), nullptr, TRUE);
-        arranging = false;
+        Reflow(true, previousContentWidth); previousContentWidth = ViewWidth();
+        InvalidateRect(GetDlgItem(window, Outline), nullptr, FALSE);
+        InvalidateRect(GetDlgItem(window, Find), nullptr, FALSE);
         ArrangeHome();
+        RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
+        arranging = false;
     }
     void ShowSearch(bool focus = true) {
         if (!searchVisible) { searchVisible = true; ArrangeChrome(); Render(); }
@@ -962,6 +999,7 @@ public:
         if (outlineFilter) SendMessageW(outlineFilter, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         TreeView_SetBkColor(outlineTree, UiTheme().bar);
         TreeView_SetTextColor(outlineTree, UiTheme().ink);
+        TreeView_SetExtendedStyle(outlineTree, TVS_EX_DOUBLEBUFFER, TVS_EX_DOUBLEBUFFER);
         SetWindowTheme(outlineTree, UsingHighContrast() ? L"" : (UiDark() ? L"DarkMode_Explorer" : L"Explorer"), nullptr);
         TreeView_SetItemHeight(outlineTree, D(32));
         TreeView_SetIndent(outlineTree, D(16));
@@ -1031,26 +1069,34 @@ public:
     }
     void ApplyPalette(bool dark, bool persist) {
         if (applyingPalette) return;
-        applyingPalette = true;
-        darkTheme = dark;
         bool highContrast = UsingHighContrast();
-        if (highContrast) CurrentPalette() = &HighContrastPalette();
-        else SetUiTheme(dark);
+        const UiPalette* desired = highContrast ? &HighContrastPalette() : dark ? &DarkPalette() : &LightPalette();
+        // Checkbox changes only update flags; they must not repaint the reader.
+        if (paletteReady && CurrentPalette() == desired && darkTheme == dark) return;
+        applyingPalette = true;
+        if (window) SendMessageW(window, WM_SETREDRAW, FALSE, 0);
+        if (outlineWindow) SendMessageW(outlineWindow, WM_SETREDRAW, FALSE, 0);
+        darkTheme = dark;
+        if (highContrast) CurrentPalette() = &HighContrastPalette(); else SetUiTheme(dark);
         if (window) {
-            if (!highContrast) ApplyWindowTheme(window, dark);
+            // A light/high-contrast window resets the DWM caption colors.
+            ApplyWindowTheme(window, highContrast ? false : dark);
             SetWindowTheme(window, highContrast ? L"" : (dark ? L"DarkMode_Explorer" : L"Explorer"), nullptr);
         }
         if (outlineWindow) {
-            if (!highContrast) ApplyWindowTheme(outlineWindow, dark);
+            ApplyWindowTheme(outlineWindow, highContrast ? false : dark);
             SetWindowTheme(outlineWindow, highContrast ? L"" : (dark ? L"DarkMode_Explorer" : L"Explorer"), nullptr);
         }
         DisableOwnerDrawThemes(window);
         if (outlineWindow) DisableOwnerDrawThemes(outlineWindow);
         if (outlineTree) StyleOutline();
         if (persist && ConfigureSettings()) SettingsStore(settingsFile).Write(CollectSettings());
+        if (window) SendMessageW(window, WM_SETREDRAW, TRUE, 0);
+        if (outlineWindow) SendMessageW(outlineWindow, WM_SETREDRAW, TRUE, 0);
+        paletteReady = true;
         if (!window) { applyingPalette = false; return; }
-        RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
-        for (HWND control : {outlineWindow, query, findFeedback, findLabel}) if (control) InvalidateRect(control, nullptr, TRUE);
+        // One final invalidation; no RDW_ERASE, which is what produced the flash.
+        RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
         applyingPalette = false;
     }
     void LoadTheme() {
@@ -1111,7 +1157,7 @@ public:
         if (!homeList) return;
         RECT rc{}; GetClientRect(window, &rc);
         int width = std::min(D(660), std::max(D(100), static_cast<int>(rc.right) - D(48)));
-        MoveWindow(homeList, (rc.right - width) / 2, HomeListTop(), width, std::max(D(56), static_cast<int>(rc.bottom) - D(50) - HomeListTop()), TRUE);
+        MoveWindow(homeList, (rc.right - width) / 2, HomeListTop(), width, std::max(D(56), static_cast<int>(rc.bottom) - D(50) - HomeListTop()), FALSE);
         SendMessageW(homeList, LB_SETITEMHEIGHT, 0, D(56)); SendMessageW(homeList, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         ShowWindow(homeList, !pages && !openingDocument && !recentEntries.empty() ? SW_SHOWNA : SW_HIDE);
     }
@@ -1369,7 +1415,7 @@ public:
             if (outline.entries[i].parent < 0 || !foldedQuery.empty())
                 TreeView_Expand(outlineTree, outlineItems[i], TVE_EXPAND);
         }
-        SendMessageW(outlineTree, WM_SETREDRAW, TRUE, 0); InvalidateRect(outlineTree, nullptr, TRUE);
+        SendMessageW(outlineTree, WM_SETREDRAW, TRUE, 0); InvalidateRect(outlineTree, nullptr, FALSE);
         const wchar_t* label = !outlineLoaded ? (outlinePending ? L"Cargando índice…" : L"Abrí un PDF para consultar su índice.") :
             outline.entries.empty() ? L"Este documento no tiene índice." :
             outline.limited ? L"Índice limitado. Clic o Enter para ir." : L"Clic o Enter para ir al capítulo.";
@@ -1584,7 +1630,7 @@ public:
         HBITMAP bitmap = target ? CreateCompatibleBitmap(target, rc.right, rc.bottom) : nullptr;
         if (!target || !bitmap) { if (bitmap) DeleteObject(bitmap); if (target) DeleteDC(target); return; }
         auto old = SelectObject(target, bitmap);
-        Draw(target, rc);
+        Draw(target, rc, rc);
         SelectObject(target, old); DeleteObject(bitmap); DeleteDC(target);
     }
     void BenchmarkResult(bool success) {
@@ -1854,7 +1900,9 @@ public:
     void TickLoading() {
         if (!IsLoading()) { KillTimer(window, 5); loadingTimer = false; return; }
         spinAngle = (spinAngle + 15) % 360;
-        InvalidateRect(window, nullptr, FALSE);
+        RECT card = LoadingCardRect();
+        InflateRect(&card, D(6), D(6));
+        InvalidateRect(window, &card, FALSE);
     }
     void Redraw() { UpdateLoadingAnimation(); SyncStatus(); InvalidateRect(window, nullptr, FALSE); }
     bool ClearReadingHistory(bool confirm = true, HWND owner = nullptr) {
@@ -2827,13 +2875,18 @@ public:
             }
         }
     }
-    void DrawLoading(HDC dc) {
+    RECT LoadingCardRect() const {
         int width = ViewWidth(), height = ViewHeight();
-        if (width < D(160) || height < D(100)) return;
         int cardWidth = std::min(D(400), std::max(D(220), width - D(48)));
         int cardHeight = D(154);
         int cx = ViewLeft() + width / 2, cy = ContentTop() + height / 2;
-        RECT card{cx - cardWidth / 2, cy - cardHeight / 2, cx + cardWidth / 2, cy + cardHeight / 2};
+        return {cx - cardWidth / 2, cy - cardHeight / 2, cx + cardWidth / 2, cy + cardHeight / 2};
+    }
+    void DrawLoading(HDC dc) {
+        int width = ViewWidth(), height = ViewHeight();
+        if (width < D(160) || height < D(100)) return;
+        RECT card = LoadingCardRect();
+        int cx = (card.left + card.right) / 2;
         UiRoundRect(dc, card, UiTheme().bar, UiTheme().line, D(16));
         float scale = static_cast<float>(dpi) / 96.0f;
         float size = static_cast<float>(D(34));
@@ -2859,10 +2912,22 @@ public:
         RECT nameRect{card.left + D(18), card.top + D(94), card.right - D(18), card.top + D(122)};
         DrawTextW(dc, name.c_str(), -1, &nameRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
     }
-    void Draw(HDC target, RECT rc) {
-        HDC dc = CreateCompatibleDC(target);
-        HBITMAP buffer = CreateCompatibleBitmap(target, std::max<LONG>(1, rc.right), std::max<LONG>(1, rc.bottom));
-        HGDIOBJ oldBuffer = SelectObject(dc, buffer);
+    void Draw(HDC target, RECT rc, RECT dirty) {
+        int surfaceWidth = std::max<LONG>(1, rc.right), surfaceHeight = std::max<LONG>(1, rc.bottom);
+        if (!backBitmap || backWidth != surfaceWidth || backHeight != surfaceHeight) {
+            if (backDC) { DeleteDC(backDC); backDC = nullptr; }
+            if (backBitmap) { DeleteObject(backBitmap); backBitmap = nullptr; }
+            backDC = CreateCompatibleDC(target);
+            if (!backDC) return;
+            backBitmap = CreateCompatibleBitmap(target, surfaceWidth, surfaceHeight);
+            backWidth = surfaceWidth; backHeight = surfaceHeight;
+            dirty = rc;
+            if (backBitmap) SelectObject(backDC, backBitmap);
+        }
+        if (!backBitmap) return;
+        HDC dc = backDC;
+        int savedClip = SaveDC(dc);
+        IntersectClipRect(dc, dirty.left, dirty.top, dirty.right, dirty.bottom);
         HBRUSH background = CreateSolidBrush(UiTheme().canvas); FillRect(dc, &rc, background); DeleteObject(background);
         SetDCBrushColor(dc, UiTheme().bar);
         RECT bar{0, 0, rc.right, BarPixels()}; FillRect(dc, &bar, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
@@ -2979,12 +3044,14 @@ public:
         RECT footer{D(16), rc.bottom - D(24), rc.right - D(16), rc.bottom};
         SelectObject(dc, font); SetTextColor(dc, UiTheme().muted);
         if (!statusBar) DrawTextW(dc, status.c_str(), -1, &footer, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
-        BitBlt(target, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
-        SelectObject(dc, oldBuffer); DeleteObject(buffer); DeleteDC(dc);
+        RestoreDC(dc, savedClip);
+        if (dirty.right > dirty.left && dirty.bottom > dirty.top)
+            BitBlt(target, dirty.left, dirty.top, dirty.right - dirty.left, dirty.bottom - dirty.top,
+                dc, dirty.left, dirty.top, SRCCOPY);
     }
     void Paint() {
         PAINTSTRUCT ps{}; HDC target = BeginPaint(window, &ps); RECT rc{}; GetClientRect(window, &rc);
-        Draw(target, rc); EndPaint(window, &ps);
+        Draw(target, rc, ps.rcPaint); EndPaint(window, &ps);
     }
     void SaveTestImage(const std::wstring& filename, HWND control = nullptr) {
         RECT rc{}; GetClientRect(control ? control : window, &rc);
@@ -3008,12 +3075,12 @@ public:
             }
         };
         if (control) {
-            if (control == window) Draw(dc, rc);
+            if (control == window) Draw(dc, rc, rc);
             else { SetDCBrushColor(dc, UiTheme().bar); FillRect(dc, &rc, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH))); }
             PaintUiChildren(dc, control);
             if (control == window) drawButtons(dc);
         }
-        else { Draw(dc, rc); PaintUiChildren(dc, window); drawButtons(dc); }
+        else { Draw(dc, rc, rc); PaintUiChildren(dc, window); drawButtons(dc); }
         GdiFlush();
         BITMAPFILEHEADER header{}; header.bfType = 0x4d42;
         header.bfOffBits = sizeof(header) + sizeof(BITMAPINFOHEADER);
@@ -3047,7 +3114,7 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
             HWND button = GetDlgItem(dialog, id);
             SetWindowTheme(button, L"", L"");
             SetWindowSubclass(button, FlatButtonProc, 1, 0);
-            InvalidateRect(button, nullptr, TRUE);
+            InvalidateRect(button, nullptr, FALSE);
         }
         ApplyWindowTheme(dialog, UiDark());
         RECT owner{}, bounds{}; GetWindowRect(app->window, &owner); GetWindowRect(dialog, &bounds);
@@ -3059,12 +3126,6 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
     if (message == WM_CTLCOLORDLG || message == WM_CTLCOLORSTATIC || message == WM_CTLCOLORBTN || message == WM_CTLCOLORLISTBOX) {
         if (message != WM_CTLCOLORDLG) { SetTextColor(reinterpret_cast<HDC>(wp), UiTheme().ink); SetBkColor(reinterpret_cast<HDC>(wp), UiTheme().bar); }
         return reinterpret_cast<INT_PTR>(UiBackgroundBrush());
-    }
-    if (message == WM_THEMECHANGED) {
-        for (int id : {IDC_SETTINGS_THEME_SYSTEM, IDC_SETTINGS_THEME_LIGHT, IDC_SETTINGS_THEME_DARK,
-                IDC_SETTINGS_DEFAULTAPPS, IDC_SETTINGS_CLEAR})
-            SetWindowTheme(GetDlgItem(dialog, id), L"", L"");
-        return TRUE;
     }
     if (message == WM_DRAWITEM) {
         auto item = reinterpret_cast<DRAWITEMSTRUCT*>(lp);
@@ -3153,6 +3214,23 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
                 want ? L"Chucao quedó asociado a los PDF." : L"Asociación quitada.");
             return TRUE;
         }
+        auto saveOptions = [&]() {
+            AppSettings value = app->CollectSettings();
+            value.restoreSession = IsDlgButtonChecked(dialog, IDC_SETTINGS_RESTORE) == BST_CHECKED;
+            value.autoShowOutline = IsDlgButtonChecked(dialog, IDC_SETTINGS_OUTLINE) == BST_CHECKED;
+            if (!app->ConfigureSettings() || !SettingsStore(app->settingsFile).Write(value)) {
+                CheckDlgButton(dialog, IDC_SETTINGS_RESTORE, app->restoreLastSession ? BST_CHECKED : BST_UNCHECKED);
+                CheckDlgButton(dialog, IDC_SETTINGS_OUTLINE, app->autoShowOutline ? BST_CHECKED : BST_UNCHECKED);
+                SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, L"No se pudieron guardar las opciones."); return;
+            }
+            bool wasRestoring = app->restoreLastSession;
+            app->restoreLastSession = value.restoreSession;
+            app->autoShowOutline = value.autoShowOutline; // applies from the next document on
+            bool saved = value.restoreSession ? app->SaveSession() : !wasRestoring || SessionStore(app->SessionFile()).Write({});
+            SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, saved ? L"" : L"No se pudo actualizar la sesión guardada.");
+            // No palette work and no reader redraw: these flags do not alter the
+            // current document, so repainting the main window only caused a flash.
+        };
         auto applyThemeChoice = [&](int choice) {
             bool system = choice == 0;
             // Keep the current window placement while changing the other options.
@@ -3163,7 +3241,7 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
             value.autoShowOutline = IsDlgButtonChecked(dialog, IDC_SETTINGS_OUTLINE) == BST_CHECKED;
             if (!app->ConfigureSettings() || !SettingsStore(app->settingsFile).Write(value)) {
                 for (int themeId : {IDC_SETTINGS_THEME_SYSTEM, IDC_SETTINGS_THEME_LIGHT, IDC_SETTINGS_THEME_DARK})
-                    InvalidateRect(GetDlgItem(dialog, themeId), nullptr, TRUE);
+                    InvalidateRect(GetDlgItem(dialog, themeId), nullptr, FALSE);
                 CheckDlgButton(dialog, IDC_SETTINGS_RESTORE, app->restoreLastSession ? BST_CHECKED : BST_UNCHECKED);
                 CheckDlgButton(dialog, IDC_SETTINGS_OUTLINE, app->autoShowOutline ? BST_CHECKED : BST_UNCHECKED);
                 SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, L"No se pudieron guardar las opciones."); return;
@@ -3171,16 +3249,13 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
             bool wasRestoring = app->restoreLastSession;
             app->restoreLastSession = value.restoreSession; app->followSystemTheme = value.followSystem;
             app->autoShowOutline = value.autoShowOutline; // applies from the next document on
+            SendMessageW(dialog, WM_SETREDRAW, FALSE, 0);
             app->ApplyPalette(value.dark, false);
+            SendMessageW(dialog, WM_SETREDRAW, TRUE, 0);
             bool saved = value.restoreSession ? app->SaveSession() : !wasRestoring || SessionStore(app->SessionFile()).Write({});
             SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, saved ? L"" : L"No se pudo actualizar la sesión guardada.");
-            for (int themeId : {IDC_SETTINGS_THEME_SYSTEM, IDC_SETTINGS_THEME_LIGHT, IDC_SETTINGS_THEME_DARK}) {
-                SetWindowTheme(GetDlgItem(dialog, themeId), L"", L"");
-                InvalidateRect(GetDlgItem(dialog, themeId), nullptr, TRUE);
-            }
-            SetWindowTheme(GetDlgItem(dialog, IDC_SETTINGS_DEFAULTAPPS), L"", L"");
-            SetWindowTheme(GetDlgItem(dialog, IDC_SETTINGS_CLEAR), L"", L"");
-            ApplyWindowTheme(dialog, UiDark()); RedrawWindow(dialog, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+            ApplyWindowTheme(dialog, UiDark());
+            RedrawWindow(dialog, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
         };
         if (id == IDC_SETTINGS_THEME_SYSTEM || id == IDC_SETTINGS_THEME_LIGHT || id == IDC_SETTINGS_THEME_DARK) {
             if (HIWORD(wp) == BN_CLICKED)
@@ -3188,7 +3263,7 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
             return TRUE;
         }
         if ((id == IDC_SETTINGS_RESTORE || id == IDC_SETTINGS_OUTLINE) && HIWORD(wp) == BN_CLICKED) {
-            applyThemeChoice(app->followSystemTheme ? 0 : app->darkTheme ? 2 : 1);
+            saveOptions();
             return TRUE;
         }
     }
@@ -3224,11 +3299,11 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->StyleOutline(); return 0;
     case WM_SIZE: {
         RECT rc{}; GetClientRect(window, &rc);
-        MoveWindow(GetDlgItem(window, OutlinePin), rc.right - app->D(80), app->D(6), app->D(36), app->D(36), TRUE);
-        MoveWindow(GetDlgItem(window, OutlineClose), rc.right - app->D(42), app->D(6), app->D(36), app->D(36), TRUE);
-        MoveWindow(app->outlineFilter, app->D(12), app->D(52), std::max<LONG>(1, rc.right - app->D(24)), app->D(28), TRUE);
-        MoveWindow(app->outlineTree, app->D(12), app->D(88), std::max<LONG>(1, rc.right - app->D(24)), std::max<LONG>(1, rc.bottom - app->D(132)), TRUE);
-        MoveWindow(app->outlineLabel, app->D(20), std::max<LONG>(0, rc.bottom - app->D(36)), std::max<LONG>(1, rc.right - app->D(32)), app->D(28), TRUE); return 0;
+        MoveWindow(GetDlgItem(window, OutlinePin), rc.right - app->D(80), app->D(6), app->D(36), app->D(36), FALSE);
+        MoveWindow(GetDlgItem(window, OutlineClose), rc.right - app->D(42), app->D(6), app->D(36), app->D(36), FALSE);
+        MoveWindow(app->outlineFilter, app->D(12), app->D(52), std::max<LONG>(1, rc.right - app->D(24)), app->D(28), FALSE);
+        MoveWindow(app->outlineTree, app->D(12), app->D(88), std::max<LONG>(1, rc.right - app->D(24)), std::max<LONG>(1, rc.bottom - app->D(132)), FALSE);
+        MoveWindow(app->outlineLabel, app->D(20), std::max<LONG>(0, rc.bottom - app->D(36)), std::max<LONG>(1, rc.right - app->D(32)), app->D(28), FALSE); return 0;
     }
     case WM_COMMAND:
         if (LOWORD(wp) == OutlineFilterId && HIWORD(wp) == EN_CHANGE) { app->ApplyOutlineFilter(); return 0; }
@@ -3244,6 +3319,7 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
             return reinterpret_cast<LRESULT>(GetStockObject(DC_BRUSH));
         }
         break;
+    case WM_ERASEBKGND: return 1;
     case WM_PAINT: { PAINTSTRUCT ps{}; HDC dc = BeginPaint(window, &ps); paint(dc); EndPaint(window, &ps); return 0; }
     case WM_PRINTCLIENT: paint(reinterpret_cast<HDC>(wp)); return 0;
     case WM_NOTIFY: {
@@ -3292,6 +3368,7 @@ LRESULT CALLBACK FlatButtonProc(HWND window, UINT message, WPARAM wp, LPARAM lp,
 }
 
 LRESULT CALLBACK HomeListProc(HWND window, UINT message, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR) {
+    if (message == WM_ERASEBKGND) return 1;
     if (message == WM_LBUTTONUP) {
         // Let the list box finish its own selection/notification processing first.
         LRESULT result = DefSubclassProc(window, message, wp, lp);
@@ -3344,7 +3421,7 @@ LRESULT CALLBACK IconButtonProc(HWND window, UINT message, WPARAM wp, LPARAM lp,
     }
     if (message == WM_PRINTCLIENT) { paint(reinterpret_cast<HDC>(wp)); return 0; }
     if (message == WM_SETFOCUS || message == WM_KILLFOCUS) {
-        InvalidateRect(window, nullptr, TRUE);
+        InvalidateRect(window, nullptr, FALSE);
         return DefSubclassProc(window, message, wp, lp);
     }
     if (message == WM_LBUTTONDOWN)
@@ -3425,7 +3502,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->previousContentWidth = 0;
         app->ArrangeChrome();
         app->Reflow(); app->Render();
-        InvalidateRect(window, nullptr, TRUE);
+        InvalidateRect(window, nullptr, FALSE);
         return 0;
     }
     case WM_SETTINGCHANGE:
@@ -3588,6 +3665,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         MSG pending{}; while (PeekMessageW(&pending, window, Ready, Ready, PM_REMOVE)) delete reinterpret_cast<Result*>(pending.lParam);
         DeleteObject(app->font); DeleteObject(app->strongFont); DeleteObject(app->welcomeFont);
         if (app->welcomeImage) DeleteObject(app->welcomeImage);
+        if (app->backDC) DeleteDC(app->backDC);
+        if (app->backBitmap) DeleteObject(app->backBitmap);
         app->statusBar = nullptr;
         PostQuitMessage(0); return 0;
     }
@@ -3640,7 +3719,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     wc.lpszClassName = L"ChucaoReader"; wc.lpfnWndProc = WindowProc; RegisterClassW(&wc);
     wc.lpszClassName = L"ChucaoPassword"; wc.lpfnWndProc = PasswordProc;
     wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1); RegisterClassW(&wc);
-    wc.lpszClassName = L"ChucaoOutline"; wc.lpfnWndProc = OutlineProc; RegisterClassW(&wc);
+    wc.lpszClassName = L"ChucaoOutline"; wc.lpfnWndProc = OutlineProc;
+    wc.hbrBackground = nullptr; RegisterClassW(&wc);
     Reader app;
     app.started = started;
     app.navigationTest = navigationTest;
