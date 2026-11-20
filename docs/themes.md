@@ -40,6 +40,16 @@ borrarlo o alternar con Ctrl+D.
   tarjeta redondeada clara para que no parezca un recorte accidental. Los iconos
   de la barra son vectoriales y se adaptan a la paleta activa.
 
+## Opciones en tema oscuro
+
+El selector de tema es un control segmentado propio (**Sistema / Claro / Oscuro**)
+dibujado con la paleta activa, no un `COMBOBOX` nativo. Las etiquetas de los
+checkboxes son `STATIC` con el color de texto del tema y los enlaces son botones
+ownerdraw con el color de acento. Al cambiar de tema, los controles ownerdraw de
+la ventana principal reciben de nuevo el tema vacío (`SetWindowTheme(..., "", "")`),
+para que Windows no dibuje un borde nativo al pasar el mouse; al cerrar Opciones el
+foco vuelve al documento para no dejar el rectángulo de foco en el engranaje.
+
 ## Verificación
 
 - `--benchmark-theme <perfil> <informe>` (usado por `test-reader.ps1`) escribe un

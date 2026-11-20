@@ -34,6 +34,9 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 8. [x] Publicar 0.2.5 con la mini pestaña «+» al final de la fila para volver a
    recientes sin cerrar documentos, y la tabla completa de atajos en Acerca de.
    Evidencia: [tabs.md](tabs.md) y [accessibility.md](accessibility.md).
+9. [x] Publicar 0.2.6 con Opciones totalmente oscuro (selector segmentado,
+   etiquetas y enlaces) y sin bordes nativos en la barra tras cambiar de tema.
+   Evidencia: [themes.md](themes.md).
 
 ## Funciones y diseño
 
@@ -210,6 +213,9 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 - [x] Verificar el «+» al final de la fila y la tabla de atajos en Acerca de (F1),
   con desplazamiento y sin scroll horizontal. Evidencia:
   [accessibility.md](accessibility.md).
+- [x] Verificar Opciones en oscuro (selector segmentado, etiquetas y enlaces) y que
+  la barra no muestre bordes nativos al pasar el mouse tras cambiar de tema.
+  Evidencia: [themes.md](themes.md).
 - [ ] Validar manualmente la animación y el contraste de la carga con PDF grandes,
   unidades cloud, DPI altos y alto contraste.
 - [ ] Validar manualmente la instalación, la asociación real de `.pdf`, la
