@@ -27,6 +27,10 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 6. [x] Publicar 0.2.2 con apertura de PDF recientes y capítulos del índice en un
    solo clic, y el icono de información más grande. Evidencia: [tabs.md](tabs.md)
    y [reader-interface.md](reader-interface.md).
+7. [x] Publicar 0.2.3 con menú contextual de copia por clic derecho, tecla Menú o
+   Mayús+F10; resolución del índice antes de la primera página y conservación del
+   zoom al navegar capítulos. Evidencia: [reader-interface.md](reader-interface.md)
+   y [accessibility.md](accessibility.md).
 
 ## Funciones y diseño
 
@@ -189,6 +193,13 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 - [x] Abrir con un clic los PDF recientes (incluido un ítem ya seleccionado) y
   navegar con un clic en toda la fila del índice, sin activar destinos al
   expandir una rama. Evidencia: [tabs.md](tabs.md) y
+  [reader-interface.md](reader-interface.md).
+- [x] Verificar el menú contextual de copia con clic derecho y con la tecla Menú,
+  y que «Copiar» vuelque la selección al portapapeles. Evidencia:
+  [reader-interface.md](reader-interface.md).
+- [x] Verificar que un PDF con índice muestre el panel antes de la primera página
+  y que navegar un capítulo conserve el zoom/modo actual; los enlaces internos
+  mantienen la vista del destino. Evidencia:
   [reader-interface.md](reader-interface.md).
 - [ ] Validar manualmente la animación y el contraste de la carga con PDF grandes,
   unidades cloud, DPI altos y alto contraste.

@@ -1434,6 +1434,9 @@ public:
         }
     }
     void CheckOutline() {
+        // The outline is loaded before the first page render so the panel is
+        // already pinned when the document appears.
+        if (viewReady) { BenchmarkResult(false); return; }
         if (outlineChecks == 2) {
             if (!outline.entries.empty() || TreeView_GetCount(outlineTree) != 0 || Text(outlineLabel) != L"Este documento no tiene índice.") { BenchmarkResult(false); return; }
             ++outlineChecks; BenchmarkResult(true); return;
@@ -1452,20 +1455,11 @@ public:
         if (!outlineTest) return;
         auto root = TreeView_GetRoot(outlineTree);
         if (outlineStep == 1) {
-            bool positioned = destinationsTest || (target.y > 0 && scroll > layout.Top(1) && zoom == 3);
-            if (destinationsTest) {
-                int w = layout.Width(1), h = layout.Height(1);
-                if (target.view == PDFDEST_VIEW_FIT) positioned = w <= ViewWidth() - 47 && h <= ViewHeight() - 47 &&
-                    (std::abs(w - (ViewWidth() - 48)) <= 1 || std::abs(h - (ViewHeight() - 48)) <= 1);
-                else if (target.view == PDFDEST_VIEW_FITH) positioned = std::abs(w - (ViewWidth() - 48)) <= 1;
-                else if (target.view == PDFDEST_VIEW_FITV) positioned = std::abs(h - (ViewHeight() - 48)) <= 1;
-                else if (target.view == PDFDEST_VIEW_XYZ) positioned = zoom == (target.zoom > 0 ? target.zoom : 3);
-                else if (target.view == PDFDEST_VIEW_FITR || target.view == PDFDEST_VIEW_FITB ||
-                    target.view == PDFDEST_VIEW_FITBH || target.view == PDFDEST_VIEW_FITBV)
-                    positioned = target.hasBox && zoom == DestinationZoom(target, ViewWidth(), ViewHeight(), 3);
-                else positioned = false;
-            }
-            if (page != 1 || target.page != 1 || !positioned) { BenchmarkResult(false); return; }
+            // Outline navigation preserves the reader's zoom/mode; only the page
+            // and scroll position come from the destination.
+            bool positioned = page == 1 && target.page == 1 && zoom == 3;
+            if (!destinationsTest) positioned = positioned && target.y > 0 && scroll > layout.Top(1);
+            if (!positioned) { BenchmarkResult(false); return; }
             // The section being read (the child that was just opened) must be the shaded row.
             if (!destinationsTest && (outlineItems.size() < 2 || CurrentOutlineEntry() != 1 || outlineHighlight != outlineItems[1])) { BenchmarkResult(false); return; }
             testedDestinationZoom = zoom;
@@ -1968,6 +1962,35 @@ public:
         bool onPage = PointOnPage(x, y, point); EndSelection();
         if (clicked && onPage) ActivateLink(point);
     }
+    void ShowTextMenu(POINT screen) {
+        HMENU menu = CreatePopupMenu();
+        if (!menu) return;
+        // Enable the item only when there is a selection. CopySelection itself
+        // reports permission or pending-text limitations after the click.
+        AppendMenuW(menu, MF_STRING | (selected ? MF_ENABLED : MF_GRAYED), Copy, L"Copiar\tCtrl+C");
+        SetForegroundWindow(window);
+        int command = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_TOPALIGN,
+            screen.x, screen.y, 0, window, nullptr);
+        DestroyMenu(menu);
+        // Required by the classic TrackPopupMenu contract so the next click is
+        // delivered to the reader instead of the dismissed menu.
+        PostMessageW(window, WM_NULL, 0, 0);
+        if (command) Command(command);
+    }
+    void ShowTextMenuAtSelection() {
+        if (!pages) return;
+        int x = ViewLeft() + ViewWidth() / 2, y = ContentTop() + ViewHeight() / 2;
+        if (selected) {
+            int selectionPage = selectionStart.page;
+            x = ViewLeft() + layout.Left(selectionPage, ViewWidth(), horizontal) + static_cast<int>(selectionStart.x * layout.Width(selectionPage));
+            y = ContentTop() + static_cast<int>(layout.Top(selectionPage) - scroll + selectionStart.y * layout.Height(selectionPage));
+            if (x < ViewLeft() || x >= ViewLeft() + ViewWidth() || y < ContentTop() || y >= ContentTop() + ViewHeight()) {
+                x = ViewLeft() + ViewWidth() / 2; y = ContentTop() + ViewHeight() / 2;
+            }
+        }
+        POINT screen{x, y}; ClientToScreen(window, &screen);
+        ShowTextMenu(screen);
+    }
     void CopySelection() {
         if (!selected) return;
         if (!canCopy) { status = L"El documento no permite copiar texto con esta contraseña."; Redraw(); return; }
@@ -2395,8 +2418,15 @@ public:
             readingStateFound = pendingReadingState.has_value();
             if (pendingReadingState) ApplyReadingState(*pendingReadingState);
             else { layout.Rebuild(ViewWidth(), ViewHeight(), zoom, zoomMode, PageGap()); ScrollTo(0, false); }
-            SetWindowTextW(window, (L"Chucao — " + path.substr(path.find_last_of(L"\\/") + 1)).c_str()); PageStatus(); Render();
+            SetWindowTextW(window, (L"Chucao — " + path.substr(path.find_last_of(L"\\/") + 1)).c_str()); PageStatus();
+            // Resolve the outline before requesting the first page. The worker is
+            // single-threaded, so queueing LoadOutline first guarantees the panel
+            // is pinned before the first bitmap is rendered; for documents with
+            // bookmarks the index is visible from the start instead of appearing
+            // after page 1. With auto-show disabled the page can render at once.
+            if (!outlineAutoShow) Render();
             RequestOutline();
+            if (outlineAutoShow && !outlinePending) Render();
             break;
         case Result::OutlineReady:
             outlinePending = false; outlineLoaded = true; outline = std::move(result->outline); PopulateOutline();
@@ -2430,7 +2460,14 @@ public:
                     (ViewWidth() / 2.0 - layout.Left(anchor, ViewWidth(), horizontal)) / layout.Width(anchor), zoom});
                 auto target = result->linkTarget;
                 ClearSelection(); layout.Learn(target.page, target.width, target.height);
-                zoom = DestinationZoom(target, ViewWidth(), ViewHeight(), zoom, D(48)); zoomMode = ZoomMode::Manual; Reflow();
+                // A chapter in the outline is a navigation shortcut, not a request
+                // to change the reading scale: keep the user's zoom and fit mode.
+                // Internal page links still honor the destination's view/zoom.
+                if (result->kind == Result::LinkFollowed) {
+                    zoom = DestinationZoom(target, ViewWidth(), ViewHeight(), zoom, D(48));
+                    zoomMode = ZoomMode::Manual;
+                }
+                Reflow();
                 ScrollTo(layout.Top(target.page) + static_cast<std::int64_t>(target.y * layout.Height(target.page)) - PageGap());
                 // Whole-width modes center the page; rectangles and vertical fits anchor on their left edge.
                 bool centered = target.view == PDFDEST_VIEW_FIT || target.view == PDFDEST_VIEW_FITB || target.view == PDFDEST_VIEW_FITBH;
@@ -3196,6 +3233,18 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         }
         break;
     case ChromeHover: app->PeekOutline(); return 0;
+    case WM_CONTEXTMENU: {
+        if (!app->pages) break;
+        if (lp == static_cast<LPARAM>(-1)) { app->ShowTextMenuAtSelection(); return 0; }
+        POINT screen{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+        POINT client = screen; ScreenToClient(window, &client);
+        RECT rc{}; GetClientRect(window, &rc);
+        // Only the document view gets the text menu; tabs, toolbar, outline and
+        // status bar keep their native behavior.
+        if (client.x < app->ViewLeft() || client.x >= rc.right ||
+            client.y < app->ContentTop() || client.y >= app->ContentTop() + app->ViewHeight()) break;
+        app->ShowTextMenu(screen); return 0;
+    }
     case WM_LBUTTONDOWN:
         if (app->TabClick(GET_X_LPARAM(lp), GET_Y_LPARAM(lp))) return 0;
         app->BeginSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
@@ -3475,6 +3524,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
             SendMessageW(window, WM_CHANGEUISTATE, MAKEWPARAM(UIS_CLEAR, UISF_HIDEFOCUS), 0);
             bool ctrl = GetKeyState(VK_CONTROL) < 0, edit = GetFocus() == app.query;
             HWND focused = GetFocus();
+            if (!edit && focused == window &&
+                (msg.wParam == VK_APPS || (msg.wParam == VK_F10 && GetKeyState(VK_SHIFT) < 0))) {
+                app.ShowTextMenuAtSelection(); continue;
+            }
             if (!edit && focused == window && msg.wParam == VK_SPACE) {
                 app.pendingReadingState.reset(); ++app.linkEpoch;
                 int amount = app.ViewHeight() - app.D(40);

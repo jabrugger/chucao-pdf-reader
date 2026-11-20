@@ -19,13 +19,27 @@ y PDFium; no incorpora un framework visual ni dependencias gráficas nuevas.
   ni generar otro render. Se retira al alejarse el puntero y se puede fijar con la
   chincheta. Elegir un capítulo no fija la vista temporal. Un clic en cualquier
   parte de la fila (texto, icono o espacio a la derecha) y Enter navegan; el
-  botón de expandir/plegar una rama no activa su destino.
+  botón de expandir/plegar una rama no activa su destino. Al abrir un documento
+  con índice, su lectura se pide antes que el primer render, así el panel queda
+  resuelto y visible desde el inicio. Navegar a un capítulo conserva el zoom y
+  el modo de ajuste actuales; los enlaces internos del documento sí aplican la
+  vista del destino.
 
 El panel fijo cambia el ancho disponible, preservando página, posición vertical
 y centro horizontal al ampliar. La búsqueda reduce solamente la altura disponible.
 Pintura, selección, hit testing, enlaces y destinos comparten ese espacio de lectura.
 Las llamadas a PDFium continúan exclusivamente en el worker; las respuestas de
 documentos anteriores y los resultados recibidos con la búsqueda cerrada se descartan.
+
+## Texto y menú contextual — 2026-11-20
+
+Arrastrar sobre una página selecciona texto; **Ctrl+C** copia la selección. El
+mismo comando está en un **menú contextual nativo** al hacer clic derecho sobre el
+área de lectura, o con la **tecla Menú / Mayús+F10**. «Copiar» queda deshabilitado
+si no hay selección y no altera la selección, el zoom ni el desplazamiento. En
+documentos protegidos, la barra de estado explica si la contraseña impide copiar.
+El menú solo aparece sobre el documento: las pestañas, la barra, el índice y la
+barra de estado conservan su comportamiento nativo.
 
 ## Verificación
 
@@ -81,7 +95,7 @@ El pajarito es un botón accesible con ayuda contextual; clic, activación por t
 o F1 abre un diálogo nativo. En esa fecha mostraba versión 0.1.0, Jorge Andres
 Brugger, jbrugger@ideaworks.com.ar, fecha de release 16/11/2026 y el repositorio
 privado https://github.com/jabrugger/chucao-pdf-reader. La versión actual es
-**0.2.2** (release 20/11/2026). Solo el enlace de GitHub abre el navegador;
+**0.2.3** (release 20/11/2026). Solo el enlace de GitHub abre el navegador;
 consultar Acerca de no hace conexiones de red ni carga PDFium. Escape y la X del
 diálogo regresan al lector.
 
