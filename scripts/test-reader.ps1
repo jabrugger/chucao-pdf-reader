@@ -73,6 +73,11 @@ Remove-Item -LiteralPath ($loadingReport + '.loading.bmp') -ErrorAction Silently
 $loadingProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', $Executable)) -ArgumentList @('--preview-loading', 'test-results\sample.pdf', 'test-results\loading.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
 if (!$loadingProcess.WaitForExit(15000)) { $loadingProcess.Kill(); throw 'La vista previa de carga excedió 15 segundos.' }
 if ($loadingProcess.ExitCode -ne 0 -or !(Test-Path ($loadingReport + '.loading.bmp'))) { throw 'Falló la vista previa del indicador de carga.' }
+$aboutReport = [IO.Path]::Combine($results, 'about.json')
+Remove-Item -LiteralPath ($aboutReport + '.about.bmp') -ErrorAction SilentlyContinue
+$aboutProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', $Executable)) -ArgumentList @('--preview-about', 'test-results\about.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
+if (!$aboutProcess.WaitForExit(15000)) { $aboutProcess.Kill(); throw 'La vista previa de Acerca de excedió 15 segundos.' }
+if ($aboutProcess.ExitCode -ne 0 -or !(Test-Path ($aboutReport + '.about.bmp'))) { throw 'Falló la vista previa de Acerca de: revisá el manifiesto incrustado (Common Controls v6).' }
 & ([IO.Path]::Combine($root, 'build', 'outline-test.exe')) ([IO.Path]::Combine($root, 'test-results'))
 if ($LASTEXITCODE -ne 0) { throw 'Falló el índice del documento.' }
 $filterReport = [IO.Path]::Combine($results, 'outline-filter.json')

@@ -39,9 +39,9 @@ no sustituyen monitores reales ni cambiar Windows a alto contraste. Impresión,
 IME, lectores de pantalla, archivos remotos y sensaciones de interacción siguen
 requiriendo las pruebas manuales registradas.
 
-**Entrega:** `src/app-info.h` y CMake ya indican 0.2.0 y fecha 19/11/2026. El ZIP
-portable se regeneró desde esa compilación y se verificó localmente; falta
-probarlo en otra PC antes de preparar un instalador.
+**Entrega:** `src/app-info.h` y CMake indican 0.2.1 y fecha 20/11/2026, con el
+manifiesto de Windows incrustado. El ZIP y el instalador se regeneraron y se
+verificaron localmente; falta probarlos en otra PC antes de publicarlos.
 
 ## Orden de trabajo
 

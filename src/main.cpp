@@ -2318,7 +2318,16 @@ public:
         if (pd.hDevNames) GlobalFree(pd.hDevNames);
     }
     void Command(int id) {
-        if (id == About) { DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_ABOUT), window, AboutProc, 0); return; }
+        if (id == About) {
+            // DialogBoxParam returns -1 when the template cannot be created (for
+            // example, a missing Common Controls v6 activation context). Surface
+            // that instead of leaving the user with a button that does nothing.
+            if (DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_ABOUT), window, AboutProc, 0) == -1)
+                MessageBoxW(window, L"Chucao PDF Reader " CHUCAO_WIDE(CHUCAO_VERSION_STRING)
+                    L"\n\nNo se pudo abrir el cuadro Acerca de.\n" CHUCAO_WIDE(CHUCAO_REPOSITORY),
+                    L"Acerca de Chucao", MB_OK | MB_ICONINFORMATION);
+            return;
+        }
         if (id == OpenMenu) { ChooseFile(); return; }
         if (id == ForgetHistory) { ClearReadingHistory(); return; }
         pendingReadingState.reset();
@@ -2358,7 +2367,11 @@ public:
             else SetOutlinePinned(true);
             break;
         case Print: PrintFile(); break;
-        case Theme: DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_SETTINGS), window, SettingsProc, reinterpret_cast<LPARAM>(this)); break;
+        case Theme:
+            if (DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_SETTINGS), window, SettingsProc, reinterpret_cast<LPARAM>(this)) == -1)
+                MessageBoxW(window, L"No se pudieron abrir las opciones. Reiniciá Chucao e intentá de nuevo.",
+                    L"Chucao", MB_OK | MB_ICONWARNING);
+            break;
         case NewTabCmd: ChooseFile(); break;
         case CloseTabCmd: CloseTab(activeTab); break;
         case NextTabCmd: NextTab(1); break;

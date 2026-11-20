@@ -5,6 +5,13 @@
 IDI_CHUCAO ICON "assets/branding/chucao.ico"
 IDB_CHUCAO_HOME BITMAP "assets/branding/chucao-home.bmp"
 
+// Embed the application manifest. Without it Windows falls back to Common
+// Controls v5, which does not register the SysLink class used by the About and
+// Options dialogs, so DialogBoxParam fails and the buttons appear to do nothing.
+// Keeping it in the executable also makes the portable folder and installer
+// independent from an external Chucao.exe.manifest file.
+1 24 "src/chucao.manifest"
+
 IDD_ABOUT DIALOGEX 0, 0, 416, 130
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Acerca de Chucao"

@@ -15,9 +15,11 @@ if /i "%VSCMD_ARG_TGT_ARCH%"=="x86" (
   exit /b 1
 )
 if not exist build mkdir build
+rem The manifest is embedded through chucao.rc; drop any stale external copy.
+if exist build\Chucao.exe.manifest del /q build\Chucao.exe.manifest
 rc /nologo /I src /I . /fo build\chucao.res src\chucao.rc
 if errorlevel 1 exit /b 1
-cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /I deps\pdfium\include src\main.cpp /Fo:build\main.obj /Fe:build\Chucao.exe /link build\chucao.res /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /DELAYLOAD:pdfium.dll /LIBPATH:deps\pdfium\lib pdfium.dll.lib delayimp.lib user32.lib gdi32.lib msimg32.lib comdlg32.lib comctl32.lib uxtheme.lib shell32.lib ole32.lib oleacc.lib oleaut32.lib uuid.lib dwmapi.lib gdiplus.lib advapi32.lib
+cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /utf-8 /DUNICODE /D_UNICODE /DNOMINMAX /I deps\pdfium\include src\main.cpp /Fo:build\main.obj /Fe:build\Chucao.exe /link build\chucao.res /SUBSYSTEM:WINDOWS /MANIFEST:NO /DYNAMICBASE /NXCOMPAT /DELAYLOAD:pdfium.dll /LIBPATH:deps\pdfium\lib pdfium.dll.lib delayimp.lib user32.lib gdi32.lib msimg32.lib comdlg32.lib comctl32.lib uxtheme.lib shell32.lib ole32.lib oleacc.lib oleaut32.lib uuid.lib dwmapi.lib gdiplus.lib advapi32.lib
 if errorlevel 1 exit /b 1
 copy /y deps\pdfium\bin\pdfium.dll build\pdfium.dll >nul
 if errorlevel 1 exit /b 1

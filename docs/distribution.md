@@ -15,15 +15,19 @@ crea:
 
 ```text
 dist/
-  Chucao-0.2.0-win-x64/
+  Chucao-0.2.1-win-x64/
     Chucao.exe
     pdfium.dll
     LEEME.txt
     LICENSE
     THIRD-PARTY-NOTICES.md
     licenses/…
-  Chucao-0.2.0-win-x64.zip
+  Chucao-0.2.1-win-x64.zip
 ```
+
+`Chucao.exe` lleva el manifiesto de Windows incrustado (Common Controls v6 y
+`asInvoker`), así que no necesita ningún `Chucao.exe.manifest` externo. El
+paquete y el instalador no lo copian; ver [instalador](installer.md).
 
 La carpeta `dist/` está excluida de Git. El nombre de la versión sale de
 `CHUCAO_VERSION_STRING`; recordar actualizar también `CHUCAO_VERSION_NUMBERS` y

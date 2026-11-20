@@ -43,6 +43,14 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "..\dist\Chucao-{#MyVersion}-win-x64\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
+[InstallDelete]
+; 0.2.0 shipped without the embedded manifest. Remove any external copy left
+; next to the executable so it can never override the one inside the EXE.
+Type: files; Name: "{app}\Chucao.exe.manifest"
+
+[UninstallDelete]
+Type: files; Name: "{app}\Chucao.exe.manifest"
+
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\Desinstalar Chucao"; Filename: "{uninstallexe}"

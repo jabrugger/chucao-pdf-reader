@@ -21,6 +21,9 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
    ZIP regenerado y verificado localmente.
    [x] Preparar el instalador Inno Setup con asociación opcional de PDF.
    [ ] Probar el ZIP y el instalador en otra PC antes de publicarlos.
+5. [x] Publicar la entrega 0.2.1 con el manifiesto de Windows incrustado para que
+   «Acerca de» y «Opciones» funcionen desde la instalación y el ZIP, sin depender
+   de un archivo externo. Evidencia: [installer.md](installer.md).
 
 ## Funciones y diseño
 
@@ -140,6 +143,9 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   distintos DPI antes de preparar un instalador.
 - [x] Cortar la entrega 0.2.0: versión y fecha actualizadas en `app-info.h`, CMake
   y documentación; ZIP `Chucao-0.2.0-win-x64` regenerado y verificado localmente.
+- [x] Incrustar el manifiesto de Windows (Common Controls v6) en el EXE, retirar
+  la dependencia de `Chucao.exe.manifest` y liberar 0.2.1 con ZIP e instalador
+  regenerados. Evidencia: [installer.md](installer.md).
 
 - [x] Comprobar la recuperación de posición entre procesos, rutas Unicode, dos
   documentos distintos y PDF protegido, sin guardar la contraseña.
@@ -171,10 +177,16 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 - [x] Validar automáticamente que la vista previa del indicador de carga genere
   su captura sin esperar al worker. Evidencia:
   [reader-interface.md](reader-interface.md).
+- [x] Validar automáticamente que el ejecutable compilado y el extraído del ZIP
+  creen «Acerca de» sin manifiesto externo (`--preview-about`). Evidencia:
+  [installer.md](installer.md).
+- [x] Verificar localmente la instalación 0.2.1: «Acerca de» y «Opciones» abren
+  desde el acceso directo del menú Inicio y el EXE usa Common Controls v6.
+  Evidencia: [installer.md](installer.md).
 - [ ] Validar manualmente la animación y el contraste de la carga con PDF grandes,
   unidades cloud, DPI altos y alto contraste.
 - [ ] Validar manualmente la instalación, la asociación real de `.pdf`, la
-  actualización y la desinstalación en otra PC.
+  actualización y la desinstalación en otra PC, incluidos «Acerca de» y «Opciones».
 - [ ] Validar manualmente los ajustes de zoom con PDF reales, ventanas extremas y
   DPI altos.
 - [ ] Validar manualmente tamaño/posición entre monitores reales, maximizar,

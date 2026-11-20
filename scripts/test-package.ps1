@@ -36,4 +36,14 @@ if (!$process.WaitForExit(35000)) {
 if (![IO.File]::Exists($report)) { throw "El lector empaquetado no generó informe; exit=$($process.ExitCode)." }
 $result = [IO.File]::ReadAllText($report) | ConvertFrom-Json
 if (!$result.success -or $result.pages -ne 2) { throw 'El lector empaquetado no abrió ni renderizó el PDF de prueba.' }
-Write-Host "Paquete verificado: $([IO.Path]::GetFileName($Zip)) abre, renderiza y contiene avisos y licencias."
+$aboutReport = [IO.Path]::Combine($output, 'package-about.json')
+$aboutProcess = Start-Process -FilePath $exe -ArgumentList @('--preview-about', ('"' + $aboutReport + '"')) -WindowStyle Hidden -PassThru
+if (!$aboutProcess.WaitForExit(15000)) {
+    $aboutProcess.Kill()
+    $aboutProcess.WaitForExit()
+    throw 'La vista previa de Acerca de del paquete excedió 15 segundos.'
+}
+if ($aboutProcess.ExitCode -ne 0 -or ![IO.File]::Exists($aboutReport + '.about.bmp')) {
+    throw 'El lector empaquetado no pudo crear Acerca de: falta el manifiesto incrustado (Common Controls v6).'
+}
+Write-Host "Paquete verificado: $([IO.Path]::GetFileName($Zip)) abre, renderiza, muestra Acerca de y contiene avisos y licencias."

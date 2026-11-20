@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(Chucao VERSION 0.2.0 LANGUAGES CXX RC)
+project(Chucao VERSION 0.2.1 LANGUAGES CXX RC)
 if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
   message(FATAL_ERROR "El prototipo requiere Windows x64")
 endif()
@@ -12,7 +12,9 @@ target_compile_features(Chucao PRIVATE cxx_std_17)
 target_compile_definitions(Chucao PRIVATE UNICODE _UNICODE NOMINMAX)
 target_compile_options(Chucao PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:/W4>" "$<$<COMPILE_LANGUAGE:CXX>:/utf-8>")
 target_link_libraries(Chucao PRIVATE pdfium delayimp user32 gdi32 msimg32 comdlg32 comctl32 uxtheme shell32 ole32 oleacc oleaut32 uuid dwmapi gdiplus advapi32)
-target_link_options(Chucao PRIVATE /DELAYLOAD:pdfium.dll)
+# chucao.rc embeds the manifest (Common Controls v6 + asInvoker); keep the
+# linker from generating a second, external Chucao.exe.manifest.
+target_link_options(Chucao PRIVATE /DELAYLOAD:pdfium.dll /MANIFEST:NO)
 add_custom_command(TARGET Chucao POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:pdfium>" "$<TARGET_FILE_DIR:Chucao>")
 add_executable(pdf-smoke tools/pdf-smoke.cpp)
 target_compile_features(pdf-smoke PRIVATE cxx_std_17)
