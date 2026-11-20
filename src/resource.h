@@ -1,6 +1,7 @@
 #pragma once
 #define IDI_CHUCAO 101
 #define IDB_CHUCAO_HOME 102
+#define IDB_CHUCAO_LOGO 103
 #define IDD_ABOUT 103
 #define IDC_ABOUT_VERSION 2001
 #define IDC_ABOUT_AUTHOR 2002

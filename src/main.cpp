@@ -65,15 +65,49 @@ enum { Open = 100, Previous, Next, Smaller, Larger, Fit, Find, Print, Query, Fin
 
 // Best-effort dark title bar. Older Windows builds ignore both attributes.
 void ApplyWindowTheme(HWND window, bool dark) {
+    // The frame change must happen before the color attributes; otherwise DWM
+    // repaints the native accent title bar and discards the custom colors.
+    if (window) SetWindowPos(window, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
     BOOL value = dark ? TRUE : FALSE;
     DwmSetWindowAttribute(window, 20, &value, sizeof(value));
     DwmSetWindowAttribute(window, 19, &value, sizeof(value));
-    if (window) SetWindowPos(window, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    // Windows 11 caption colors. In light/high-contrast mode COLOR_DEFAULT lets
+    // Windows draw its native title bar again.
+    DWORD caption = dark ? UiTheme().bar : 0xFFFFFFFF;
+    DWORD captionText = dark ? UiTheme().ink : 0xFFFFFFFF;
+    DWORD border = dark ? UiTheme().line : 0xFFFFFFFF;
+    DwmSetWindowAttribute(window, 35, &caption, sizeof(caption));      // DWMWA_CAPTION_COLOR
+    DwmSetWindowAttribute(window, 36, &captionText, sizeof(captionText)); // DWMWA_TEXT_COLOR
+    DwmSetWindowAttribute(window, 34, &border, sizeof(border));        // DWMWA_BORDER_COLOR
 }
 
 // Owner-drawn buttons paint their own chrome. A theme change (including the
 // parent's SetWindowTheme) can make Windows draw a native hot border again;
 // keep every ownerdraw child on the empty theme after each palette update.
+// Decode the transparent welcome logo from the module's RCDATA resource. The
+// asset keeps its alpha channel, unlike the legacy BMP.
+Gdiplus::Bitmap* LoadPngResource(UINT id) {
+    HRSRC resource = FindResourceW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(id), RT_RCDATA);
+    if (!resource) return nullptr;
+    HGLOBAL loaded = LoadResource(GetModuleHandleW(nullptr), resource);
+    DWORD size = SizeofResource(GetModuleHandleW(nullptr), resource);
+    void* data = loaded ? LockResource(loaded) : nullptr;
+    if (!data || !size) return nullptr;
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, size);
+    if (!memory) return nullptr;
+    void* destination = GlobalLock(memory);
+    if (!destination) { GlobalFree(memory); return nullptr; }
+    memcpy(destination, data, size);
+    GlobalUnlock(memory);
+    IStream* stream = nullptr;
+    if (FAILED(CreateStreamOnHGlobal(memory, TRUE, &stream))) { GlobalFree(memory); return nullptr; }
+    Gdiplus::Bitmap* bitmap = Gdiplus::Bitmap::FromStream(stream);
+    stream->Release();
+    if (bitmap && bitmap->GetLastStatus() == Gdiplus::Ok) return bitmap;
+    delete bitmap;
+    return nullptr;
+}
+
 void DisableOwnerDrawThemes(HWND root) {
     if (!root) return;
     EnumChildWindows(root, [](HWND child, LPARAM) -> BOOL {
@@ -325,6 +359,18 @@ std::wstring Text(HWND window) {
     GetWindowTextW(window, &value[0], static_cast<int>(value.size()));
     value.resize(wcslen(value.c_str()));
     return value;
+}
+// Owner-drawn checkboxes do not keep the native BM_SETCHECK state; store it per
+// control so drawing, settings and the dialog tests agree.
+bool SettingChecked(HWND dialog, int id) {
+    HWND button = GetDlgItem(dialog, id);
+    return button && GetWindowLongPtrW(button, GWLP_USERDATA) != 0;
+}
+void SetSettingChecked(HWND dialog, int id, bool checked) {
+    if (HWND button = GetDlgItem(dialog, id)) {
+        SetWindowLongPtrW(button, GWLP_USERDATA, checked ? 1 : 0);
+        InvalidateRect(button, nullptr, FALSE);
+    }
 }
 struct Result {
     enum Kind { Image, Opened, Password, Failure, Search, Printed, Geometry, Copied, OutlineReady, LinksReady, LinkFollowed, OutlineFollowed, Closed } kind = Failure;
@@ -757,6 +803,7 @@ public:
     HFONT strongFont = nullptr;
     HFONT welcomeFont = nullptr;
     HBITMAP welcomeImage = nullptr;
+    Gdiplus::Bitmap* welcomeLogo = nullptr;
     HDC backDC = nullptr;
     HBITMAP backBitmap = nullptr;
     int backWidth = 0, backHeight = 0;
@@ -1004,6 +1051,15 @@ bool followSystemTheme = false, autoShowOutline = true;
         TreeView_SetItemHeight(outlineTree, D(32));
         TreeView_SetIndent(outlineTree, D(16));
     }
+    void StyleNativeBars() {
+        const wchar_t* theme = UsingHighContrast() ? L"" : (darkTheme ? L"DarkMode_Explorer" : L"Explorer");
+        if (window) SetWindowTheme(window, theme, nullptr);
+        if (homeList) SetWindowTheme(homeList, theme, nullptr);
+        if (outlineTree) SetWindowTheme(outlineTree, theme, nullptr);
+        // SetWindowTheme can reset the DWM caption colors; apply them last.
+        if (window) ApplyWindowTheme(window, UsingHighContrast() ? false : darkTheme);
+        if (outlineWindow) ApplyWindowTheme(outlineWindow, UsingHighContrast() ? false : darkTheme);
+    }
     void ApplyFonts() {
         for (HWND control : {query, findLabel, findFeedback, statusBar})
             if (control) SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
@@ -1090,6 +1146,7 @@ bool followSystemTheme = false, autoShowOutline = true;
         DisableOwnerDrawThemes(window);
         if (outlineWindow) DisableOwnerDrawThemes(outlineWindow);
         if (outlineTree) StyleOutline();
+        StyleNativeBars();
         if (persist && ConfigureSettings()) SettingsStore(settingsFile).Write(CollectSettings());
         if (window) SendMessageW(window, WM_SETREDRAW, TRUE, 0);
         if (outlineWindow) SendMessageW(outlineWindow, WM_SETREDRAW, TRUE, 0);
@@ -1188,7 +1245,7 @@ bool followSystemTheme = false, autoShowOutline = true;
             ok = ok && recentEntries.size() == 2 && SendMessageW(homeList, LB_GETCOUNT, 0, 0) == 2;
             ++sessionChecks; SaveTestImage(benchmarkReport + L".home.bmp", window);
             HWND options = CreateDialogParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_SETTINGS), window, SettingsProc, reinterpret_cast<LPARAM>(this));
-            ok = ok && options && IsDlgButtonChecked(options, IDC_SETTINGS_RESTORE) == BST_CHECKED;
+            ok = ok && options && SettingChecked(options, IDC_SETTINGS_RESTORE);
             if (options) { SaveTestImage(benchmarkReport + L".settings.bmp", options); DestroyWindow(options); }
             ++sessionChecks; BenchmarkResult(ok);
         }
@@ -2974,14 +3031,34 @@ bool followSystemTheme = false, autoShowOutline = true;
         } else if (!pages) {
             RECT empty{0, ContentTop(), rc.right, rc.bottom - D(26)};
             SetDCBrushColor(dc, UiTheme().bar); FillRect(dc, &empty, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
-            if (!welcomeImage) welcomeImage = static_cast<HBITMAP>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDB_CHUCAO_HOME), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION));
             int size = HomeImageSize(), top = ContentTop() + D(16);
-            if (welcomeImage) {
-                HDC picture = CreateCompatibleDC(dc); auto oldPicture = SelectObject(picture, welcomeImage);
-                BITMAP bitmap{}; GetObjectW(welcomeImage, sizeof(bitmap), &bitmap);
-                SetStretchBltMode(dc, HALFTONE); SetBrushOrgEx(dc, 0, 0, nullptr);
-                StretchBlt(dc, (rc.right - size) / 2, top, size, size, picture, 0, 0, bitmap.bmWidth, bitmap.bmHeight, SRCCOPY);
-                SelectObject(picture, oldPicture); DeleteDC(picture);
+            if (!welcomeLogo) welcomeLogo = LoadPngResource(IDB_CHUCAO_LOGO);
+            if (welcomeLogo) {
+                Gdiplus::Graphics graphics(dc);
+                if (graphics.GetLastStatus() == Gdiplus::Ok) {
+                    // The source PNG has an opaque white margin around the dark
+                    // rounded card. Crop to the card and clip its rounded shape so
+                    // no white square survives the dark theme.
+                    float x = static_cast<float>((rc.right - size) / 2);
+                    Gdiplus::GraphicsPath clip;
+                    UiDraw::RoundedRectPath(clip, x, static_cast<float>(top), static_cast<float>(size),
+                        static_cast<float>(size), static_cast<float>(size) * 0.13f);
+                    graphics.SetClip(&clip);
+                    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+                    graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+                    graphics.DrawImage(welcomeLogo, Gdiplus::RectF(x, static_cast<float>(top),
+                        static_cast<float>(size), static_cast<float>(size)), 20, 20, 218, 218, Gdiplus::UnitPixel);
+                    graphics.ResetClip();
+                }
+            } else {
+                if (!welcomeImage) welcomeImage = static_cast<HBITMAP>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDB_CHUCAO_HOME), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION));
+                if (welcomeImage) {
+                    HDC picture = CreateCompatibleDC(dc); auto oldPicture = SelectObject(picture, welcomeImage);
+                    BITMAP bitmap{}; GetObjectW(welcomeImage, sizeof(bitmap), &bitmap);
+                    SetStretchBltMode(dc, HALFTONE); SetBrushOrgEx(dc, 0, 0, nullptr);
+                    StretchBlt(dc, (rc.right - size) / 2, top, size, size, picture, 0, 0, bitmap.bmWidth, bitmap.bmHeight, SRCCOPY);
+                    SelectObject(picture, oldPicture); DeleteDC(picture);
+                }
             }
             RECT title{D(24), top + size + D(6), rc.right - D(24), top + size + D(42)};
             SelectObject(dc, welcomeFont); SetTextColor(dc, UiTheme().ink);
@@ -3099,10 +3176,10 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
     auto app = reinterpret_cast<Reader*>(GetWindowLongPtrW(dialog, DWLP_USER));
     if (message == WM_INITDIALOG) {
         app = reinterpret_cast<Reader*>(lp); SetWindowLongPtrW(dialog, DWLP_USER, lp);
-        CheckDlgButton(dialog, IDC_SETTINGS_RESTORE, app->restoreLastSession ? BST_CHECKED : BST_UNCHECKED);
-        CheckDlgButton(dialog, IDC_SETTINGS_OUTLINE, app->autoShowOutline ? BST_CHECKED : BST_UNCHECKED);
-        CheckDlgButton(dialog, IDC_SETTINGS_ASSOCIATE,
-            AssociationState(FileAssociationTarget{}) == FileAssociationState::Default ? BST_CHECKED : BST_UNCHECKED);
+        SetSettingChecked(dialog, IDC_SETTINGS_RESTORE, app->restoreLastSession);
+        SetSettingChecked(dialog, IDC_SETTINGS_OUTLINE, app->autoShowOutline);
+        SetSettingChecked(dialog, IDC_SETTINGS_ASSOCIATE,
+            AssociationState(FileAssociationTarget{}) == FileAssociationState::Default);
         SetAccessibleName(GetDlgItem(dialog, IDC_SETTINGS_RESTORE), L"Reabrir los PDF de la última sesión");
         SetAccessibleName(GetDlgItem(dialog, IDC_SETTINGS_OUTLINE), L"Mostrar automáticamente el índice");
         SetAccessibleName(GetDlgItem(dialog, IDC_SETTINGS_ASSOCIATE), L"Abrir los PDF con Chucao");
@@ -3110,6 +3187,7 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
         SetAccessibleName(GetDlgItem(dialog, IDC_SETTINGS_THEME_LIGHT), L"Tema claro");
         SetAccessibleName(GetDlgItem(dialog, IDC_SETTINGS_THEME_DARK), L"Tema oscuro");
         for (int id : {IDC_SETTINGS_THEME_SYSTEM, IDC_SETTINGS_THEME_LIGHT, IDC_SETTINGS_THEME_DARK,
+                IDC_SETTINGS_RESTORE, IDC_SETTINGS_OUTLINE, IDC_SETTINGS_ASSOCIATE,
                 IDC_SETTINGS_DEFAULTAPPS, IDC_SETTINGS_CLEAR}) {
             HWND button = GetDlgItem(dialog, id);
             SetWindowTheme(button, L"", L"");
@@ -3130,6 +3208,50 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
     if (message == WM_DRAWITEM) {
         auto item = reinterpret_cast<DRAWITEMSTRUCT*>(lp);
         if (!item) return FALSE;
+        if (item->CtlID == IDC_SETTINGS_RESTORE || item->CtlID == IDC_SETTINGS_OUTLINE ||
+            item->CtlID == IDC_SETTINGS_ASSOCIATE) {
+            HDC dc = item->hDC;
+            RECT rect = item->rcItem;
+            SetDCBrushColor(dc, UiTheme().bar);
+            FillRect(dc, &rect, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+            bool checked = SettingChecked(dialog, static_cast<int>(item->CtlID));
+            int dpi = WindowDpi(dialog);
+            int boxSize = MulDiv(15, dpi, 96);
+            int boxTop = rect.top + (rect.bottom - rect.top - boxSize) / 2;
+            RECT box{rect.left + MulDiv(2, dpi, 96), boxTop,
+                rect.left + MulDiv(2, dpi, 96) + boxSize, boxTop + boxSize};
+            COLORREF boxFill = checked ? UiTheme().accent :
+                (UiDark() ? RGB(0x47, 0x50, 0x63) : UiTheme().field);
+            COLORREF boxBorder = checked ? UiTheme().accent :
+                (UiDark() ? RGB(0x4C, 0x56, 0x6A) : UiTheme().line);
+            UiRoundRect(dc, box, boxFill, boxBorder, MulDiv(3, dpi, 96));
+            if (checked) {
+                Gdiplus::Graphics graphics(dc);
+                if (graphics.GetLastStatus() == Gdiplus::Ok) {
+                    graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+                    float scale = static_cast<float>(dpi) / 96.0f;
+                    Gdiplus::Pen check(UiDraw::Color(UiDark() ? UiTheme().bar : RGB(255, 255, 255)),
+                        std::max(1.6f, 2.0f * scale));
+                    check.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound, Gdiplus::DashCapRound);
+                    float left = static_cast<float>(box.left), top = static_cast<float>(box.top);
+                    float w = static_cast<float>(box.right - box.left), h = static_cast<float>(box.bottom - box.top);
+                    graphics.DrawLine(&check, left + w * 0.23f, top + h * 0.52f, left + w * 0.43f, top + h * 0.72f);
+                    graphics.DrawLine(&check, left + w * 0.43f, top + h * 0.72f, left + w * 0.78f, top + h * 0.29f);
+                }
+            }
+            if (HFONT font = reinterpret_cast<HFONT>(SendMessageW(item->hwndItem, WM_GETFONT, 0, 0))) SelectObject(dc, font);
+            SetBkMode(dc, TRANSPARENT);
+            SetTextColor(dc, UiTheme().ink);
+            std::wstring label = Text(item->hwndItem);
+            RECT text{box.right + MulDiv(8, dpi, 96), rect.top, rect.right - MulDiv(4, dpi, 96), rect.bottom};
+            DrawTextW(dc, label.c_str(), -1, &text, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+            if ((item->itemState & ODS_FOCUS) &&
+                !(SendMessageW(GetAncestor(dialog, GA_ROOT), WM_QUERYUISTATE, 0, 0) & UISF_HIDEFOCUS)) {
+                RECT ring = box; InflateRect(&ring, MulDiv(2, dpi, 96), MulDiv(2, dpi, 96));
+                DrawFocusRect(dc, &ring);
+            }
+            return TRUE;
+        }
         if (item->CtlID == IDC_SETTINGS_THEME_SYSTEM || item->CtlID == IDC_SETTINGS_THEME_LIGHT ||
             item->CtlID == IDC_SETTINGS_THEME_DARK) {
             int choice = item->CtlID == IDC_SETTINGS_THEME_SYSTEM ? 0 :
@@ -3181,15 +3303,6 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
     if (message == WM_COMMAND) {
         int id = LOWORD(wp);
         if (id == IDOK || id == IDCANCEL) { EndDialog(dialog, id); return TRUE; }
-        auto toggleSetting = [&](int box) {
-            bool checked = IsDlgButtonChecked(dialog, box) == BST_CHECKED;
-            CheckDlgButton(dialog, box, checked ? BST_UNCHECKED : BST_CHECKED);
-            SendMessageW(dialog, WM_COMMAND, MAKEWPARAM(box, BN_CLICKED),
-                reinterpret_cast<LPARAM>(GetDlgItem(dialog, box)));
-        };
-        if (id == IDC_SETTINGS_RESTORE_LABEL) { toggleSetting(IDC_SETTINGS_RESTORE); return TRUE; }
-        if (id == IDC_SETTINGS_OUTLINE_LABEL) { toggleSetting(IDC_SETTINGS_OUTLINE); return TRUE; }
-        if (id == IDC_SETTINGS_ASSOCIATE_LABEL) { toggleSetting(IDC_SETTINGS_ASSOCIATE); return TRUE; }
         if (id == IDC_SETTINGS_DEFAULTAPPS && HIWORD(wp) == BN_CLICKED) {
             if (reinterpret_cast<INT_PTR>(ShellExecuteW(dialog, L"open", L"ms-settings:defaultapps", nullptr, nullptr, SW_SHOWNORMAL)) <= 32)
                 SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, L"No se pudo abrir la configuración de Windows.");
@@ -3201,13 +3314,14 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
             app->ClearReadingHistory(true, dialog); return TRUE;
         }
         if (id == IDC_SETTINGS_ASSOCIATE && HIWORD(wp) == BN_CLICKED) {
-            bool want = IsDlgButtonChecked(dialog, IDC_SETTINGS_ASSOCIATE) == BST_CHECKED;
+            bool want = !SettingChecked(dialog, IDC_SETTINGS_ASSOCIATE);
+            SetSettingChecked(dialog, IDC_SETTINGS_ASSOCIATE, want);
             std::wstring error;
             bool ok = want ? RegisterFileAssociation(ExecutablePath(), FileAssociationTarget{}, error) :
                 UnregisterFileAssociation(FileAssociationTarget{}, error);
             auto state = AssociationState(FileAssociationTarget{});
-            CheckDlgButton(dialog, IDC_SETTINGS_ASSOCIATE,
-                state == FileAssociationState::Default ? BST_CHECKED : BST_UNCHECKED);
+            SetSettingChecked(dialog, IDC_SETTINGS_ASSOCIATE,
+                state == FileAssociationState::Default);
             SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, !ok ? L"No se pudo cambiar la asociación de PDF." :
                 want && state != FileAssociationState::Default ?
                 L"Chucao quedó registrado. Si Windows mantiene otra app, elegí Chucao en Configuración > Aplicaciones predeterminadas." :
@@ -3216,11 +3330,11 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
         }
         auto saveOptions = [&]() {
             AppSettings value = app->CollectSettings();
-            value.restoreSession = IsDlgButtonChecked(dialog, IDC_SETTINGS_RESTORE) == BST_CHECKED;
-            value.autoShowOutline = IsDlgButtonChecked(dialog, IDC_SETTINGS_OUTLINE) == BST_CHECKED;
+            value.restoreSession = SettingChecked(dialog, IDC_SETTINGS_RESTORE);
+            value.autoShowOutline = SettingChecked(dialog, IDC_SETTINGS_OUTLINE);
             if (!app->ConfigureSettings() || !SettingsStore(app->settingsFile).Write(value)) {
-                CheckDlgButton(dialog, IDC_SETTINGS_RESTORE, app->restoreLastSession ? BST_CHECKED : BST_UNCHECKED);
-                CheckDlgButton(dialog, IDC_SETTINGS_OUTLINE, app->autoShowOutline ? BST_CHECKED : BST_UNCHECKED);
+                SetSettingChecked(dialog, IDC_SETTINGS_RESTORE, app->restoreLastSession);
+                SetSettingChecked(dialog, IDC_SETTINGS_OUTLINE, app->autoShowOutline);
                 SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, L"No se pudieron guardar las opciones."); return;
             }
             bool wasRestoring = app->restoreLastSession;
@@ -3237,13 +3351,13 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
             AppSettings value = app->CollectSettings();
             value.dark = system ? SystemPrefersDark() : choice == 2;
             value.followSystem = system;
-            value.restoreSession = IsDlgButtonChecked(dialog, IDC_SETTINGS_RESTORE) == BST_CHECKED;
-            value.autoShowOutline = IsDlgButtonChecked(dialog, IDC_SETTINGS_OUTLINE) == BST_CHECKED;
+            value.restoreSession = SettingChecked(dialog, IDC_SETTINGS_RESTORE);
+            value.autoShowOutline = SettingChecked(dialog, IDC_SETTINGS_OUTLINE);
             if (!app->ConfigureSettings() || !SettingsStore(app->settingsFile).Write(value)) {
                 for (int themeId : {IDC_SETTINGS_THEME_SYSTEM, IDC_SETTINGS_THEME_LIGHT, IDC_SETTINGS_THEME_DARK})
                     InvalidateRect(GetDlgItem(dialog, themeId), nullptr, FALSE);
-                CheckDlgButton(dialog, IDC_SETTINGS_RESTORE, app->restoreLastSession ? BST_CHECKED : BST_UNCHECKED);
-                CheckDlgButton(dialog, IDC_SETTINGS_OUTLINE, app->autoShowOutline ? BST_CHECKED : BST_UNCHECKED);
+                SetSettingChecked(dialog, IDC_SETTINGS_RESTORE, app->restoreLastSession);
+                SetSettingChecked(dialog, IDC_SETTINGS_OUTLINE, app->autoShowOutline);
                 SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, L"No se pudieron guardar las opciones."); return;
             }
             bool wasRestoring = app->restoreLastSession;
@@ -3263,6 +3377,7 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
             return TRUE;
         }
         if ((id == IDC_SETTINGS_RESTORE || id == IDC_SETTINGS_OUTLINE) && HIWORD(wp) == BN_CLICKED) {
+            SetSettingChecked(dialog, id, !SettingChecked(dialog, id));
             saveOptions();
             return TRUE;
         }
@@ -3294,7 +3409,7 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         SendMessageW(app->outlineFilter, EM_SETLIMITTEXT, 128, 0);
         SetAccessibleName(app->outlineFilter, L"Filtrar el índice");
         app->outlineTree = CreateWindowExW(0, WC_TREEVIEWW, L"Índice del documento", WS_CHILD | WS_VISIBLE | WS_TABSTOP |
-            TVS_LINESATROOT | TVS_HASBUTTONS | TVS_SHOWSELALWAYS | TVS_FULLROWSELECT, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
+            TVS_LINESATROOT | TVS_HASBUTTONS | TVS_FULLROWSELECT, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
         app->outlineLabel = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 8, 0, 1, 1, window, nullptr, nullptr, nullptr);
         app->StyleOutline(); return 0;
     case WM_SIZE: {
@@ -3665,6 +3780,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         MSG pending{}; while (PeekMessageW(&pending, window, Ready, Ready, PM_REMOVE)) delete reinterpret_cast<Result*>(pending.lParam);
         DeleteObject(app->font); DeleteObject(app->strongFont); DeleteObject(app->welcomeFont);
         if (app->welcomeImage) DeleteObject(app->welcomeImage);
+        delete app->welcomeLogo;
         if (app->backDC) DeleteDC(app->backDC);
         if (app->backBitmap) DeleteObject(app->backBitmap);
         app->statusBar = nullptr;
@@ -3778,6 +3894,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     if (!benchmark && !shellBenchmark) {
         ShowWindow(window, (startMaximized || show == SW_SHOWMAXIMIZED) ? SW_SHOWMAXIMIZED : show);
         UpdateWindow(window);
+        app.StyleNativeBars();
     }
     app.shellMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     if (shellBenchmark) {

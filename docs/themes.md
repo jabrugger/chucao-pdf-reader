@@ -43,12 +43,23 @@ borrarlo o alternar con Ctrl+D.
 ## Opciones en tema oscuro
 
 El selector de tema es un control segmentado propio (**Sistema / Claro / Oscuro**)
-dibujado con la paleta activa, no un `COMBOBOX` nativo. Las etiquetas de los
-checkboxes son `STATIC` con el color de texto del tema y los enlaces son botones
-ownerdraw con el color de acento. Al cambiar de tema, los controles ownerdraw de
-la ventana principal reciben de nuevo el tema vacío (`SetWindowTheme(..., "", "")`),
-para que Windows no dibuje un borde nativo al pasar el mouse; al cerrar Opciones el
-foco vuelve al documento para no dejar el rectángulo de foco en el engranaje.
+dibujado con la paleta activa, no un `COMBOBOX` nativo. Las casillas son botones
+ownerdraw: caja `#475063` con borde `#4C566A` sin marcar, relleno de acento con
+tilde oscura al marcar y anillo de foco alrededor de la caja. Los enlaces son
+botones ownerdraw con el color de acento. El estado de cada casilla se guarda en
+el control (`GWLP_USERDATA`) porque `BS_OWNERDRAW` no conserva `BM_SETCHECK`.
+
+La barra de título usa los colores DWM de Windows 11 (`DWMWA_CAPTION_COLOR`,
+`DWMWA_TEXT_COLOR`, `DWMWA_BORDER_COLOR`) con `bar`, `ink` y `line`; en tema claro
+o alto contraste se restablece el valor nativo. El logo de bienvenida usa el PNG
+con transparencia recortado a la tarjeta redondeada, sin el cuadrado blanco del
+BMP anterior. Las barras nativas se marcan con `DarkMode_Explorer`.
+
+Al cambiar de tema, los controles ownerdraw de la ventana principal reciben de
+nuevo el tema vacío (`SetWindowTheme(..., "", "")`) para que Windows no dibuje un
+borde nativo al pasar el mouse; al cerrar Opciones el foco vuelve al documento
+para no dejar el rectángulo de foco en el engranaje. Los checkboxes no reaplican
+la paleta ni repintan la ventana principal: solo guardan flags y settings.dat.
 
 ## Verificación
 

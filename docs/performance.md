@@ -111,3 +111,28 @@ externa; sigue pendiente.
   progresiva/cancelación del motor.
 
 Esta investigación todavía no confirma que Chucao sea más rápido que KillerPDF.
+
+## Diagnóstico de parpadeo (opcional) — 2026-11-20
+
+El parpadeo al tildar «Reabrir los PDF de la última sesión» o «Mostrar
+automáticamente el índice» se corrigió en 0.2.7: esos checkboxes solo guardan
+flags/settings y no llaman a `ApplyPalette`. Los cambios de tema reales se envuelven
+en `WM_SETREDRAW` y una sola invalidación sin `RDW_ERASE`.
+
+Para comprobarlo a mano:
+
+1. Abrir un PDF con índice y dejarlo anclado.
+2. Abrir Opciones y alternar cada checkbox 30 veces; el fondo de la ventana
+   principal no debe destellar ni borrarse en blanco.
+3. Cambiar Sistema/Claro/Oscuro, ocultar/mostrar el índice con Ctrl+B, redimensionar
+   y pasar el mouse sobre Recientes/la barra.
+
+Un `--benchmark-flicker` oculto no puede muestrear la presentación real: el
+parpadeo depende de la pantalla, DWM y la posición del diálogo modal. Por eso no se
+incluyó en `test-reader.ps1`; si se automatiza, debe hacerse con una captura externa
+y marcar los puntos del índice/barra, fallando ante un píxel blanco puro fuera de
+la hoja del PDF.
+
+Muestreo local del 2026-11-20: 30 alternancias de los dos checkboxes con el índice
+anclado, tomando 4 puntos del índice y la barra; 46 muestras y **0 píxeles blancos**.
+La prueba manual con PDF reales/remotos sigue pendiente.

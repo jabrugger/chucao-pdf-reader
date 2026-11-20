@@ -37,6 +37,9 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 9. [x] Publicar 0.2.6 con Opciones totalmente oscuro (selector segmentado,
    etiquetas y enlaces) y sin bordes nativos en la barra tras cambiar de tema.
    Evidencia: [themes.md](themes.md).
+10. [x] Publicar 0.2.7 con logo transparente, barra de título oscura, casillas
+    ownerdraw, selección del índice sin gris residual y barras nativas oscuras.
+    Evidencia: [themes.md](themes.md) y [performance.md](performance.md).
 
 ## Funciones y diseño
 
@@ -216,6 +219,12 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 - [x] Verificar Opciones en oscuro (selector segmentado, etiquetas y enlaces) y que
   la barra no muestre bordes nativos al pasar el mouse tras cambiar de tema.
   Evidencia: [themes.md](themes.md).
+- [x] Verificar el logo transparente, la barra de título con colores DWM, las
+  casillas ownerdraw con estado persistente y el índice sin selección gris.
+  Evidencia: [themes.md](themes.md).
+- [ ] Validar manualmente con PDF reales/remotos que tildar los checkboxes no
+  produce destello en el fondo, y revisar el parpadeo al ocultar/mostrar el índice
+  y redimensionar. Diagnóstico opcional en [performance.md](performance.md).
 - [ ] Validar manualmente la animación y el contraste de la carga con PDF grandes,
   unidades cloud, DPI altos y alto contraste.
 - [ ] Validar manualmente la instalación, la asociación real de `.pdf`, la

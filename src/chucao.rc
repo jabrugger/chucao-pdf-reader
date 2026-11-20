@@ -5,6 +5,7 @@
 #pragma code_page(65001)
 IDI_CHUCAO ICON "assets/branding/chucao.ico"
 IDB_CHUCAO_HOME BITMAP "assets/branding/chucao-home.bmp"
+IDB_CHUCAO_LOGO RCDATA "assets/branding/chucao-icon-256.png"
 
 // Embed the application manifest. Without it Windows falls back to Common
 // Controls v5, which does not register the SysLink class used by the About and
@@ -39,18 +40,15 @@ BEGIN
     CONTROL "Sistema", IDC_SETTINGS_THEME_SYSTEM, "Button", BS_OWNERDRAW | WS_TABSTOP, 144, 10, 54, 22
     CONTROL "Claro", IDC_SETTINGS_THEME_LIGHT, "Button", BS_OWNERDRAW | WS_TABSTOP, 202, 10, 54, 22
     CONTROL "Oscuro", IDC_SETTINGS_THEME_DARK, "Button", BS_OWNERDRAW | WS_TABSTOP, 260, 10, 54, 22
-    CONTROL "", IDC_SETTINGS_RESTORE, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 16, 48, 16, 16
-    CONTROL "Reabrir los PDF de la última sesión", IDC_SETTINGS_RESTORE_LABEL, "Static", SS_LEFT | SS_NOTIFY, 36, 48, 280, 16
-    LTEXT "Al iniciar sin elegir un archivo. Los PDF protegidos volverán a pedir contraseña.", -1, 36, 69, 272, 28
-    CONTROL "", IDC_SETTINGS_OUTLINE, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 16, 104, 16, 16
-    CONTROL "Mostrar automáticamente el índice", IDC_SETTINGS_OUTLINE_LABEL, "Static", SS_LEFT | SS_NOTIFY, 36, 104, 280, 16
-    LTEXT "Al abrir un PDF con marcadores. Si se desmarca, el índice aparece al acercar el puntero al borde izquierdo o con Ctrl+B.", -1, 36, 125, 272, 28
-    CONTROL "", IDC_SETTINGS_ASSOCIATE, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 16, 152, 16, 16
-    CONTROL "Abrir los PDF con Chucao", IDC_SETTINGS_ASSOCIATE_LABEL, "Static", SS_LEFT | SS_NOTIFY, 36, 152, 280, 16
-    LTEXT "Registra a Chucao para abrir archivos PDF. Windows puede pedir confirmación; si no se aplica, usá el enlace de abajo.", -1, 36, 173, 272, 26
-    CONTROL "Abrir Configuración de aplicaciones predeterminadas", IDC_SETTINGS_DEFAULTAPPS, "Button", BS_OWNERDRAW | WS_TABSTOP, 16, 202, 300, 18
-    CONTROL "Olvidar recientes y posiciones guardadas", IDC_SETTINGS_CLEAR, "Button", BS_OWNERDRAW | WS_TABSTOP, 16, 226, 300, 18
-    LTEXT "", IDC_SETTINGS_STATUS, 16, 250, 300, 20
+    CONTROL "Reabrir los PDF de la última sesión", IDC_SETTINGS_RESTORE, "Button", BS_OWNERDRAW | WS_TABSTOP, 16, 48, 300, 16
+    LTEXT "Al iniciar sin elegir un archivo. Los PDF protegidos volverán a pedir contraseña.", -1, 40, 68, 268, 26
+    CONTROL "Mostrar automáticamente el índice", IDC_SETTINGS_OUTLINE, "Button", BS_OWNERDRAW | WS_TABSTOP, 16, 102, 300, 16
+    LTEXT "Al abrir un PDF con marcadores. Si se desmarca, el índice aparece al acercar el puntero al borde izquierdo o con Ctrl+B.", -1, 40, 122, 268, 26
+    CONTROL "Abrir los PDF con Chucao", IDC_SETTINGS_ASSOCIATE, "Button", BS_OWNERDRAW | WS_TABSTOP, 16, 156, 300, 16
+    LTEXT "Registra a Chucao para abrir archivos PDF. Windows puede pedir confirmación; si no se aplica, usá el enlace de abajo.", -1, 40, 176, 268, 26
+    CONTROL "Abrir Configuración de aplicaciones predeterminadas", IDC_SETTINGS_DEFAULTAPPS, "Button", BS_OWNERDRAW | WS_TABSTOP, 16, 208, 300, 18
+    CONTROL "Olvidar recientes y posiciones guardadas", IDC_SETTINGS_CLEAR, "Button", BS_OWNERDRAW | WS_TABSTOP, 16, 232, 300, 18
+    LTEXT "", IDC_SETTINGS_STATUS, 16, 252, 300, 20
 END
 
 1 VERSIONINFO
