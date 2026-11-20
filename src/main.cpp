@@ -187,10 +187,76 @@ INT_PTR CALLBACK AboutProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
                 SendDlgItemMessageW(dialog, IDC_ABOUT_ICON, STM_SETICON, reinterpret_cast<WPARAM>(bird), 0);
             }
         }
-        RECT owner{}, bounds{}; GetWindowRect(GetParent(dialog), &owner); GetWindowRect(dialog, &bounds);
-        SetWindowPos(dialog, nullptr, owner.left + ((owner.right - owner.left) - (bounds.right - bounds.left)) / 2,
-            owner.top + ((owner.bottom - owner.top) - (bounds.bottom - bounds.top)) / 2, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
-        // Start on informational text; Tab can still move to the repository link.
+        if (HWND list = GetDlgItem(dialog, IDC_ABOUT_HOTKEYS)) {
+            ListView_SetExtendedListViewStyle(list, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+            ListView_SetBkColor(list, UiTheme().field);
+            ListView_SetTextBkColor(list, UiTheme().field);
+            ListView_SetTextColor(list, UiTheme().ink);
+            SetWindowTheme(list, HighContrastActive() ? L"" : (UiDark() ? L"DarkMode_Explorer" : L"Explorer"), nullptr);
+            SendMessageW(list, WM_SETFONT, SendMessageW(dialog, WM_GETFONT, 0, 0), TRUE);
+            RECT area{}; GetClientRect(list, &area);
+            LVCOLUMNW column{}; column.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
+            int firstWidth = area.right * 28 / 100;
+            int spare = MulDiv(20, WindowDpi(dialog), 96);
+            column.pszText = const_cast<wchar_t*>(L"Atajo"); column.cx = firstWidth; column.iSubItem = 0;
+            ListView_InsertColumn(list, 0, &column);
+            column.pszText = const_cast<wchar_t*>(L"Acción"); column.cx = static_cast<int>(std::max<LONG>(1, area.right - firstWidth - spare)); column.iSubItem = 1;
+            ListView_InsertColumn(list, 1, &column);
+            struct Row { const wchar_t* keys; const wchar_t* action; };
+            static const Row rows[] = {
+                {L"Ctrl+O", L"Abrir un PDF"},
+                {L"Ctrl+T", L"Abrir un PDF en una pestaña nueva"},
+                {L"Ctrl+W", L"Cerrar la pestaña activa (en Inicio, volver al documento)"},
+                {L"Ctrl+Tab", L"Pestaña siguiente"},
+                {L"Ctrl+Mayús+Tab", L"Pestaña anterior"},
+                {L"Alt+Home", L"Volver a la pestaña de recientes"},
+                {L"Ctrl+B", L"Mostrar u ocultar el índice"},
+                {L"Ctrl+F", L"Buscar en el documento"},
+                {L"F3 / Mayús+F3", L"Siguiente / anterior coincidencia"},
+                {L"Enter", L"Abrir el reciente o capítulo enfocado; en Buscar, siguiente"},
+                {L"Ctrl+C", L"Copiar el texto seleccionado"},
+                {L"Tecla Menú / Mayús+F10", L"Menú contextual de copia"},
+                {L"Ctrl+P", L"Imprimir"},
+                {L"Ctrl+0", L"Ajustar al ancho"},
+                {L"Ctrl+1", L"Ajustar a la página"},
+                {L"Ctrl+2", L"Ajustar al alto"},
+                {L"+ / -", L"Acercar / alejar"},
+                {L"Ctrl+rueda", L"Zoom con la rueda"},
+                {L"Espacio / Mayús+Espacio", L"Avanzar / retroceder una pantalla"},
+                {L"Home / End", L"Principio / final del documento"},
+                {L"Page Up / Page Down", L"Página anterior / siguiente"},
+                {L"Flechas", L"Navegación continua"},
+                {L"Alt+Izquierda", L"Volver al punto anterior"},
+                {L"Tab / Mayús+Tab", L"Recorrer los controles de la barra"},
+                {L"F6", L"Alternar entre documento, índice y barra"},
+                {L"Escape", L"Cerrar la búsqueda o devolver el foco"},
+                {L"Ctrl+D", L"Cambiar entre tema claro y oscuro"},
+                {L"F1", L"Acerca de Chucao"},
+            };
+            for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i) {
+                LVITEMW item{}; item.mask = LVIF_TEXT; item.iItem = static_cast<int>(i);
+                item.pszText = const_cast<wchar_t*>(rows[i].keys);
+                ListView_InsertItem(list, &item);
+                ListView_SetItemText(list, static_cast<int>(i), 1, const_cast<wchar_t*>(rows[i].action));
+            }
+        }
+        HWND ownerWindow = GetParent(dialog);
+        RECT owner{}, bounds{};
+        if (ownerWindow) GetWindowRect(ownerWindow, &owner); else GetWindowRect(dialog, &owner);
+        GetWindowRect(dialog, &bounds);
+        int dialogWidth = bounds.right - bounds.left, dialogHeight = bounds.bottom - bounds.top;
+        int x = owner.left + ((owner.right - owner.left) - dialogWidth) / 2;
+        int y = owner.top + ((owner.bottom - owner.top) - dialogHeight) / 2;
+        // The hotkey table makes the dialog tall; keep it inside the monitor work
+        // area even when the reader sits near the bottom or on a small display.
+        MONITORINFO monitor{sizeof(monitor)};
+        if (GetMonitorInfoW(MonitorFromWindow(ownerWindow ? ownerWindow : dialog, MONITOR_DEFAULTTONEAREST), &monitor)) {
+            x = std::max<int>(monitor.rcWork.left, std::min<int>(x, monitor.rcWork.right - dialogWidth));
+            y = std::max<int>(monitor.rcWork.top, std::min<int>(y, monitor.rcWork.bottom - dialogHeight));
+        }
+        SetWindowPos(dialog, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+        // Start on informational text; Tab can still move to the repository link
+        // and then to the hotkey table.
         SetFocus(GetDlgItem(dialog, IDC_ABOUT_TITLE));
         LITEM link{}; link.mask = LIF_ITEMINDEX | LIF_STATE; link.iLink = 0; link.stateMask = LIS_FOCUSED;
         SendDlgItemMessageW(dialog, IDC_ABOUT_REPOSITORY, LM_SETITEM, 0, reinterpret_cast<LPARAM>(&link));
@@ -756,9 +822,10 @@ public:
     struct DocumentTab { std::wstring path; std::optional<ReadingState> reading; };
     std::vector<DocumentTab> tabs;
     int activeTab = -1, hoverTab = -1;
-    bool hoverTabClose = false;
+    bool hoverTabClose = false, homeActive = false, hoverHomeTab = false;
     struct TabLayout { RECT bounds{}, close{}; };
     std::vector<TabLayout> tabLayout;
+    RECT homeTabBounds{};
     std::wstring benchmarkReport;
     bool navigationTest = false;
     bool textTest = false;
@@ -2126,6 +2193,7 @@ public:
         ArrangeChrome();
     }
     void Load(const std::wstring& file, const std::wstring& password = L"", bool retry = false) {
+        homeActive = false;
         if (!worker) worker = std::make_unique<PdfWorker>(window);
         if (!retry) ResetDocument(file);
         openingDocument = true; status = L"Abriendo documento…"; ArrangeHome(); Redraw(); worker->Load(path, password, document, retry);
@@ -2140,7 +2208,8 @@ public:
     }
     void ActivateTab(int index) {
         if (index < 0 || index >= static_cast<int>(tabs.size())) return;
-        if (index == activeTab && (pages || openingDocument)) return;
+        if (index == activeTab && !homeActive && (pages || openingDocument)) return;
+        homeActive = false;
         activeTab = index;
         SaveSession(); Load(tabs[index].path);
     }
@@ -2148,16 +2217,18 @@ public:
         if (index < 0 || index >= static_cast<int>(tabs.size())) return;
         bool wasActive = index == activeTab;
         tabs.erase(tabs.begin() + index);
-        if (tabs.empty()) { activeTab = -1; SaveSession(); CloseDocument(); return; }
+        if (tabs.empty()) { activeTab = -1; homeActive = false; SaveSession(); CloseDocument(); return; }
         if (wasActive) {
             int next = std::min(index, static_cast<int>(tabs.size()) - 1);
             activeTab = next;
-            SaveSession(); Load(tabs[next].path);
+            SaveSession();
+            if (!homeActive) Load(tabs[next].path);
         } else { if (index < activeTab) --activeTab; SaveSession(); }
         ArrangeChrome(); Redraw();
     }
     void NextTab(int delta) {
-        if (tabs.size() < 2) return;
+        if (tabs.empty()) return;
+        if (tabs.size() == 1) { ActivateTab(0); return; }
         ActivateTab((activeTab + delta + static_cast<int>(tabs.size())) % static_cast<int>(tabs.size()));
     }
     void CloseDocument() {
@@ -2167,6 +2238,16 @@ public:
         status = L"Abrí un PDF para empezar · Ctrl+O";
         RefreshHomeRecents();
         Redraw();
+    }
+    void ShowHome() {
+        if (tabs.empty() || homeActive) return;
+        // Keep the document tabs and their saved positions; only unload the
+        // current PDF and return to the recents screen represented by the
+        // small home tab at the start of the tab strip.
+        homeActive = true;
+        CloseDocument();
+        SaveSession();
+        SetFocus(window);
     }
     bool TabsCheck(bool ok) {
         if (tabsTestFailed) return false;
@@ -2397,7 +2478,13 @@ public:
                     L"Chucao", MB_OK | MB_ICONWARNING);
             break;
         case NewTabCmd: ChooseFile(); break;
-        case CloseTabCmd: CloseTab(activeTab); break;
+        case CloseTabCmd:
+            // The home view behaves like a closable tab: Ctrl+W returns to the
+            // last document instead of deleting a document tab.
+            if (homeActive) {
+                if (activeTab >= 0 && activeTab < static_cast<int>(tabs.size())) ActivateTab(activeTab);
+            } else CloseTab(activeTab);
+            break;
         case NextTabCmd: NextTab(1); break;
         case PrevTabCmd: NextTab(-1); break;
         }
@@ -2626,10 +2713,15 @@ public:
     }
     void ComputeTabs(const RECT& rc) {
         tabLayout.clear();
+        homeTabBounds = {};
         if (tabs.empty()) return;
         int height = TabBarHeight(), x = D(8), gap = D(4), closeW = D(26);
+        int homeW = D(30);
         int count = static_cast<int>(tabs.size());
-        int tabW = std::max(D(96), std::min(D(220), static_cast<int>(rc.right - D(16) - gap * (count - 1)) / count));
+        // Reserve the last slot for the home/mini tab; a PDF opened from the
+        // recents screen becomes the last document tab, just before it.
+        int tabW = std::max(D(96), std::min(D(220),
+            (static_cast<int>(rc.right) - D(8) - homeW - D(8) - gap * count) / count));
         for (int i = 0; i < count; ++i) {
             TabLayout t;
             t.bounds = {x, BarPixels() + D(3), x + tabW, BarPixels() + height - D(2)};
@@ -2637,6 +2729,13 @@ public:
             tabLayout.push_back(t);
             x += tabW + gap;
         }
+        homeTabBounds = {x, BarPixels() + D(3), x + homeW, BarPixels() + height - D(2)};
+    }
+    bool HomeTabHitTest(int x, int y) {
+        if (tabs.empty()) return false;
+        RECT rc{}; GetClientRect(window, &rc); ComputeTabs(rc);
+        return x >= homeTabBounds.left && x < homeTabBounds.right &&
+            y >= homeTabBounds.top && y < homeTabBounds.bottom;
     }
     int TabHitTest(int x, int y, bool& close) {
         close = false;
@@ -2653,6 +2752,7 @@ public:
         return -1;
     }
     bool TabClick(int x, int y) {
+        if (HomeTabHitTest(x, y)) { ShowHome(); return true; }
         if (tabs.empty()) return false;
         bool close = false;
         int index = TabHitTest(x, y, close);
@@ -2664,10 +2764,23 @@ public:
     void DrawTabs(HDC dc, const RECT& rc) {
         if (tabs.empty()) return;
         ComputeTabs(rc);
-        SelectObject(dc, font); SetBkMode(dc, TRANSPARENT);
+        SetBkMode(dc, TRANSPARENT);
+        // Small home/new-view tab, always at the start of the strip so it stays
+        // reachable no matter how many documents are open.
+        COLORREF homeFill = homeActive ? UiTheme().canvas : hoverHomeTab ? UiTheme().hover : UiTheme().bar;
+        UiRoundRect(dc, homeTabBounds, homeFill, UiTheme().line, D(8));
+        if (homeActive) {
+            RECT underline{homeTabBounds.left + D(6), homeTabBounds.bottom - D(2), homeTabBounds.right - D(6), homeTabBounds.bottom - D(1)};
+            SetDCBrushColor(dc, UiTheme().accent);
+            FillRect(dc, &underline, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+        }
+        SelectObject(dc, strongFont); SetTextColor(dc, homeActive ? UiTheme().ink : UiTheme().muted);
+        RECT plus = homeTabBounds;
+        DrawTextW(dc, L"+", -1, &plus, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        SelectObject(dc, font);
         for (size_t i = 0; i < tabLayout.size(); ++i) {
             const auto& t = tabLayout[i];
-            bool active = static_cast<int>(i) == activeTab;
+            bool active = !homeActive && static_cast<int>(i) == activeTab;
             bool hovered = static_cast<int>(i) == hoverTab;
             COLORREF fill = active ? UiTheme().canvas : hovered ? UiTheme().hover : UiTheme().bar;
             UiRoundRect(dc, t.bounds, fill, UiTheme().line, D(8));
@@ -3257,9 +3370,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     case WM_MOUSEMOVE: {
         app->MoveSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); app->HoverLinks(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
         if (GET_X_LPARAM(lp) < app->D(18) && GET_Y_LPARAM(lp) >= app->ContentTop()) app->PeekOutline();
+        bool changed = false;
+        bool homeHover = app->HomeTabHitTest(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
+        if (app->hoverHomeTab != homeHover) { app->hoverHomeTab = homeHover; changed = true; }
         bool close = false;
         int index = app->TabHitTest(GET_X_LPARAM(lp), GET_Y_LPARAM(lp), close);
-        if (app->hoverTab != index || app->hoverTabClose != close) { app->hoverTab = index; app->hoverTabClose = close; app->Redraw(); }
+        if (app->hoverTab != index || app->hoverTabClose != close) { app->hoverTab = index; app->hoverTabClose = close; changed = true; }
+        if (changed) app->Redraw();
         return 0;
     }
     case WM_LBUTTONUP: app->FinishSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
@@ -3395,7 +3512,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     ULONG_PTR gdiplusToken = 0;
     Gdiplus::Status gdiplusStatus = Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusInput, nullptr);
     int initialDpi = SystemDpi();
-    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_TREEVIEW_CLASSES | ICC_LINK_CLASS}; InitCommonControlsEx(&controls);
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_TREEVIEW_CLASSES | ICC_LINK_CLASS | ICC_LISTVIEW_CLASSES}; InitCommonControlsEx(&controls);
     WNDCLASSW wc{}; wc.hInstance = instance; wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(IDI_CHUCAO));
     wc.lpszClassName = L"ChucaoReader"; wc.lpfnWndProc = WindowProc; RegisterClassW(&wc);
@@ -3527,6 +3644,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
             if (!edit && focused == window &&
                 (msg.wParam == VK_APPS || (msg.wParam == VK_F10 && GetKeyState(VK_SHIFT) < 0))) {
                 app.ShowTextMenuAtSelection(); continue;
+            }
+            if (!edit && GetKeyState(VK_MENU) < 0 && msg.wParam == VK_HOME) {
+                app.ShowHome(); continue;
             }
             if (!edit && focused == window && msg.wParam == VK_SPACE) {
                 app.pendingReadingState.reset(); ++app.linkEpoch;

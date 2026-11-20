@@ -1,6 +1,7 @@
 #include "resource.h"
 #include "app-info.h"
 #include <windows.h>
+#include <commctrl.h>
 #pragma code_page(65001)
 IDI_CHUCAO ICON "assets/branding/chucao.ico"
 IDB_CHUCAO_HOME BITMAP "assets/branding/chucao-home.bmp"
@@ -12,19 +13,21 @@ IDB_CHUCAO_HOME BITMAP "assets/branding/chucao-home.bmp"
 // independent from an external Chucao.exe.manifest file.
 1 24 "src/chucao.manifest"
 
-IDD_ABOUT DIALOGEX 0, 0, 416, 130
+IDD_ABOUT DIALOGEX 0, 0, 480, 320
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Acerca de Chucao"
 FONT 9, "Segoe UI"
 BEGIN
     // The icon is resized in AboutProc to match the height of the text block.
     ICON IDI_CHUCAO, IDC_ABOUT_ICON, 12, 12, 100, 100
-    LTEXT "Chucao PDF Reader", IDC_ABOUT_TITLE, 150, 12, 246, 14
-    LTEXT "", IDC_ABOUT_VERSION, 150, 30, 246, 12
-    LTEXT "", IDC_ABOUT_AUTHOR, 150, 48, 246, 12
-    LTEXT "", IDC_ABOUT_EMAIL, 150, 62, 246, 12
-    LTEXT "", IDC_ABOUT_RELEASE, 150, 80, 246, 12
-    CONTROL "<a href=""https://github.com/jabrugger/chucao-pdf-reader"">github.com/jabrugger/chucao-pdf-reader</a>", IDC_ABOUT_REPOSITORY, "SysLink", WS_TABSTOP, 150, 99, 246, 18
+    LTEXT "Chucao PDF Reader", IDC_ABOUT_TITLE, 150, 12, 316, 14
+    LTEXT "", IDC_ABOUT_VERSION, 150, 30, 316, 12
+    LTEXT "", IDC_ABOUT_AUTHOR, 150, 48, 316, 12
+    LTEXT "", IDC_ABOUT_EMAIL, 150, 62, 316, 12
+    LTEXT "", IDC_ABOUT_RELEASE, 150, 80, 316, 12
+    CONTROL "<a href=""https://github.com/jabrugger/chucao-pdf-reader"">github.com/jabrugger/chucao-pdf-reader</a>", IDC_ABOUT_REPOSITORY, "SysLink", WS_TABSTOP, 150, 99, 316, 18
+    LTEXT "Atajos de teclado", IDC_ABOUT_HOTKEYS_LABEL, 12, 132, 200, 12
+    CONTROL "", IDC_ABOUT_HOTKEYS, "SysListView32", LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | WS_BORDER | WS_TABSTOP | WS_VSCROLL, 12, 148, 456, 160
 END
 
 IDD_SETTINGS DIALOGEX 0, 0, 332, 274

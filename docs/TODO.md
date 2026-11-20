@@ -31,6 +31,9 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
    Mayús+F10; resolución del índice antes de la primera página y conservación del
    zoom al navegar capítulos. Evidencia: [reader-interface.md](reader-interface.md)
    y [accessibility.md](accessibility.md).
+8. [x] Publicar 0.2.5 con la mini pestaña «+» al final de la fila para volver a
+   recientes sin cerrar documentos, y la tabla completa de atajos en Acerca de.
+   Evidencia: [tabs.md](tabs.md) y [accessibility.md](accessibility.md).
 
 ## Funciones y diseño
 
@@ -201,6 +204,12 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   y que navegar un capítulo conserve el zoom/modo actual; los enlaces internos
   mantienen la vista del destino. Evidencia:
   [reader-interface.md](reader-interface.md).
+- [x] Verificar la mini pestaña «+» con dos documentos abiertos: muestra recientes,
+  conserva las pestañas y Ctrl+W regresa al último documento. Evidencia:
+  [tabs.md](tabs.md).
+- [x] Verificar el «+» al final de la fila y la tabla de atajos en Acerca de (F1),
+  con desplazamiento y sin scroll horizontal. Evidencia:
+  [accessibility.md](accessibility.md).
 - [ ] Validar manualmente la animación y el contraste de la carga con PDF grandes,
   unidades cloud, DPI altos y alto contraste.
 - [ ] Validar manualmente la instalación, la asociación real de `.pdf`, la

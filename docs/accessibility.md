@@ -39,12 +39,17 @@ aparecen en el recorrido solo cuando la barra está visible.
 | Alt+Izquierda | Volver al punto anterior |
 | Escape | Cerrar la búsqueda; en la barra, devolver el foco al documento |
 | Tecla Menú / Mayús+F10 | Abrir el menú contextual de copia sobre el documento |
+| Alt+Home | Volver a la pestaña inicial de recientes sin cerrar documentos |
 
 Los atajos existentes (Ctrl+O, Ctrl+B, Ctrl+F, Ctrl+P, Ctrl+C, Ctrl+0, Ctrl+1,
 Ctrl+2, F1, F3, Mayús+F3) se mantienen. Ctrl+0 ajusta al ancho, Ctrl+1 a la página
 completa y Ctrl+2 al alto. En la bienvenida, las flechas recorren la lista de
 recientes y Enter abre la entrada elegida. El menú contextual expone «Copiar» con
 su atajo Ctrl+C; si no hay selección, el ítem aparece deshabilitado.
+
+La **tabla completa de atajos** está en **Acerca de** (F1), debajo de los datos de
+la versión. Incluye Ctrl+O/Ctrl+T para abrir, Ctrl+W y Ctrl+Tab para pestañas,
+Ctrl+0/1/2 para ajuste, el menú contextual y la navegación con teclado.
 
 ## Nombres accesibles
 

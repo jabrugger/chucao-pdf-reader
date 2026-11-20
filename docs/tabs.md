@@ -13,6 +13,10 @@ el texto en color principal.
   duplicarla (comparando la ruta normalizada).
 - Un solo clic en un PDF de la lista de recientes lo abre, aunque ya estuviera
   seleccionado.
+- Una **mini pestaña «+»** al final de la franja, después de la última pestaña,
+  muestra la pantalla de recientes sin cerrar los documentos. Al elegir un
+  reciente se abre o activa su pestaña; **Alt+Home** hace lo mismo y **Ctrl+W**
+  sobre la vista de recientes vuelve al último documento.
 - Clic en una pestaña la activa. **Ctrl+Tab** y **Ctrl+Mayús+Tab** recorren las
   pestañas; **Ctrl+T** abre un documento nuevo y **Ctrl+W** cierra la activa.
 - El aspa, **clic del medio** o Ctrl+W cierran una pestaña. Al cerrar la activa
