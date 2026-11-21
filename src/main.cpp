@@ -3201,6 +3201,14 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
         return TRUE;
     }
     if (!app) return FALSE;
+    // The dialog paints its own background with the current palette. Relying on the
+    // default erase made the dialog keep the old (dark) background after switching
+    // to light, while its children repainted light.
+    if (message == WM_ERASEBKGND) {
+        RECT client{}; GetClientRect(dialog, &client);
+        FillRect(reinterpret_cast<HDC>(wp), &client, UiBackgroundBrush());
+        SetWindowLongPtrW(dialog, DWLP_MSGRESULT, 1); return TRUE;
+    }
     if (message == WM_CTLCOLORDLG || message == WM_CTLCOLORSTATIC || message == WM_CTLCOLORBTN || message == WM_CTLCOLORLISTBOX) {
         if (message != WM_CTLCOLORDLG) { SetTextColor(reinterpret_cast<HDC>(wp), UiTheme().ink); SetBkColor(reinterpret_cast<HDC>(wp), UiTheme().bar); }
         return reinterpret_cast<INT_PTR>(UiBackgroundBrush());
@@ -3369,7 +3377,9 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
             bool saved = value.restoreSession ? app->SaveSession() : !wasRestoring || SessionStore(app->SessionFile()).Write({});
             SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, saved ? L"" : L"No se pudo actualizar la sesión guardada.");
             ApplyWindowTheme(dialog, UiDark());
-            RedrawWindow(dialog, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
+            // This small modal dialog does need its background erased with the new palette;
+            // the main window's redraw (which must not erase) is handled in ApplyPalette.
+            RedrawWindow(dialog, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
         };
         if (id == IDC_SETTINGS_THEME_SYSTEM || id == IDC_SETTINGS_THEME_LIGHT || id == IDC_SETTINGS_THEME_DARK) {
             if (HIWORD(wp) == BN_CLICKED)
