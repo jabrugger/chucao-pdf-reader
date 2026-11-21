@@ -7,7 +7,7 @@ prevén edición, anotaciones, OCR ni herramientas para modificar documentos.
 
 ## Estado
 
-Prototipo inicial en C++ y Win32, con PDFium. La selección del motor es provisional:
+Versión 0.2.x en desarrollo, en C++ y Win32, con PDFium. La selección del motor es provisional:
 ver [evaluación técnica](docs/engine-evaluation.md). La interfaz actual es una base
 funcional; todavía no representa el diseño final inspirado en MarkPad.
 
@@ -60,7 +60,9 @@ PDF opcional):
 powershell -ExecutionPolicy Bypass -File scripts/package-installer.ps1
 ```
 
-Produce `dist/Chucao-0.2.8-setup.exe`. Ver [distribución](docs/distribution.md) e
+Produce `dist/Chucao-0.2.8-setup.exe`. El instalador y el EXE **no están firmados**:
+Windows SmartScreen puede mostrar "Windows protegió su PC"; elegí "Más información" y
+"Ejecutar de todas formas" si descargaste Chucao desde este repositorio. Ver [distribución](docs/distribution.md) e
 [instalador](docs/installer.md).
 
 ## Uso del prototipo
@@ -212,3 +214,8 @@ el navegador puede conectarse al sitio elegido al hacer clic en un enlace web.
 
 La imagen elegida por el usuario está en [assets/branding](assets/branding/README.md).
 El icono y la bienvenida se incluyen en el EXE; no requieren imágenes externas al ejecutarlo.
+
+## Contribuir
+
+Ver [CONTRIBUTING.md](CONTRIBUTING.md) para compilar, probar y orientarte en el código,
+y [SECURITY.md](SECURITY.md) para reportar vulnerabilidades.
