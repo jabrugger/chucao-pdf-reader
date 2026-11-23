@@ -4,6 +4,12 @@ Actualización posterior: [revisión del 2026-11-19](review-2026-11-19.md), con
 Opciones, sesión, bienvenida y resaltado del índice ya incorporados. El filtro
 del índice sigue pendiente después de validar el resaltado con documentos reales.
 
+Actualización 2026-11-23: base `98b9056` (tag `v0.2.8`), `main` sincronizada con
+`origin/main` y árbol limpio. No hay commits nuevos en el remoto desde el tag.
+Se recompiló con `scripts/build.cmd` y la suite completa pasó con código 0; el
+alcance y la evidencia están en [TODO.md](TODO.md). El siguiente paso sigue
+siendo la validación manual y las mediciones, sin agregar funciones grandes.
+
 Base revisada: `3f55ece`, rama `main`, sincronizada con `origin/main` al iniciar.
 El árbol estaba limpio. Se revisaron los 14 commits posteriores a `0c89272` y sus
 documentos de alcance. No se revirtieron cambios de DS ni se modificó el motor.
@@ -39,9 +45,10 @@ no sustituyen monitores reales ni cambiar Windows a alto contraste. Impresión,
 IME, lectores de pantalla, archivos remotos y sensaciones de interacción siguen
 requiriendo las pruebas manuales registradas.
 
-**Entrega:** `src/app-info.h` y CMake indican 0.2.7 y fecha 20/11/2026, con el
-manifiesto de Windows incrustado. El ZIP y el instalador se regeneraron y se
-verificaron localmente; falta probarlos en otra PC antes de publicarlos.
+**Entrega:** `src/app-info.h` y CMake indican 0.2.8 y fecha 21/11/2026, con el
+manifiesto de Windows incrustado; el tag `v0.2.8` apunta a `98b9056` y está
+empujado a `origin`. En esta copia no hay `dist/`: falta regenerar el ZIP y el
+instalador 0.2.8 y probarlos en otra PC antes de publicarlos.
 
 ## Orden de trabajo
 

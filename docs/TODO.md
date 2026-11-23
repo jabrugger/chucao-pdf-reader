@@ -1,6 +1,6 @@
 # Pendientes de Chucao PDF Reader
 
-Actualizado: 2026-11-19.
+Actualizado: 2026-11-23.
 
 Lista consolidada de trabajo pendiente. Las casillas se marcan cuando el resultado
 está implementado y verificado; las validaciones manuales se registran por separado.
@@ -40,6 +40,11 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 10. [x] Publicar 0.2.7 con logo transparente, barra de título oscura, casillas
     ownerdraw, selección del índice sin gris residual y barras nativas oscuras.
     Evidencia: [themes.md](themes.md) y [performance.md](performance.md).
+11. [x] Cortar 0.2.8 con el pulido final del tema oscuro y de la barra nativa,
+    la división de `main.cpp` en fragmentos por responsabilidad y los archivos
+    comunitarios (CONTRIBUTING, SECURITY, plantillas de issue/PR y CI). Versión y
+    fecha en `app-info.h` y CMake; tag `v0.2.8` sobre `98b9056`, empujado a
+    `origin`. Evidencia: [themes.md](themes.md) y [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Funciones y diseño
 
@@ -135,6 +140,16 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
     página cuando corresponde. Evidencia: [error-messages.md](error-messages.md).
 
 ## Validación de funciones implementadas
+
+- [x] Recompilar v0.2.8 (`98b9056`) con `scripts/build.cmd` y ejecutar la suite
+  completa el 2026-11-23: código de salida 0. Pasaron apertura/renderizado,
+  estado de lectura, recientes, preferencias, ventana, robustez, asociación,
+  contraseñas/permisos, mensajes, temas, DPI, teclado, alto contraste, apertura
+  rápida, pestañas (18 etapas, 27 comprobaciones, 2 cierres y 3 pedidos de
+  contraseña), geometría, arranque, carga, Acerca de, índice, filtro, enlaces,
+  destinos, ajustes, navegación y texto. La salida local quedó en
+  `test-results/regression-2026-11-23.log`, que no se versiona. Esta corrida no
+  convierte en realizadas las validaciones manuales pendientes.
 
 - [x] Revisar `07de759`, recompilar y ejecutar la suite completa el 2026-11-19.
   Estado y límites: [review-2026-11-19.md](review-2026-11-19.md).
