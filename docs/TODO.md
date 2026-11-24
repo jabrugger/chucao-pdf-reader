@@ -53,6 +53,11 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
     clara de 1 px en los botones y el logo del tema oscuro. Evidencia:
     [reader-interface.md](reader-interface.md), [outline-navigation.md](outline-navigation.md)
     y [themes.md](themes.md).
+14. [x] Cortar 0.2.11 con la corrección del arranque: en Windows 11 la ventana
+    podía quedar detrás de otras y sin botón en la barra de tareas hasta activarse,
+    por lo que parecía que la app se cerraba sola (típicamente al abrirla desde el
+    instalador). Ahora pide el primer plano y, si Windows se niega, la vuelve a
+    mostrar una vez. Evidencia: [accessibility.md](accessibility.md).
 
 ## Funciones y diseño
 
@@ -165,6 +170,19 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   [reader-interface.md](reader-interface.md) y [accessibility.md](accessibility.md).
 
 ## Validación de funciones implementadas
+
+- [x] Recompilar v0.2.11 y ejecutar la suite completa el 2026-11-24: código de
+  salida 0. El botón de la barra de tareas se comprobó leyendo la barra con UI
+  Automation: antes del cambio no aparecía en ningún lanzamiento (desde un proceso
+  en segundo plano ni desde el Explorador) y con la compilación y con el EXE del
+  ZIP final aparece en todos (3 de 3 y 2 de 2). ZIP verificado con
+  `test-package.ps1` sobre el ZIP final (`package-installer.ps1` lo regenera).
+  SHA-256: ZIP `f1849ef0a38e2bca580fef2349e65ada85d595691bc4f25459ed94f96d463f9a`,
+  instalador `eb325250e78708d60d64ccb5d58c05d531562149f0e5847d31757d4b2146bf80`.
+  Salida local en `test-results/regression-0.2.11-2026-11-24.log`, no versionada.
+  Pendiente: repetir el flujo completo del instalador (opción «Abrir Chucao» al
+  terminar) con esta versión y probarla en otra PC. No se conoce la causa de fondo
+  por la que Windows no asigna el botón en el arranque.
 
 - [x] Recompilar v0.2.10 y ejecutar la suite completa el 2026-11-23: código de
   salida 0. ZIP verificado con `test-package.ps1` (sobre el ZIP final, ya que

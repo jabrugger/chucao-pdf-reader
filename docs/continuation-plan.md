@@ -4,9 +4,9 @@ Actualización posterior: [revisión del 2026-11-19](review-2026-11-19.md), con
 Opciones, sesión, bienvenida y resaltado del índice ya incorporados. El filtro
 del índice sigue pendiente después de validar el resaltado con documentos reales.
 
-Actualización 2026-11-23: versión 0.2.10 (tag `v0.2.10`, sobre `v0.2.9` que
-incluyó el chequeo de actualizaciones opt-in), `main` sincronizada con `origin/main`
-y árbol limpio.
+Actualización 2026-11-24: versión 0.2.11 (tag `v0.2.11`, que corrige el arranque sin
+botón en la barra de tareas; antes `v0.2.10` y `v0.2.9`, que incluyó el chequeo de
+actualizaciones opt-in), `main` sincronizada con `origin/main` y árbol limpio.
 Se recompiló con `scripts/build.cmd` y la suite completa pasó con código 0; el
 alcance y la evidencia están en [TODO.md](TODO.md). El siguiente paso sigue
 siendo la validación manual y las mediciones, sin agregar funciones grandes.
@@ -46,10 +46,10 @@ no sustituyen monitores reales ni cambiar Windows a alto contraste. Impresión,
 IME, lectores de pantalla, archivos remotos y sensaciones de interacción siguen
 requiriendo las pruebas manuales registradas.
 
-**Entrega:** `src/app-info.h` y CMake indican 0.2.10, con el manifiesto de Windows
+**Entrega:** `src/app-info.h` y CMake indican 0.2.11, con el manifiesto de Windows
 incrustado y el chequeo de actualizaciones opt-in (desactivado por defecto); el tag
-`v0.2.10` está empujado a `origin` (`v0.2.9` quedó en `34bd54c` y `v0.2.8` en
-`98b9056`). Falta probar el ZIP y el instalador 0.2.10 en otra PC.
+`v0.2.11` está empujado a `origin` (`v0.2.10`, `v0.2.9` en `34bd54c` y `v0.2.8` en
+`98b9056`). Falta probar el ZIP y el instalador 0.2.11 en otra PC.
 
 ## Orden de trabajo
 

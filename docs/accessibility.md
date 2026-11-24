@@ -128,6 +128,18 @@ propios interceptan `WM_PAINT`, `WM_NCCALCSIZE` y `WM_NCPAINT` para que el contr
 `BUTTON` no agregue su marco 3D nativo, que se veía como un borde claro en el
 tema oscuro. El estado presionado, el foco y el hover se calculan en el subclass.
 
+## Botón en la barra de tareas al arrancar
+
+En Windows 11 la ventana principal podía quedar detrás de otras y sin botón en la barra
+de tareas hasta que se activaba (o se ocultaba y volvía a mostrar), por lo que parecía
+que la aplicación se cerraba sola, típicamente al abrirla desde el instalador. Tras
+mostrar la ventana, Chucao pide el primer plano y, si Windows lo rechaza, la oculta y la
+muestra una vez más para que el shell registre el botón. Se verificó leyendo los botones
+de la barra con UI Automation: no aparecía en ningún lanzamiento antes del cambio y
+aparece en todos después, con la compilación y con el EXE del ZIP. Se desconoce la causa
+de fondo; el cambio es un rodeo. Pendiente: repetir el flujo del instalador y probar en
+otra PC.
+
 ## Pendiente manual
 
 - Narrator/NVDA: anuncio del nombre de los botones, del campo de búsqueda, del
