@@ -64,6 +64,9 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
     limpiar el filtro, y doble clic (palabra) / triple clic (línea/párrafo) en la
     selección de texto. Evidencia: [accessibility.md](accessibility.md),
     [document-outline.md](document-outline.md) y [text-reading.md](text-reading.md).
+16. [x] Cortar 0.2.13 limitando el chequeo de actualizaciones a como máximo una vez
+    por día (se guarda `updates_last` en `settings.dat`). Evidencia:
+    [updater.md](updater.md) y [preferences.md](preferences.md).
 
 ## Funciones y diseño
 
@@ -179,6 +182,14 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   [reader-interface.md](reader-interface.md) y [accessibility.md](accessibility.md).
 
 ## Validación de funciones implementadas
+
+- [x] Recompilar v0.2.13 y ejecutar la suite completa el 2026-11-24: código de
+  salida 0. ZIP verificado con `test-package.ps1` e instalador generado. SHA-256:
+  ZIP `df0e1b8df0769f9d769aaf18d876f10cdcd74cd6f74643cc2c6ff718c4704413`,
+  instalador `38447316a3f85269e69bef60697dc49bf7d0852020adbed4f57d9a7f062776c7`.
+  Salida local en `test-results/regression-0.2.13-2026-11-24.log`, no versionada.
+  El chequeo de actualizaciones una vez por día se cubre en `preferences-test.exe`
+  (parseo, valor inválido y round-trip de `updates_last`).
 
 - [x] Recompilar v0.2.12 y ejecutar la suite completa el 2026-11-24: código de
   salida 0. ZIP verificado con `test-package.ps1` e instalador generado. SHA-256:

@@ -86,7 +86,7 @@ y `UserChoice`. Una asociación elegida para otra aplicación se conserva.
 ## Verificación pendiente
 
 La compilación y la lógica de asociación están automatizadas. La instalación 0.2.6
-se verificó localmente el 20/11/2026; la 0.2.12 incluye estas correcciones y sigue
+se verificó localmente el 20/11/2026; la 0.2.13 incluye estas correcciones y sigue
 pendiente de instalar/validar. En la instalación 0.2.6, tras actualizar,
 «Acerca de» y «Opciones» abren desde el menú Inicio y el EXE carga Common Controls
 v6 sin ningún `Chucao.exe.manifest` externo. Antes de publicar el instalador hay
