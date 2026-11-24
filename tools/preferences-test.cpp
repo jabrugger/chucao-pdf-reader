@@ -30,6 +30,12 @@ int wmain(int argc, wchar_t** argv) {
         Check(read && !read->autoShowOutline, "manual index round trip");
         Raw(settingsFile, "ChucaoSettings 1\ntheme=light\noutline=0\nrestore=1\n"); read = settings.Read();
         Check(read && !read->autoShowOutline && read->restoreSession, "outline preference alongside restore");
+        Raw(settingsFile, "ChucaoSettings 1\ntheme=light\nupdates=1\n"); read = settings.Read();
+        Check(read && read->checkUpdates, "updates preference parsed");
+        Raw(settingsFile, "ChucaoSettings 1\ntheme=dark\nupdates=maybe\n"); Check(!settings.Read(), "invalid updates preference ignored safely");
+        AppSettings withUpdates; withUpdates.checkUpdates = true;
+        Check(settings.Write(withUpdates), "save updates preference"); read = settings.Read();
+        Check(read && read->checkUpdates && !read->dark && !read->restoreSession && read->autoShowOutline, "updates preference round trip");
         Raw(settingsFile, "ChucaoSettings 1\ntheme=dark\noutline=maybe\n"); Check(!settings.Read(), "invalid outline preference ignored safely");
         Raw(settingsFile, "ChucaoSettings 1\ntheme=dark\nrestore=oops\n"); Check(!settings.Read(), "invalid restore ignored safely");
         Check(settings.Write({false, false, false, true, true, {10, 20, 1010, 720}, false}), "save window placement");
@@ -49,6 +55,6 @@ int wmain(int argc, wchar_t** argv) {
         Raw(sessionFile, std::string(1024 * 1024 + 1, 'x')); Check(sessions.Read().paths.empty(), "oversized session ignored");
         Check(sessions.Write({}) && sessions.Read().paths.empty(), "clear and recover corrupt session");
         Check(!SessionStore(folder).Write({}), "write failure preserves directory");
-        std::puts("preferences: legacy, opt-in, window placement, Unicode, active tab, bounds, corruption and clear OK"); return 0;
+        std::puts("preferences: legacy, opt-in, updates, window placement, Unicode, active tab, bounds, corruption and clear OK"); return 0;
     } catch (const std::exception& error) { std::fprintf(stderr, "%s\n", error.what()); return 1; }
 }

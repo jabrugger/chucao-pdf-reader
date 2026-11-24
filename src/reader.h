@@ -63,8 +63,10 @@ public:
     std::wstring readingStateFile;
     bool settingsEnabled = true, settingsConfigured = false, forceDarkTheme = false;
     bool forceHighContrast = false, darkTheme = false, applyingPalette = false, paletteReady = false;
-bool followSystemTheme = false, autoShowOutline = true;
+bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
     std::wstring settingsFile;
+    bool updatesTest = false;
+    std::wstring updatesTestFile;
     std::optional<ReadingState> pendingReadingState;
     int readingStateTest = 0, readingStateStep = 0, readingStateChecks = 0;
     bool readingStateFound = false;
@@ -348,6 +350,7 @@ bool followSystemTheme = false, autoShowOutline = true;
     }
     AppSettings CollectSettings() const {
         AppSettings value{darkTheme, restoreLastSession, followSystemTheme, autoShowOutline};
+        value.checkUpdates = checkUpdates;
         if (window) {
             WINDOWPLACEMENT placement{}; placement.length = sizeof(placement);
             if (GetWindowPlacement(window, &placement)) {
@@ -408,13 +411,14 @@ bool followSystemTheme = false, autoShowOutline = true;
         applyingPalette = false;
     }
     void LoadTheme() {
-        restoreLastSession = false; followSystemTheme = false; autoShowOutline = outlineAutoShow = true;
+        restoreLastSession = false; followSystemTheme = false; autoShowOutline = outlineAutoShow = true; checkUpdates = false;
         if (forceHighContrast) { ApplyPalette(false, false); return; }
         if (forceDarkTheme) { ApplyPalette(true, false); return; }
         if (ConfigureSettings()) {
             if (auto settings = SettingsStore(settingsFile).Read()) {
                 restoreLastSession = settings->restoreSession; followSystemTheme = settings->followSystem;
                 autoShowOutline = outlineAutoShow = settings->autoShowOutline;
+                checkUpdates = settings->checkUpdates;
                 ApplyPalette(followSystemTheme ? SystemPrefersDark() : settings->dark, false); return;
             }
         }
@@ -422,6 +426,50 @@ bool followSystemTheme = false, autoShowOutline = true;
     }
     // Ctrl+D is an explicit choice, so it stops following the system.
     void ToggleTheme() { followSystemTheme = false; ApplyPalette(!darkTheme, true); }
+    // Run the opt-in release check on a detached thread and deliver the result
+    // back through UpdateReady. The thread only touches the window handle and free
+    // functions, so it stays safe if the window is destroyed while it runs.
+    void StartUpdateCheck() {
+        if (!checkUpdates || !IsWindow(window) || !benchmarkReport.empty()) return;
+        HWND target = window;
+        std::thread([target]() {
+            UpdateInfo info = CheckForUpdate();
+            auto payload = new UpdateInfo(std::move(info));
+            if (!PostMessageW(target, UpdateReady, 0, reinterpret_cast<LPARAM>(payload))) delete payload;
+        }).detach();
+    }
+    void OnUpdateChecked(UpdateInfo* payload) {
+        std::unique_ptr<UpdateInfo> info(payload);
+        if (!info || !info->checked || !info->newer || !IsWindow(window)) return;
+        std::wstring message = L"Hay una nueva versión de Chucao disponible (" + info->latest +
+            L").\n\n¿Abrir la página de descargas en el navegador?";
+        if (MessageBoxW(window, message.c_str(), L"Chucao — actualización disponible",
+            MB_YESNO | MB_ICONINFORMATION) == IDYES)
+            OpenWebLink(info->url);
+    }
+    // Offline diagnostic: evaluate a local releases/latest payload with the same
+    // parser and version comparison the live check uses, without any network.
+    void RunUpdatesTest() {
+        std::string body;
+        HANDLE file = CreateFileW(updatesTestFile.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file != INVALID_HANDLE_VALUE) {
+            LARGE_INTEGER size{}; DWORD read = 0;
+            if (GetFileSizeEx(file, &size) && size.QuadPart > 0 && size.QuadPart <= 65536) {
+                body.resize(static_cast<size_t>(size.QuadPart));
+                if (!ReadFile(file, &body[0], static_cast<DWORD>(body.size()), &read, nullptr)) body.clear();
+                body.resize(read);
+            }
+            CloseHandle(file);
+        }
+        UpdateInfo info = FromReleaseJson(body);
+        char data[512]{};
+        int size = sprintf_s(data, "{\"success\":%s,\"newer\":%s,\"latest\":\"%ls\"}\n",
+            info.checked ? "true" : "false", info.newer ? "true" : "false", info.latest.c_str());
+        HANDLE output = CreateFileW(benchmarkReport.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (output != INVALID_HANDLE_VALUE) { DWORD written = 0; WriteFile(output, data, size, &written, nullptr); CloseHandle(output); }
+        PostMessageW(window, WM_CLOSE, 0, 0);
+    }
     std::wstring SessionFile() {
         if (!ConfigureSettings()) return {};
         return settingsFile.substr(0, settingsFile.find_last_of(L"\\/") + 1) + L"last-session.dat";

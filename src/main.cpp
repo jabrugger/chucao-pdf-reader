@@ -59,6 +59,7 @@ EXTERN_C const MSAAPROPID DECLSPEC_SELECTANY PROPID_ACC_NAME =
 #include "about-dialog.h"
 #include "pdf-worker.h"
 #include "password-dialog.h"
+#include "updater.h"
 #include "reader.h"
 #include "settings-dialog.h"
 #include "chrome-controls.h"
@@ -86,9 +87,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool outlineFilterTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-outline-filter";
     bool windowTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-window";
     bool fitTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-fit";
+    bool updatesTest = argv && argc == 4 && std::wstring(argv[1]) == L"--benchmark-updates";
     int sessionTest = argv ? (argc == 6 && std::wstring(argv[1]) == L"--benchmark-session-write" ? 1 : argc == 4 && std::wstring(argv[1]) == L"--benchmark-session-read" ? 2 : argc == 4 && std::wstring(argv[1]) == L"--benchmark-session-off" ? 3 : 0) : 0;
     bool interfaceTest = argv && argc >= 4 && std::wstring(argv[1]) == L"--benchmark-interface";
-    bool benchmark = sessionTest || interfaceTest || recentTest || themeTest || startupTest || dpiTest || keysTest || hcTest || rapidTest || tabsTest || outlineFilterTest || windowTest || fitTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
+    bool benchmark = sessionTest || interfaceTest || recentTest || themeTest || startupTest || dpiTest || keysTest || hcTest || rapidTest || tabsTest || outlineFilterTest || windowTest || fitTest || updatesTest || stateTest || (argv && argc >= 4 && (std::wstring(argv[1]) == L"--benchmark-open" || navigationTest || textTest || outlineTest || linksTest || passwordTest));
     bool previewHome = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-home";
     bool previewAbout = argv && argc >= 3 && std::wstring(argv[1]) == L"--preview-about";
     bool previewLoading = argv && argc == 4 && std::wstring(argv[1]) == L"--preview-loading";
@@ -130,6 +132,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.outlineFilterTest = outlineFilterTest;
     app.windowTest = windowTest;
     app.fitTest = fitTest;
+    app.updatesTest = updatesTest;
+    if (updatesTest) { app.updatesTestFile = argv[2]; app.benchmarkReport = argv[3]; }
     app.readingStateEnabled = !benchmark && !shellBenchmark;
     app.settingsEnabled = !benchmark && !shellBenchmark;
     if (windowTest) { app.settingsEnabled = true; app.settingsFile = argv[2]; app.settingsConfigured = true; }
@@ -196,6 +200,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     else if (outlineFilterTest) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
     else if (windowTest) app.RunWindowTest();
     else if (fitTest) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
+    else if (updatesTest) app.RunUpdatesTest();
     else if (benchmark) { app.Load(argv[2]); SetTimer(window, 2, 30000, nullptr); }
     else if (argv && argc > 1) {
         // Diagnostic switches are not document paths; every other argument opens a tab.
@@ -206,6 +211,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     }
     if (!benchmark && !shellBenchmark && app.tabs.empty()) app.RestoreSession();
     app.RefreshHomeRecents();
+    if (!benchmark && !shellBenchmark) app.StartUpdateCheck();
     if (argv) LocalFree(argv);
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {

@@ -92,6 +92,10 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 - [x] Ofrecer asociar los PDF en el instalador y en Opciones, con registro por
   usuario, aviso de `UserChoice` y limpieza al desinstalar. Evidencia:
   [installer.md](installer.md).
+- [x] Buscar actualizaciones al abrir (opt-in, desactivado por defecto): consulta
+  la última release en GitHub, avisa si hay una versión nueva y abre la página de
+  descargas en el navegador, sin descarga automática ni telemetría. Evidencia:
+  [updater.md](updater.md).
 - [x] Indicador central de carga animado por pestaña, con nombre de archivo y
   estados de apertura/primera página, que se detiene al llegar el bitmap o fallar.
   Evidencia: [reader-interface.md](reader-interface.md).
@@ -101,6 +105,8 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   abrir, activar y cerrar pestañas; bienvenida con recientes y Abrir directo.
 - [ ] Validar manualmente el diálogo de Opciones (mouse, teclado, DPI, tema oscuro)
   y la restauración con documentos reales, protegidos y remotos.
+- [ ] Validar manualmente el aviso de actualización con una release publicada, y el
+  comportamiento sin red y con proxy/firewall corporativo.
 - [x] Filtro del índice: cuadro sobre el árbol que oculta lo que no coincide y
   conserva los padres de cada coincidencia. Ignora mayúsculas y acentos, muestra
   «N de M secciones», Enter va a la primera coincidencia, Escape limpia y flecha

@@ -8,16 +8,18 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
         app = reinterpret_cast<Reader*>(lp); SetWindowLongPtrW(dialog, DWLP_USER, lp);
         SetSettingChecked(dialog, IDC_SETTINGS_RESTORE, app->restoreLastSession);
         SetSettingChecked(dialog, IDC_SETTINGS_OUTLINE, app->autoShowOutline);
+        SetSettingChecked(dialog, IDC_SETTINGS_UPDATES, app->checkUpdates);
         SetSettingChecked(dialog, IDC_SETTINGS_ASSOCIATE,
             AssociationState(FileAssociationTarget{}) == FileAssociationState::Default);
         SetAccessibleName(GetDlgItem(dialog, IDC_SETTINGS_RESTORE), L"Reabrir los PDF de la última sesión");
         SetAccessibleName(GetDlgItem(dialog, IDC_SETTINGS_OUTLINE), L"Mostrar automáticamente el índice");
+        SetAccessibleName(GetDlgItem(dialog, IDC_SETTINGS_UPDATES), L"Buscar actualizaciones al abrir");
         SetAccessibleName(GetDlgItem(dialog, IDC_SETTINGS_ASSOCIATE), L"Abrir los PDF con Chucao");
         SetAccessibleName(GetDlgItem(dialog, IDC_SETTINGS_THEME_SYSTEM), L"Tema igual que el sistema");
         SetAccessibleName(GetDlgItem(dialog, IDC_SETTINGS_THEME_LIGHT), L"Tema claro");
         SetAccessibleName(GetDlgItem(dialog, IDC_SETTINGS_THEME_DARK), L"Tema oscuro");
         for (int id : {IDC_SETTINGS_THEME_SYSTEM, IDC_SETTINGS_THEME_LIGHT, IDC_SETTINGS_THEME_DARK,
-                IDC_SETTINGS_RESTORE, IDC_SETTINGS_OUTLINE, IDC_SETTINGS_ASSOCIATE,
+                IDC_SETTINGS_RESTORE, IDC_SETTINGS_OUTLINE, IDC_SETTINGS_UPDATES, IDC_SETTINGS_ASSOCIATE,
                 IDC_SETTINGS_DEFAULTAPPS, IDC_SETTINGS_CLEAR}) {
             HWND button = GetDlgItem(dialog, id);
             SetWindowTheme(button, L"", L"");
@@ -47,7 +49,7 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
         auto item = reinterpret_cast<DRAWITEMSTRUCT*>(lp);
         if (!item) return FALSE;
         if (item->CtlID == IDC_SETTINGS_RESTORE || item->CtlID == IDC_SETTINGS_OUTLINE ||
-            item->CtlID == IDC_SETTINGS_ASSOCIATE) {
+            item->CtlID == IDC_SETTINGS_UPDATES || item->CtlID == IDC_SETTINGS_ASSOCIATE) {
             HDC dc = item->hDC;
             RECT rect = item->rcItem;
             SetDCBrushColor(dc, UiTheme().bar);
@@ -170,14 +172,17 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
             AppSettings value = app->CollectSettings();
             value.restoreSession = SettingChecked(dialog, IDC_SETTINGS_RESTORE);
             value.autoShowOutline = SettingChecked(dialog, IDC_SETTINGS_OUTLINE);
+            value.checkUpdates = SettingChecked(dialog, IDC_SETTINGS_UPDATES);
             if (!app->ConfigureSettings() || !SettingsStore(app->settingsFile).Write(value)) {
                 SetSettingChecked(dialog, IDC_SETTINGS_RESTORE, app->restoreLastSession);
                 SetSettingChecked(dialog, IDC_SETTINGS_OUTLINE, app->autoShowOutline);
+                SetSettingChecked(dialog, IDC_SETTINGS_UPDATES, app->checkUpdates);
                 SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, L"No se pudieron guardar las opciones."); return;
             }
             bool wasRestoring = app->restoreLastSession;
             app->restoreLastSession = value.restoreSession;
             app->autoShowOutline = value.autoShowOutline; // applies from the next document on
+            app->checkUpdates = value.checkUpdates;
             bool saved = value.restoreSession ? app->SaveSession() : !wasRestoring || SessionStore(app->SessionFile()).Write({});
             SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, saved ? L"" : L"No se pudo actualizar la sesión guardada.");
             // No palette work and no reader redraw: these flags do not alter the
@@ -191,16 +196,19 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
             value.followSystem = system;
             value.restoreSession = SettingChecked(dialog, IDC_SETTINGS_RESTORE);
             value.autoShowOutline = SettingChecked(dialog, IDC_SETTINGS_OUTLINE);
+            value.checkUpdates = SettingChecked(dialog, IDC_SETTINGS_UPDATES);
             if (!app->ConfigureSettings() || !SettingsStore(app->settingsFile).Write(value)) {
                 for (int themeId : {IDC_SETTINGS_THEME_SYSTEM, IDC_SETTINGS_THEME_LIGHT, IDC_SETTINGS_THEME_DARK})
                     InvalidateRect(GetDlgItem(dialog, themeId), nullptr, FALSE);
                 SetSettingChecked(dialog, IDC_SETTINGS_RESTORE, app->restoreLastSession);
                 SetSettingChecked(dialog, IDC_SETTINGS_OUTLINE, app->autoShowOutline);
+                SetSettingChecked(dialog, IDC_SETTINGS_UPDATES, app->checkUpdates);
                 SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, L"No se pudieron guardar las opciones."); return;
             }
             bool wasRestoring = app->restoreLastSession;
             app->restoreLastSession = value.restoreSession; app->followSystemTheme = value.followSystem;
             app->autoShowOutline = value.autoShowOutline; // applies from the next document on
+            app->checkUpdates = value.checkUpdates;
             SendMessageW(dialog, WM_SETREDRAW, FALSE, 0);
             app->ApplyPalette(value.dark, false);
             SendMessageW(dialog, WM_SETREDRAW, TRUE, 0);
@@ -216,7 +224,7 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
                 applyThemeChoice(id == IDC_SETTINGS_THEME_SYSTEM ? 0 : id == IDC_SETTINGS_THEME_LIGHT ? 1 : 2);
             return TRUE;
         }
-        if ((id == IDC_SETTINGS_RESTORE || id == IDC_SETTINGS_OUTLINE) && HIWORD(wp) == BN_CLICKED) {
+        if ((id == IDC_SETTINGS_RESTORE || id == IDC_SETTINGS_OUTLINE || id == IDC_SETTINGS_UPDATES) && HIWORD(wp) == BN_CLICKED) {
             SetSettingChecked(dialog, id, !SettingChecked(dialog, id));
             saveOptions();
             return TRUE;

@@ -39,6 +39,17 @@ if (!$themeProcess.WaitForExit(15000)) { $themeProcess.Kill(); throw 'La prueba 
 if ($themeProcess.ExitCode -ne 0) { throw 'Falló la prueba de temas.' }
 $themeResult = [IO.File]::ReadAllText($themeReport) | ConvertFrom-Json
 if (!$themeResult.success) { throw 'El cambio de tema o su persistencia no coincidió.' }
+$updatesNewer = [IO.Path]::Combine($results, 'updates-newer.json')
+$updatesOlder = [IO.Path]::Combine($results, 'updates-older.json')
+$updatesReport = [IO.Path]::Combine($results, 'updates.json')
+[IO.File]::WriteAllText($updatesNewer, '{"tag_name":"v9.9.9"}')
+[IO.File]::WriteAllText($updatesOlder, '{"tag_name":"v0.0.1"}')
+foreach ($fixture in @(@($updatesNewer, $true, 'v9.9.9'), @($updatesOlder, $false, 'v0.0.1'))) {
+    $updatesProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', $Executable)) -ArgumentList @('--benchmark-updates', ('"' + $fixture[0] + '"'), ('"' + $updatesReport + '"')) -WorkingDirectory $root -WindowStyle Hidden -PassThru
+    if (!$updatesProcess.WaitForExit(15000)) { $updatesProcess.Kill(); throw 'La prueba del actualizador excedió 15 segundos.' }
+    $updatesResult = [IO.File]::ReadAllText($updatesReport) | ConvertFrom-Json
+    if (!$updatesResult.success -or $updatesResult.newer -ne $fixture[1] -or $updatesResult.latest -ne $fixture[2]) { throw "Falló el análisis de la release ($($fixture[2])). Informe: $updatesReport" }
+}
 $dpiReport = [IO.Path]::Combine($results, 'dpi.json')
 $dpiProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', $Executable)) -ArgumentList @('--benchmark-dpi', 'test-results\dpi.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru
 if (!$dpiProcess.WaitForExit(15000)) { $dpiProcess.Kill(); throw 'La prueba de DPI excedió 15 segundos.' }

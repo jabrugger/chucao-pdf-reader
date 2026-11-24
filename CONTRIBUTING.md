@@ -28,6 +28,7 @@ fragmentos que comparten una unidad de compilación y se incluyen en este orden:
 | `about-dialog.h` | Diálogo Acerca de y atajos |
 | `pdf-worker.h` | Hilo de PDFium y mensajes de resultado |
 | `password-dialog.h` | Pedido de contraseña |
+| `updater.h` | Consulta opcional de la última release en GitHub (WinHTTP) |
 | `reader.h` | Clase `Reader`: pestañas, dibujo, entrada, índice |
 | `settings-dialog.h` | Diálogo Opciones |
 | `chrome-controls.h` | Controles de la barra, índice y lista de recientes |
@@ -38,7 +39,8 @@ de lectura, destinos) vive en cabeceras propias con pruebas en `tools/`.
 
 ## Criterios
 
-- Sin telemetría ni conexiones de red en el visor.
+- Sin telemetría en el visor. La única conexión de red opcional es la consulta de
+  actualizaciones (`updater.h`), activada por el usuario y sin identificadores.
 - Cambios de interfaz: probar tema claro, oscuro y alto contraste, y varios DPI.
 - Textos de la interfaz en español.
 - Código propio bajo licencia MIT. No copiar código de otros lectores de PDF.

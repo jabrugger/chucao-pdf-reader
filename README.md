@@ -125,9 +125,10 @@ tamaño, la posición y si la ventana estaba maximizada; ver
   [pestañas](docs/tabs.md).
 - Opciones: el icono de tema abre un diálogo con el tema (claro, oscuro o igual que
   el sistema), mostrar automáticamente el índice, reabrir los PDF de la última
-  sesión (desactivado por defecto), **Abrir los PDF con Chucao** y un enlace a la
+  sesión (desactivado por defecto), **Buscar actualizaciones al abrir**
+  (desactivado por defecto), **Abrir los PDF con Chucao** y un enlace a la
   configuración de aplicaciones predeterminadas de Windows. Ver
-  [opciones](docs/preferences.md).
+  [opciones](docs/preferences.md) y [actualizaciones](docs/updater.md).
 - El índice sombrea suavemente la sección que se está leyendo (por página; un
   capítulo plegado sombrea su padre visible) y la muestra sin tocar la selección.
 - Los documentos cifrados solicitan contraseña y avisan si es incorrecta; no se
@@ -210,7 +211,10 @@ licencias: ver [avisos de terceros](THIRD-PARTY-NOTICES.md). El proceso de
 actualización del motor está en [pdfium-update.md](docs/pdfium-update.md). El
 instalador preparado no está firmado y debe validarse en otra PC; ver
 [instalador](docs/installer.md). No hay telemetría ni conexión de red en el visor;
-el navegador puede conectarse al sitio elegido al hacer clic en un enlace web.
+con la opción **Buscar actualizaciones al abrir** activada, se consulta una sola vez
+la última release en GitHub para avisar si hay una versión nueva, sin descargar ni
+instalar nada; el navegador puede conectarse al sitio elegido al hacer clic en un
+enlace web.
 
 La imagen elegida por el usuario está en [assets/branding](assets/branding/README.md).
 El icono y la bienvenida se incluyen en el EXE; no requieren imágenes externas al ejecutarlo.

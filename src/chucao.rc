@@ -31,7 +31,7 @@ BEGIN
     CONTROL "", IDC_ABOUT_HOTKEYS, "SysListView32", LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | WS_BORDER | WS_TABSTOP | WS_VSCROLL, 12, 148, 456, 160
 END
 
-IDD_SETTINGS DIALOGEX 0, 0, 332, 274
+IDD_SETTINGS DIALOGEX 0, 0, 332, 336
 STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Opciones de Chucao"
 FONT 9, "Segoe UI"
@@ -46,9 +46,11 @@ BEGIN
     LTEXT "Al abrir un PDF con marcadores. Si se desmarca, el índice aparece al acercar el puntero al borde izquierdo o con Ctrl+B.", -1, 40, 122, 268, 26
     CONTROL "Abrir los PDF con Chucao", IDC_SETTINGS_ASSOCIATE, "Button", BS_OWNERDRAW | WS_TABSTOP, 16, 156, 300, 16
     LTEXT "Registra a Chucao para abrir archivos PDF. Windows puede pedir confirmación; si no se aplica, usá el enlace de abajo.", -1, 40, 176, 268, 26
-    CONTROL "Abrir Configuración de aplicaciones predeterminadas", IDC_SETTINGS_DEFAULTAPPS, "Button", BS_OWNERDRAW | WS_TABSTOP, 16, 208, 300, 18
-    CONTROL "Olvidar recientes y posiciones guardadas", IDC_SETTINGS_CLEAR, "Button", BS_OWNERDRAW | WS_TABSTOP, 16, 232, 300, 18
-    LTEXT "", IDC_SETTINGS_STATUS, 16, 252, 300, 20
+    CONTROL "Buscar actualizaciones al abrir", IDC_SETTINGS_UPDATES, "Button", BS_OWNERDRAW | WS_TABSTOP, 16, 210, 300, 16
+    LTEXT "Consulta en GitHub si hay una versión nueva y avisa. Sin descarga automática ni telemetría.", -1, 40, 230, 268, 26
+    CONTROL "Abrir Configuración de aplicaciones predeterminadas", IDC_SETTINGS_DEFAULTAPPS, "Button", BS_OWNERDRAW | WS_TABSTOP, 16, 264, 300, 18
+    CONTROL "Olvidar recientes y posiciones guardadas", IDC_SETTINGS_CLEAR, "Button", BS_OWNERDRAW | WS_TABSTOP, 16, 288, 300, 18
+    LTEXT "", IDC_SETTINGS_STATUS, 16, 310, 300, 20
 END
 
 1 VERSIONINFO

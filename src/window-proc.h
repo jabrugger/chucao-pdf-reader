@@ -162,6 +162,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         DragFinish(drop); return 0;
     }
     case Ready: app->Receive(std::unique_ptr<Result>(reinterpret_cast<Result*>(lp))); return 0;
+    case UpdateReady: app->OnUpdateChecked(reinterpret_cast<UpdateInfo*>(lp)); return 0;
     case WM_SIZE: app->ArrangeChrome(); if (wp != SIZE_MINIMIZED) SetTimer(window, 1, 120, nullptr); return 0;
     case WM_TIMER:
         if (wp == 4 && app->dragging) {
@@ -231,6 +232,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->worker.reset();
         if (app->outlineWindow) DestroyWindow(app->outlineWindow);
         MSG pending{}; while (PeekMessageW(&pending, window, Ready, Ready, PM_REMOVE)) delete reinterpret_cast<Result*>(pending.lParam);
+        while (PeekMessageW(&pending, window, UpdateReady, UpdateReady, PM_REMOVE)) delete reinterpret_cast<UpdateInfo*>(pending.lParam);
         DeleteObject(app->font); DeleteObject(app->strongFont); DeleteObject(app->welcomeFont);
         if (app->welcomeImage) DeleteObject(app->welcomeImage);
         delete app->welcomeLogo;

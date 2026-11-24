@@ -4,6 +4,7 @@
 namespace {
 constexpr UINT Ready = WM_APP + 1;
 constexpr UINT ChromeHover = WM_APP + 2;
+constexpr UINT UpdateReady = WM_APP + 3;
 
 constexpr int RecentBase = 4000;
 constexpr int OutlineFilterId = 3100;
