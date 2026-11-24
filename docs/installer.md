@@ -49,17 +49,20 @@ nada, aunque Ctrl+O y el resto del lector siguieran funcionando.
 
 ## Tareas opcionales
 
-- **Abrir los archivos PDF con Chucao**: registra el ProgID `Chucao.PDF` y la
-  entrada `OpenWithProgids` para `.pdf`, e intenta fijar `.pdf` a Chucao. Está
-  desmarcada por defecto para no apropiarse de la asociación sin permiso.
+- **Abrir los archivos PDF con Chucao**: fija el valor predeterminado de `.pdf`
+  a `Chucao.PDF`. Está desmarcada por defecto para no apropiarse de la asociación
+  sin permiso. El instalador registra siempre `Chucao.PDF`, `OpenWithProgids` y
+  `RegisteredApplications` / `Capabilities` para que Chucao aparezca en «Abrir con»
+  y en **Aplicaciones predeterminadas** de Windows 10/11 aunque no se marque la tarea.
 - **Acceso directo en el escritorio**: también opcional.
 - El menú Inicio y el desinstalador se crean siempre.
 
 Windows 10/11 protege la aplicación predeterminada con `UserChoice`. Si el usuario
-ya eligió otro lector, el instalador **no la elimina**: registra Chucao para
-«Abrir con» y deja la elección final a Configuración. La app ofrece el mismo
-control y un enlace directo en **Opciones → Abrir Configuración de aplicaciones
-predeterminadas**.
+ya eligió otro lector y marca la tarea en el instalador, este **no elimina**
+`UserChoice` (Windows ignora escrituras directas sobre esa clave), pero avisa al
+finalizar y ofrece abrir **Configuración → Aplicaciones predeterminadas** para
+elegir Chucao en un clic. La app ofrece el mismo control y enlace en
+**Opciones → Abrir Configuración de aplicaciones predeterminadas**.
 
 ## Asociación desde la aplicación
 

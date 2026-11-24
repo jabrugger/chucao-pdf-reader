@@ -107,6 +107,15 @@ inline bool RegisterFileAssociation(const std::wstring& exePath, const FileAssoc
         RegWriteString(HKEY_CURRENT_USER, progId + L"\\shell\\open\\command", L"", command) &&
         RegWriteEmpty(HKEY_CURRENT_USER, ClassesPath(target.extension) + L"\\OpenWithProgids", target.progId.c_str()) &&
         RegWriteString(HKEY_CURRENT_USER, ClassesPath(target.extension), L"", target.progId);
+    if (ok && target.extension == L".pdf") {
+        std::wstring caps = L"Software\\ChucaoPDFReader\\Capabilities";
+        RegWriteString(HKEY_CURRENT_USER, caps, L"ApplicationName", target.applicationName);
+        RegWriteString(HKEY_CURRENT_USER, caps, L"ApplicationDescription", L"Lector de PDF rápido y con una interfaz limpia.");
+        RegWriteString(HKEY_CURRENT_USER, caps + L"\\FileAssociations", target.extension.c_str(), target.progId);
+        RegWriteString(HKEY_CURRENT_USER, L"Software\\RegisteredApplications", target.applicationName.c_str(), caps);
+        RegWriteString(HKEY_CURRENT_USER, L"Software\\Classes\\Applications\\Chucao.exe\\shell\\open\\command", L"", command);
+        RegWriteEmpty(HKEY_CURRENT_USER, L"Software\\Classes\\Applications\\Chucao.exe\\SupportedTypes", target.extension.c_str());
+    }
     if (!ok) error = L"No se pudieron escribir las claves de asociación.";
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
     return ok;
@@ -124,6 +133,11 @@ inline bool UnregisterFileAssociation(const FileAssociationTarget& target, std::
         RegDeleteValueSafe(HKEY_CURRENT_USER, ClassesPath(target.extension), L"");
     RegDeleteValueSafe(HKEY_CURRENT_USER, ClassesPath(target.extension) + L"\\OpenWithProgids", target.progId.c_str());
     RegDeleteTreeW(HKEY_CURRENT_USER, ProgIdPath(target).c_str());
+    if (target.extension == L".pdf") {
+        RegDeleteValueSafe(HKEY_CURRENT_USER, L"Software\\RegisteredApplications", target.applicationName.c_str());
+        RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\ChucaoPDFReader");
+        RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\Applications\\Chucao.exe");
+    }
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
     return true;
 }

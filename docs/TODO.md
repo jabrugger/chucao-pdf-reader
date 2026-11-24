@@ -81,6 +81,11 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 20. [x] Cortar 0.2.17 corrigiendo el área vacía de la lista de recientes en
     `HomeListProc`, que dejaba ver el documento anterior cuando la lista estaba
     vacía o era corta. Gracias Lolo por el reporte.
+21. [x] Cortar 0.2.18 mejorando el registro de asociación de `.pdf` en el
+    instalador y en `file-association.h` (`RegisteredApplications`,
+    `Capabilities\FileAssociations`, `Applications\Chucao.exe\SupportedTypes`,
+    comillas en iconos y aviso de `UserChoice` al finalizar el instalador).
+    Evidencia: [installer.md](installer.md).
 
 ## Funciones y diseño
 

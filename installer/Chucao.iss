@@ -57,12 +57,21 @@ Name: "{group}\Desinstalar Chucao"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Registry]
-Root: HKCU; Subkey: "Software\Classes\Chucao.PDF"; ValueType: string; ValueName: ""; ValueData: "Documento PDF"; Flags: uninsdeletekey; Tasks: associatepdf
-Root: HKCU; Subkey: "Software\Classes\Chucao.PDF\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"; Tasks: associatepdf
-Root: HKCU; Subkey: "Software\Classes\Chucao.PDF\Application"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#MyAppName}"; Tasks: associatepdf
-Root: HKCU; Subkey: "Software\Classes\Chucao.PDF\Application"; ValueType: string; ValueName: "ApplicationIcon"; ValueData: "{app}\{#MyAppExeName},0"; Tasks: associatepdf
-Root: HKCU; Subkey: "Software\Classes\Chucao.PDF\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Tasks: associatepdf
-Root: HKCU; Subkey: "Software\Classes\.pdf\OpenWithProgids"; ValueType: none; ValueName: "Chucao.PDF"; Flags: uninsdeletevalue; Tasks: associatepdf
+; Always register Chucao in OpenWithProgids and RegisteredApplications so Windows 10/11
+; lists it in "Abrir con" and Default Apps without stealing an existing default.
+Root: HKCU; Subkey: "Software\Classes\Chucao.PDF"; ValueType: string; ValueName: ""; ValueData: "Documento PDF"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\Chucao.PDF\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"",0"
+Root: HKCU; Subkey: "Software\Classes\Chucao.PDF\Application"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#MyAppName}"
+Root: HKCU; Subkey: "Software\Classes\Chucao.PDF\Application"; ValueType: string; ValueName: "ApplicationIcon"; ValueData: """{app}\{#MyAppExeName}"",0"
+Root: HKCU; Subkey: "Software\Classes\Chucao.PDF\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
+Root: HKCU; Subkey: "Software\Classes\Applications\{#MyAppExeName}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\Applications\{#MyAppExeName}\SupportedTypes"; ValueType: none; ValueName: ".pdf"
+Root: HKCU; Subkey: "Software\Classes\.pdf\OpenWithProgids"; ValueType: none; ValueName: "Chucao.PDF"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\ChucaoPDFReader"; ValueType: string; ValueName: ""; ValueData: ""; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\ChucaoPDFReader\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#MyAppName}"
+Root: HKCU; Subkey: "Software\ChucaoPDFReader\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "Lector de PDF rápido y con una interfaz limpia."
+Root: HKCU; Subkey: "Software\ChucaoPDFReader\Capabilities\FileAssociations"; ValueType: string; ValueName: ".pdf"; ValueData: "Chucao.PDF"
+Root: HKCU; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueName: "{#MyAppName}"; ValueData: "Software\ChucaoPDFReader\Capabilities"; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Software\Classes\.pdf"; ValueType: string; ValueName: ""; ValueData: "Chucao.PDF"; Tasks: associatepdf
 
 [Run]
@@ -82,9 +91,26 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ProgId: String;
+  ErrorCode: Integer;
 begin
-  if (CurStep = ssPostInstall) and WizardIsTaskSelected('associatepdf') then
+  if CurStep = ssPostInstall then
+  begin
     NotifyAssociations;
+    if WizardIsTaskSelected('associatepdf') and not WizardSilent then
+    begin
+      if RegQueryStringValue(HKCU,
+           'Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.pdf\UserChoice',
+           'ProgId', ProgId) and (CompareText(ProgId, 'Chucao.PDF') <> 0) then
+      begin
+        if MsgBox('Windows mantiene otra aplicación predeterminada para los archivos PDF (' + ProgId + ').' + #13#10 + #13#10 +
+                  'Chucao quedó registrado: ¿querés abrir Configuración de aplicaciones predeterminadas para elegirlo ahora?',
+                  mbConfirmation, MB_YESNO) = IDYES then
+          ShellExec('open', 'ms-settings:defaultapps', '', '', SW_SHOWNORMAL, ewNoWait, ErrorCode);
+      end;
+    end;
+  end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
