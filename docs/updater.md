@@ -27,7 +27,7 @@ actualizaciones al abrir**. No descarga ni instala nada y no envía telemetría.
 ## Implementación
 
 - `src/updater.h`: fragmento que usa WinHTTP (`winhttp.lib`) para el GET, extrae
-  `tag_name` del JSON y compara versiones numéricamente (`v9.9.9` > `0.2.8`).
+  `tag_name` del JSON y compara versiones numéricamente (`v9.9.9` > `0.2.9`).
 - `Reader::StartUpdateCheck` lanza el hilo; el resultado vuelve por el mensaje
   `UpdateReady` y `OnUpdateChecked` muestra el aviso si corresponde.
 - La opción aparece en el diálogo de Opciones como una casilla más

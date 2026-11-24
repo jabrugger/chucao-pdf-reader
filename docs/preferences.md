@@ -16,6 +16,10 @@ Ctrl+D sigue alternando el tema directamente.
   usuario actual. Windows 10/11 puede mantener otra aplicación por `UserChoice`;
   en ese caso el aviso indica usar el enlace **Abrir Configuración de aplicaciones
   predeterminadas**. Al desmarcar se quitan solo las entradas de Chucao.
+- **Buscar actualizaciones al abrir**: desactivado por defecto. Al activarlo, al
+  abrir se consulta la última release en GitHub y, si hay una versión nueva, se
+  avisa con un enlace a la página de descargas. Sin descarga automática ni
+  telemetría. Ver [updater.md](updater.md).
 - **Olvidar recientes y posiciones guardadas**: además del historial, vacía la
   sesión guardada. Si la opción de reabrir sigue activa, al cerrar se vuelve a
   guardar lo que haya abierto en ese momento.
@@ -38,10 +42,11 @@ sigue siendo válida y acotada por el tamaño mínimo del lector.
 
 `%LOCALAPPDATA%\ChucaoPDFReader\`:
 
-- `settings.dat`: `theme=light|dark|system`, `restore=0|1`, `outline=0|1` y,
-  cuando corresponde, `window=left top right bottom max`. Los archivos anteriores
-  sin `restore` se leen con la restauración desactivada, sin `outline` con el índice
-  automático activado y sin `window` con el tamaño inicial.
+- `settings.dat`: `theme=light|dark|system`, `restore=0|1`, `outline=0|1`,
+  `updates=0|1` y, cuando corresponde, `window=left top right bottom max`. Los
+  archivos anteriores sin `restore` se leen con la restauración desactivada, sin
+  `outline` con el índice automático activado, sin `updates` con el chequeo de
+  actualizaciones desactivado y sin `window` con el tamaño inicial.
 - `last-session.dat`: cabecera `ChucaoSession 1`, índice de la pestaña activa y
   una ruta UTF-8 por línea. Máximo 64 rutas y 1 MiB; escritura atómica.
   Un archivo dañado se ignora por completo. La sesión se guarda al cerrar, al

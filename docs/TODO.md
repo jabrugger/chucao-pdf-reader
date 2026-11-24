@@ -45,6 +45,8 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
     comunitarios (CONTRIBUTING, SECURITY, plantillas de issue/PR y CI). Versión y
     fecha en `app-info.h` y CMake; tag `v0.2.8` sobre `98b9056`, empujado a
     `origin`. Evidencia: [themes.md](themes.md) y [CONTRIBUTING.md](../CONTRIBUTING.md).
+12. [x] Cortar 0.2.9 con el chequeo de actualizaciones opt-in (desactivado por
+    defecto) y su diagnóstico offline. Evidencia: [updater.md](updater.md).
 
 ## Funciones y diseño
 
@@ -146,6 +148,12 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
     página cuando corresponde. Evidencia: [error-messages.md](error-messages.md).
 
 ## Validación de funciones implementadas
+
+- [x] Recompilar v0.2.9 y ejecutar la suite completa el 2026-11-23: código de
+  salida 0. ZIP verificado con `test-package.ps1`, instalador generado con
+  `package-installer.ps1` y Release publicada en GitHub con ambos assets y sus
+  SHA-256. Salida local en `test-results/regression-0.2.9-2026-11-23.log`, no
+  versionada.
 
 - [x] Recompilar v0.2.8 (`98b9056`) con `scripts/build.cmd` y ejecutar la suite
   completa el 2026-11-23: código de salida 0. Pasaron apertura/renderizado,

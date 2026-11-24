@@ -48,7 +48,7 @@ powershell -ExecutionPolicy Bypass -File scripts/package.ps1
 powershell -ExecutionPolicy Bypass -File scripts/test-package.ps1
 ```
 
-El primero compila y genera `dist/Chucao-0.2.8-win-x64.zip` con el ejecutable,
+El primero compila y genera `dist/Chucao-0.2.9-win-x64.zip` con el ejecutable,
 `pdfium.dll`, el LEEME, la licencia MIT y los avisos de PDFium y sus
 dependencias. El segundo descomprime el paquete, comprueba los archivos
 obligatorios y ejecuta el lector empaquetado contra un PDF sintético.
@@ -60,7 +60,7 @@ PDF opcional):
 powershell -ExecutionPolicy Bypass -File scripts/package-installer.ps1
 ```
 
-Produce `dist/Chucao-0.2.8-setup.exe`. El instalador y el EXE **no están firmados**:
+Produce `dist/Chucao-0.2.9-setup.exe`. El instalador y el EXE **no están firmados**:
 Windows SmartScreen puede mostrar "Windows protegió su PC"; elegí "Más información" y
 "Ejecutar de todas formas" si descargaste Chucao desde este repositorio. Ver [distribución](docs/distribution.md) e
 [instalador](docs/installer.md).

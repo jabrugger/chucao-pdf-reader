@@ -11,3 +11,4 @@
 /dist/
 **/obj/
 **/bin/
+.opencode-task.md

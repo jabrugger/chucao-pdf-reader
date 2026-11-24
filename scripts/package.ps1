@@ -72,8 +72,10 @@ Datos locales
   archivo con Chucao cerrado.
 
 Privacidad
-  El visor no tiene telemetría ni conexión de red propia. Solo un clic explícito
-  en un enlace HTTP/HTTPS abre el navegador predeterminado.
+  El visor no tiene telemetría. Con la opción "Buscar actualizaciones al abrir"
+  (desactivada por defecto) se consulta una sola vez la última release en GitHub,
+  sin descargar ni instalar nada y sin enviar identificadores. Solo un clic
+  explícito en un enlace HTTP/HTTPS abre el navegador predeterminado.
 
 Licencias
   Código propio: MIT (LICENSE).
