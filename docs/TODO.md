@@ -47,6 +47,12 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
     `origin`. Evidencia: [themes.md](themes.md) y [CONTRIBUTING.md](../CONTRIBUTING.md).
 12. [x] Cortar 0.2.9 con el chequeo de actualizaciones opt-in (desactivado por
     defecto) y su diagnóstico offline. Evidencia: [updater.md](updater.md).
+13. [x] Cortar 0.2.10 con el zoom con Ctrl+rueda anclado al puntero, el indicador
+    de página «N / M» clickeable para ir a una página, la conservación del scroll
+    cuando FitH/FitV/FitBH/FitBV no traen coordenada y la corrección de la línea
+    clara de 1 px en los botones y el logo del tema oscuro. Evidencia:
+    [reader-interface.md](reader-interface.md), [outline-navigation.md](outline-navigation.md)
+    y [themes.md](themes.md).
 
 ## Funciones y diseño
 
@@ -159,6 +165,15 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   [reader-interface.md](reader-interface.md) y [accessibility.md](accessibility.md).
 
 ## Validación de funciones implementadas
+
+- [x] Recompilar v0.2.10 y ejecutar la suite completa el 2026-11-23: código de
+  salida 0. ZIP verificado con `test-package.ps1` (sobre el ZIP final, ya que
+  `package-installer.ps1` lo regenera) e instalador generado con
+  `package-installer.ps1`. SHA-256: ZIP `f2c606882073731f10c1fdc7d9c94b5b6ccfde9fe7cb1e784a5e85b1661a3f9b`,
+  instalador `a031d3a927f1fafb89a5e4c72af714abfcaa93ad4eb87c3c87420dda996dfd1c`.
+  Salida local en `test-results/regression-0.2.10-2026-11-23.log`, no versionada.
+  Siguen pendientes las validaciones manuales (zoom con mouse real, indicador de
+  página, tema oscuro en otros DPI) y probar el instalador en otra PC.
 
 - [x] Recompilar v0.2.9 y ejecutar la suite completa el 2026-11-23: código de
   salida 0. ZIP verificado con `test-package.ps1`, instalador generado con
