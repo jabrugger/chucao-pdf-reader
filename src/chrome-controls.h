@@ -187,10 +187,22 @@ LRESULT CALLBACK IconButtonProc(HWND window, UINT message, WPARAM wp, LPARAM lp,
     if (message == WM_LBUTTONDOWN)
         SendMessageW(GetAncestor(window, GA_ROOT), WM_CHANGEUISTATE, MAKEWPARAM(UIS_SET, UISF_HIDEFOCUS), 0);
     if (message == WM_MOUSEMOVE) {
-        TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, window, 0}; TrackMouseEvent(&track); InvalidateRect(window, nullptr, FALSE);
+        if (!GetPropW(window, L"ChucaoHover")) {
+            SetPropW(window, L"ChucaoHover", reinterpret_cast<HANDLE>(1));
+            TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, window, 0};
+            TrackMouseEvent(&track);
+            InvalidateRect(window, nullptr, FALSE);
+        }
         if (GetDlgCtrlID(window) == OutlineRail) SendMessageW(GetParent(window), ChromeHover, 0, 0);
-    } else if (message == WM_MOUSELEAVE) InvalidateRect(window, nullptr, FALSE);
-    else if (message == WM_NCDESTROY) RemoveWindowSubclass(window, IconButtonProc, 1);
+    } else if (message == WM_MOUSELEAVE) {
+        if (GetPropW(window, L"ChucaoHover")) {
+            RemovePropW(window, L"ChucaoHover");
+            InvalidateRect(window, nullptr, FALSE);
+        }
+    } else if (message == WM_NCDESTROY) {
+        RemovePropW(window, L"ChucaoHover");
+        RemoveWindowSubclass(window, IconButtonProc, 1);
+    }
     return DefSubclassProc(window, message, wp, lp);
 }
 } // namespace

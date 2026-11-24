@@ -71,6 +71,10 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
     pestañas, indicador de zoom clickeable, persistencia de modos de ajuste
     (`FitWidth`/`FitPage`/`FitHeight`), arrastrar y soltar múltiples PDF, botón
     «Buscar ahora» en Opciones, CI ampliada y limpieza de documentación.
+18. [x] Cortar 0.2.15 corrigiendo el parpadeo de botones en la toolbar (doble
+    buffer + tracking de hover), bloqueando índice/búsqueda/zoom sin PDF abierto
+    (con botones atenuados) y evitando que `WM_SETREDRAW` muestre el panel del
+    índice oculto al cambiar de tema.
 
 ## Funciones y diseño
 

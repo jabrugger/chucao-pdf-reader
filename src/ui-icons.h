@@ -120,7 +120,7 @@ inline void PaintUiChildren(HDC dc, HWND parent) {
 
 // Small native vector glyphs drawn with GDI+ antialiasing: no fonts or image
 // dependencies, and smooth diagonals at every DPI.
-inline void DrawUiIcon(HDC dc, RECT bounds, UiIcon icon, bool active, bool hovered, bool pressed, bool focused) {
+inline void DrawUiIcon(HDC dc, RECT bounds, UiIcon icon, bool active, bool hovered, bool pressed, bool focused, bool disabled = false) {
     const auto& palette = UiTheme();
     Gdiplus::Graphics graphics(dc);
     if (graphics.GetLastStatus() != Gdiplus::Ok) return;
@@ -134,14 +134,15 @@ inline void DrawUiIcon(HDC dc, RECT bounds, UiIcon icon, bool active, bool hover
     // left edge of every button in the dark theme.
     SetDCBrushColor(dc, palette.bar);
     FillRect(dc, &bounds, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
-    COLORREF background = pressed ? palette.pressed : active ? palette.active : hovered ? palette.hover : palette.bar;
+    COLORREF background = disabled ? palette.bar : pressed ? palette.pressed : active ? palette.active : hovered ? palette.hover : palette.bar;
     float inset = std::max(1.0f, std::round(2 * scale));
     Gdiplus::GraphicsPath backgroundPath;
     UiDraw::RoundedRectPath(backgroundPath, left + inset, top + inset, width - 2 * inset, height - 2 * inset,
         std::max(2.0f, std::round(8 * scale)));
     Gdiplus::SolidBrush backgroundBrush(UiDraw::Color(background));
     graphics.FillPath(&backgroundBrush, &backgroundPath);
-    Gdiplus::Pen pen(UiDraw::Color(active ? palette.accent : palette.ink), std::max(1.4f, 2.0f * scale));
+    COLORREF stroke = disabled ? (HighContrastActive() ? GetSysColor(COLOR_GRAYTEXT) : palette.muted) : (active ? palette.accent : palette.ink);
+    Gdiplus::Pen pen(UiDraw::Color(stroke), std::max(1.4f, 2.0f * scale));
     pen.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound, Gdiplus::DashCapRound);
     pen.SetLineJoin(Gdiplus::LineJoinRound);
     float glyph = std::max(12.0f, std::round(20 * scale));

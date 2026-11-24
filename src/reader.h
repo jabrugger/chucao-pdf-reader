@@ -241,9 +241,26 @@ public:
         case About: icon = UiIcon::Info; break;
         }
         POINT mouse{}; GetCursorPos(&mouse); RECT rect{}; GetWindowRect(item.hwndItem, &rect);
-        DrawUiIcon(item.hDC, item.rcItem, icon, active, PtInRect(&rect, mouse) != FALSE,
-            (item.itemState & ODS_SELECTED) != 0,
-            (item.itemState & (ODS_FOCUS | ODS_NOFOCUSRECT)) == ODS_FOCUS);
+        bool disabled = !pages && (item.CtlID == Outline || item.CtlID == Find ||
+            item.CtlID == Previous || item.CtlID == Next || item.CtlID == Smaller ||
+            item.CtlID == Larger || item.CtlID == Fit || item.CtlID == Print);
+        bool hovered = !disabled && PtInRect(&rect, mouse) != FALSE;
+        bool pressed = !disabled && (item.itemState & ODS_SELECTED) != 0;
+        bool focused = (item.itemState & (ODS_FOCUS | ODS_NOFOCUSRECT)) == ODS_FOCUS;
+        int width = std::max(1L, item.rcItem.right - item.rcItem.left);
+        int height = std::max(1L, item.rcItem.bottom - item.rcItem.top);
+        HDC memory = CreateCompatibleDC(item.hDC);
+        HBITMAP bitmap = memory ? CreateCompatibleBitmap(item.hDC, width, height) : nullptr;
+        if (memory && bitmap) {
+            HGDIOBJ old = SelectObject(memory, bitmap);
+            DrawUiIcon(memory, {0, 0, width, height}, icon, active, hovered, pressed, focused, disabled);
+            BitBlt(item.hDC, item.rcItem.left, item.rcItem.top, width, height, memory, 0, 0, SRCCOPY);
+            SelectObject(memory, old); DeleteObject(bitmap); DeleteDC(memory);
+        } else {
+            if (bitmap) DeleteObject(bitmap);
+            if (memory) DeleteDC(memory);
+            DrawUiIcon(item.hDC, item.rcItem, icon, active, hovered, pressed, focused, disabled);
+        }
     }
     void ArrangeChrome() {
         if (arranging) return;
@@ -288,7 +305,7 @@ public:
         place(findFeedback, x + D(8), y + D(13), std::max(1, static_cast<int>(rc.right) - x - D(16)), D(22));
         place(statusBar, D(16), bottom + D(2), std::max(1, static_cast<int>(rc.right) - D(32)), D(22));
         if (hdwp) EndDeferWindowPos(hdwp);
-        ShowWindow(outlineWindow, outlinePinned || outlinePeek ? SW_SHOWNA : SW_HIDE);
+        ShowWindow(outlineWindow, (pages && (outlinePinned || outlinePeek)) ? SW_SHOWNA : SW_HIDE);
         ShowWindow(rail, !outlinePinned && outlineLoaded && !outline.entries.empty() && !outlinePeek ? SW_SHOWNA : SW_HIDE);
         if (outlinePeek) SetWindowPos(outlineWindow, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         for (HWND control : {query, findLabel, findFeedback, GetDlgItem(window, FindPrevious), GetDlgItem(window, FindNext), GetDlgItem(window, FindClose)})
@@ -302,6 +319,10 @@ public:
         arranging = false;
     }
     void ShowSearch(bool focus = true) {
+        if (!pages) {
+            if (searchVisible) HideSearch();
+            return;
+        }
         if (!searchVisible) { searchVisible = true; ArrangeChrome(); Render(); }
         if (focus) { SetFocus(query); SendMessageW(query, EM_SETSEL, 0, -1); }
     }
@@ -410,8 +431,10 @@ public:
         // Checkbox changes only update flags; they must not repaint the reader.
         if (paletteReady && CurrentPalette() == desired && darkTheme == dark) return;
         applyingPalette = true;
-        if (window) SendMessageW(window, WM_SETREDRAW, FALSE, 0);
-        if (outlineWindow) SendMessageW(outlineWindow, WM_SETREDRAW, FALSE, 0);
+        bool windowWasVisible = window && IsWindowVisible(window);
+        bool outlineWasVisible = outlineWindow && IsWindowVisible(outlineWindow);
+        if (windowWasVisible) SendMessageW(window, WM_SETREDRAW, FALSE, 0);
+        if (outlineWasVisible) SendMessageW(outlineWindow, WM_SETREDRAW, FALSE, 0);
         darkTheme = dark;
         if (highContrast) CurrentPalette() = &HighContrastPalette(); else SetUiTheme(dark);
         if (window) {
@@ -428,8 +451,8 @@ public:
         if (outlineTree) StyleOutline();
         StyleNativeBars();
         if (persist && ConfigureSettings()) SettingsStore(settingsFile).Write(CollectSettings());
-        if (window) SendMessageW(window, WM_SETREDRAW, TRUE, 0);
-        if (outlineWindow) SendMessageW(outlineWindow, WM_SETREDRAW, TRUE, 0);
+        if (windowWasVisible) SendMessageW(window, WM_SETREDRAW, TRUE, 0);
+        if (outlineWasVisible) SendMessageW(outlineWindow, WM_SETREDRAW, TRUE, 0);
         paletteReady = true;
         if (!window) { applyingPalette = false; return; }
         // One final invalidation; no RDW_ERASE, which is what produced the flash.
@@ -942,6 +965,10 @@ public:
         }
     }
     void ToggleOutline() {
+        if (!pages) {
+            if (outlinePinned) SetOutlinePinned(false);
+            return;
+        }
         RequestOutline(); SetOutlinePinned(!outlinePinned);
         SetFocus(outlinePinned ? outlineTree : window);
     }
@@ -1732,6 +1759,7 @@ public:
         Redraw();
     }
     void ResetDocument(const std::wstring& file) {
+        EndPageEdit(false);
         RememberTabView(); openingDocument = false; loadingFailed = false;
         SaveReadingState(); viewReady = false; pendingReadingState.reset();
         outlinePinned = outlinePeek = false; outlineAutoShow = autoShowOutline; KillTimer(window, 7);
@@ -1790,6 +1818,7 @@ public:
         ActivateTab((activeTab + delta + static_cast<int>(tabs.size())) % static_cast<int>(tabs.size()));
     }
     void CloseDocument() {
+        if (searchVisible) HideSearch();
         ResetDocument(L"");
         if (worker) worker->Close(document);
         SetWindowTextW(window, L"Chucao PDF Reader");
@@ -2059,6 +2088,7 @@ public:
     // one the view keeps the existing top/center anchoring from Reflow, exactly
     // as the +/− buttons and the +/− keys always did.
     void Zoom(bool larger, int anchorX = -1, int anchorY = -1) {
+        if (!pages) return;
         // Any manual zoom leaves the fit modes and uses the current effective scale.
         if (zoomMode != ZoomMode::Manual) {
             zoom = pages ? layout.Scale(page) : 0;
@@ -2107,6 +2137,7 @@ public:
         pendingReadingState.reset();
         ++linkEpoch;
         if (id >= ZoomPresetBase && id < ZoomPresetBase + 6) {
+            if (!pages) return;
             static constexpr double presets[] = {0.5, 0.75, 1.0, 1.25, 1.5, 2.0};
             zoomMode = ZoomMode::Manual;
             zoom = presets[id - ZoomPresetBase];
@@ -2120,9 +2151,9 @@ public:
         case Open: ChooseFile(); break;
         case Previous: ChangePage(page - 1); break;
         case Next: ChangePage(page + 1); break;
-        case Fit: zoomMode = ZoomMode::FitWidth; zoom = 0; Reflow(); Render(); break;
-        case FitPageCmd: zoomMode = ZoomMode::FitPage; zoom = 0; Reflow(); Render(); break;
-        case FitHeightCmd: zoomMode = ZoomMode::FitHeight; zoom = 0; Reflow(); Render(); break;
+        case Fit: if (!pages) break; zoomMode = ZoomMode::FitWidth; zoom = 0; Reflow(); Render(); break;
+        case FitPageCmd: if (!pages) break; zoomMode = ZoomMode::FitPage; zoom = 0; Reflow(); Render(); break;
+        case FitHeightCmd: if (!pages) break; zoomMode = ZoomMode::FitHeight; zoom = 0; Reflow(); Render(); break;
         case Larger: case Smaller: Zoom(id == Larger); break;
         case Find: ShowSearch(); break;
         case FindNext: ShowSearch(false); Search(); break;
