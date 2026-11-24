@@ -173,6 +173,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         ShowWindow(window, (startMaximized || show == SW_SHOWMAXIMIZED) ? SW_SHOWMAXIMIZED : show);
         UpdateWindow(window);
         app.StyleNativeBars();
+        // On Windows 11 a newly shown window can stay behind others with no taskbar
+        // button until it is activated or shown again, so it looks as if the app
+        // closed itself (typically when the installer launches it). Ask for the
+        // foreground; if the foreground lock refuses, show the window once more so
+        // the shell registers its taskbar button.
+        if (!SetForegroundWindow(window)) {
+            ShowWindow(window, SW_HIDE);
+            ShowWindow(window, SW_SHOW);
+        }
     }
     app.shellMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     if (shellBenchmark) {
