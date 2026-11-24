@@ -95,7 +95,7 @@ El pajarito es un botón accesible con ayuda contextual; clic, activación por t
 o F1 abre un diálogo nativo. En esa fecha mostraba versión 0.1.0, Jorge Andres
 Brugger, jbrugger@ideaworks.com.ar, fecha de release 16/11/2026 y el repositorio
 privado https://github.com/jabrugger/chucao-pdf-reader. La versión actual es
-**0.2.16** (release 24/11/2026). Incluye una tabla de atajos con desplazamiento
+**0.2.17** (release 24/11/2026). Incluye una tabla de atajos con desplazamiento
 debajo de los datos de versión. Solo el enlace de GitHub abre el navegador;
 consultar Acerca de no hace conexiones de red ni carga PDFium. Escape y la X del
 diálogo regresan al lector.

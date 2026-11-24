@@ -78,6 +78,9 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 19. [x] Cortar 0.2.16 cambiando la consulta de actualizaciones a un `HEAD` sobre
     `github.com/.../releases/latest` (header `Location`) para evitar el límite de
     60 req/h sin autenticar de `api.github.com`. Evidencia: [updater.md](updater.md).
+20. [x] Cortar 0.2.17 corrigiendo el área vacía de la lista de recientes en
+    `HomeListProc`, que dejaba ver el documento anterior cuando la lista estaba
+    vacía o era corta. Gracias Lolo por el reporte.
 
 ## Funciones y diseño
 

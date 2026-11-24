@@ -128,7 +128,23 @@ LRESULT CALLBACK FlatButtonProc(HWND window, UINT message, WPARAM wp, LPARAM lp,
 }
 
 LRESULT CALLBACK HomeListProc(HWND window, UINT message, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR) {
-    if (message == WM_ERASEBKGND) return 1;
+    if (message == WM_ERASEBKGND) {
+        HDC dc = reinterpret_cast<HDC>(wp);
+        RECT rc{}; GetClientRect(window, &rc);
+        int count = static_cast<int>(SendMessageW(window, LB_GETCOUNT, 0, 0));
+        int top = 0;
+        if (count > 0) {
+            RECT last{};
+            if (SendMessageW(window, LB_GETITEMRECT, count - 1, reinterpret_cast<LPARAM>(&last)) != LB_ERR)
+                top = std::max<int>(0, static_cast<int>(last.bottom));
+        }
+        if (top < rc.bottom) {
+            RECT empty{rc.left, top, rc.right, rc.bottom};
+            SetDCBrushColor(dc, UiTheme().bar);
+            FillRect(dc, &empty, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+        }
+        return 1;
+    }
     if (message == WM_LBUTTONUP) {
         // Let the list box finish its own selection/notification processing first.
         LRESULT result = DefSubclassProc(window, message, wp, lp);
