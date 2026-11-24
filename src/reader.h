@@ -2453,8 +2453,11 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
                     graphics.SetClip(&clip);
                     graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
                     graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+                    // The card spans pixels 19..236 of the 256 px PNG and pixel 237 is
+                    // its light antialiased edge, so crop strictly inside the card
+                    // (20..235) to avoid a light line on the right and bottom.
                     graphics.DrawImage(welcomeLogo, Gdiplus::RectF(x, static_cast<float>(top),
-                        static_cast<float>(size), static_cast<float>(size)), 20, 20, 218, 218, Gdiplus::UnitPixel);
+                        static_cast<float>(size), static_cast<float>(size)), 20, 20, 216, 216, Gdiplus::UnitPixel);
                     graphics.ResetClip();
                 }
             } else {

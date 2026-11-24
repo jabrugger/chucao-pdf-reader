@@ -129,8 +129,11 @@ inline void DrawUiIcon(HDC dc, RECT bounds, UiIcon icon, bool active, bool hover
     float width = static_cast<float>(bounds.right - bounds.left), height = static_cast<float>(bounds.bottom - bounds.top);
     if (width <= 0 || height <= 0) return;
     float scale = width / 36.0f;
-    Gdiplus::SolidBrush barBrush(UiDraw::Color(palette.bar));
-    graphics.FillRectangle(&barBrush, left, top, width, height);
+    // The background is filled with GDI: an antialiased GDI+ rectangle covers only
+    // part of its first row and column, which left a light hairline on the top and
+    // left edge of every button in the dark theme.
+    SetDCBrushColor(dc, palette.bar);
+    FillRect(dc, &bounds, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
     COLORREF background = pressed ? palette.pressed : active ? palette.active : hovered ? palette.hover : palette.bar;
     float inset = std::max(1.0f, std::round(2 * scale));
     Gdiplus::GraphicsPath backgroundPath;

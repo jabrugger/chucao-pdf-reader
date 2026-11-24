@@ -73,6 +73,13 @@ la paleta ni repintan la ventana principal: solo guardan flags y settings.dat.
 - Se revisaron las capturas de bienvenida, Acerca de, índice y lectura con
   búsqueda e índice fijado en ambos temas.
 
+- Línea clara de 1 px en el borde superior e izquierdo de cada botón de la barra y del
+  panel Contenido (tema oscuro): el fondo de `DrawUiIcon` se rellenaba con un rectángulo
+  GDI+ suavizado, que cubre solo parte de la primera fila y columna. Ahora se rellena con
+  GDI. Las capturas de diagnóstico no la mostraban porque no pasan por la composición real;
+  se verificó capturando la ventana real con `PrintWindow`. También se acortó el recorte del
+  logo de bienvenida (216 px) para excluir el borde claro del PNG en su lado derecho e inferior.
+
 Pendiente de validación manual: contraste con monitores a 150–200 %, modo de alto
 contraste de Windows, cambio de tema con varias ventanas abiertas, apariencia de
 las barras de desplazamiento en versiones antiguas de Windows 10 y seguimiento
