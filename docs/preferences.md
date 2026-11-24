@@ -43,7 +43,8 @@ sigue siendo válida y acotada por el tamaño mínimo del lector.
 `%LOCALAPPDATA%\ChucaoPDFReader\`:
 
 - `settings.dat`: `theme=light|dark|system`, `restore=0|1`, `outline=0|1`,
-  `updates=0|1` y, cuando corresponde, `window=left top right bottom max`. Los
+  `updates=0|1`, `updates_last=<segundos Unix del último chequeo>` y, cuando
+  corresponde, `window=left top right bottom max`. Los
   archivos anteriores sin `restore` se leen con la restauración desactivada, sin
   `outline` con el índice automático activado, sin `updates` con el chequeo de
   actualizaciones desactivado y sin `window` con el tamaño inicial.

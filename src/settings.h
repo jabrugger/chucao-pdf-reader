@@ -20,6 +20,8 @@ struct AppSettings {
     // true: consult the latest GitHub release on startup and offer to open the
     // releases page. Opt-in and off by default; no download or telemetry.
     bool checkUpdates = false;
+    // Unix seconds of the last automatic check; limits it to once per day.
+    long long updatesLastCheck = 0;
 };
 
 class SettingsStore {
@@ -66,6 +68,12 @@ public:
             else if (line == "outline=0") settings.autoShowOutline = false;
             else if (line == "updates=1") settings.checkUpdates = true;
             else if (line == "updates=0") settings.checkUpdates = false;
+            else if (line.rfind("updates_last=", 0) == 0) {
+                std::istringstream value(line.substr(13));
+                long long seconds = 0; std::string extra;
+                if (!(value >> seconds) || (value >> extra) || seconds < 0) return {};
+                settings.updatesLastCheck = seconds;
+            }
             else if (line.rfind("window=", 0) == 0) {
                 std::istringstream window(line.substr(7));
                 int left = 0, top = 0, right = 0, bottom = 0, maximized = 0;
@@ -89,7 +97,7 @@ public:
         auto slash = filename_.find_last_of(L"\\/");
         if (slash == std::wstring::npos) return false;
         if (!CreateDirectoryW(filename_.substr(0, slash).c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) return false;
-        std::string data = std::string("ChucaoSettings 1\n") + (settings.followSystem ? "theme=system\n" : settings.dark ? "theme=dark\n" : "theme=light\n") + (settings.restoreSession ? "restore=1\n" : "restore=0\n") + (settings.autoShowOutline ? "outline=1\n" : "outline=0\n") + (settings.checkUpdates ? "updates=1\n" : "updates=0\n");
+        std::string data = std::string("ChucaoSettings 1\n") + (settings.followSystem ? "theme=system\n" : settings.dark ? "theme=dark\n" : "theme=light\n") + (settings.restoreSession ? "restore=1\n" : "restore=0\n") + (settings.autoShowOutline ? "outline=1\n" : "outline=0\n") + (settings.checkUpdates ? "updates=1\n" : "updates=0\n") + "updates_last=" + std::to_string(settings.updatesLastCheck) + "\n";
         if (settings.hasWindow)
             data += "window=" + std::to_string(settings.windowRect.left) + " " + std::to_string(settings.windowRect.top) + " " +
                 std::to_string(settings.windowRect.right) + " " + std::to_string(settings.windowRect.bottom) + " " +

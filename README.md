@@ -129,7 +129,7 @@ tamaño, la posición y si la ventana estaba maximizada; ver
 - Opciones: el icono de tema abre un diálogo con el tema (claro, oscuro o igual que
   el sistema), mostrar automáticamente el índice, reabrir los PDF de la última
   sesión (desactivado por defecto), **Buscar actualizaciones al abrir**
-  (desactivado por defecto), **Abrir los PDF con Chucao** y un enlace a la
+  (desactivado por defecto; como máximo una vez por día), **Abrir los PDF con Chucao** y un enlace a la
   configuración de aplicaciones predeterminadas de Windows. Ver
   [opciones](docs/preferences.md) y [actualizaciones](docs/updater.md).
 - El índice sombrea suavemente la sección que se está leyendo (por página; un

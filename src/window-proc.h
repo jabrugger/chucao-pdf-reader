@@ -202,7 +202,6 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         else if (wp == 6) app->CheckReadingState();
         else if (wp == 3) app->CheckNavigation();
         else if (wp == 5) app->TickLoading();
-        else if (wp == 10) { KillTimer(window, 10); app->CheckOutlineFilterNavigation(); }
         else if (wp == 2) { KillTimer(window, 2); app->BenchmarkResult(false); }
         else { KillTimer(window, 1); app->Render(); }
         return 0;

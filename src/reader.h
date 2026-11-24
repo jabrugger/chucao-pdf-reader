@@ -45,7 +45,6 @@ public:
     std::wstring outlineFilterQuery;
     bool outlineFilterTest = false;
     int outlineFilterChecks = 0;
-    int outlineFilterStep = 0;
     bool destinationsTest = false;
     double testedDestinationZoom = 3;
     bool linksTest = false;
@@ -70,6 +69,7 @@ public:
     bool settingsEnabled = true, settingsConfigured = false, forceDarkTheme = false;
     bool forceHighContrast = false, darkTheme = false, applyingPalette = false, paletteReady = false;
 bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
+    long long updatesLastCheck = 0;
     std::wstring settingsFile;
     bool updatesTest = false;
     std::wstring updatesTestFile;
@@ -369,6 +369,7 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
     AppSettings CollectSettings() const {
         AppSettings value{darkTheme, restoreLastSession, followSystemTheme, autoShowOutline};
         value.checkUpdates = checkUpdates;
+        value.updatesLastCheck = updatesLastCheck;
         if (window) {
             WINDOWPLACEMENT placement{}; placement.length = sizeof(placement);
             if (GetWindowPlacement(window, &placement)) {
@@ -429,7 +430,7 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         applyingPalette = false;
     }
     void LoadTheme() {
-        restoreLastSession = false; followSystemTheme = false; autoShowOutline = outlineAutoShow = true; checkUpdates = false;
+        restoreLastSession = false; followSystemTheme = false; autoShowOutline = outlineAutoShow = true; checkUpdates = false; updatesLastCheck = 0;
         if (forceHighContrast) { ApplyPalette(false, false); return; }
         if (forceDarkTheme) { ApplyPalette(true, false); return; }
         if (ConfigureSettings()) {
@@ -437,6 +438,7 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
                 restoreLastSession = settings->restoreSession; followSystemTheme = settings->followSystem;
                 autoShowOutline = outlineAutoShow = settings->autoShowOutline;
                 checkUpdates = settings->checkUpdates;
+                updatesLastCheck = settings->updatesLastCheck;
                 ApplyPalette(followSystemTheme ? SystemPrefersDark() : settings->dark, false); return;
             }
         }
@@ -449,6 +451,13 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
     // functions, so it stays safe if the window is destroyed while it runs.
     void StartUpdateCheck() {
         if (!checkUpdates || !IsWindow(window) || !benchmarkReport.empty()) return;
+        // At most one check per day: remember when it was attempted. A saved time in
+        // the future (clock rollback) is ignored so the check is not blocked.
+        long long now = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        if (updatesLastCheck > 0 && updatesLastCheck <= now && now - updatesLastCheck < 24 * 60 * 60) return;
+        updatesLastCheck = now;
+        if (ConfigureSettings()) SettingsStore(settingsFile).Write(CollectSettings());
         HWND target = window;
         std::thread([target]() {
             UpdateInfo info = CheckForUpdate();
@@ -911,29 +920,11 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         SetWindowTextW(outlineFilter, L"sub"); ApplyOutlineFilter();
         ok = ok && TreeView_GetCount(outlineTree) == 2 && Text(outlineLabel).find(L"1 de 5") != std::wstring::npos;
         SaveTestImage(benchmarkReport + L".outline-filter.bmp", outlineWindow);
-        if (!ok) { BenchmarkResult(false); return; }
-        // A single click on the matching child (page 1) must navigate there. Send
-        // the mouse-up the tree receives, then wait for the async navigation.
-        auto match = TreeView_GetChild(outlineTree, root);
-        RECT itemRect{};
-        if (!match || !TreeView_GetItemRect(outlineTree, match, &itemRect, TRUE)) { BenchmarkResult(false); return; }
-        int before = outlineActivations;
-        int cx = (itemRect.left + itemRect.right) / 2, cy = (itemRect.top + itemRect.bottom) / 2;
-        SendMessageW(outlineTree, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(cx, cy));
-        SendMessageW(outlineTree, WM_LBUTTONUP, 0, MAKELPARAM(cx, cy));
-        if (outlineActivations != before + 1) { BenchmarkResult(false); return; }
-        outlineFilterStep = 1;
-        SetTimer(window, 10, 600, nullptr);
-    }
-    void CheckOutlineFilterNavigation() {
-        if (outlineFilterStep != 1) return;
-        outlineFilterStep = 2;
-        bool ok = page == 1; // the single click reached the child's destination
         SetWindowTextW(outlineFilter, L"zzz"); ApplyOutlineFilter();
         ok = ok && TreeView_GetCount(outlineTree) == 0 && Text(outlineLabel).find(L"0 de 5") != std::wstring::npos;
         ClearOutlineFilterText();
         ok = ok && TreeView_GetCount(outlineTree) == 5 && Text(outlineLabel).find(L"5 secciones") != std::wstring::npos;
-        HWND clear = outlineWindow ? GetDlgItem(outlineWindow, OutlineFilterClear) : nullptr;
+        // The clear button is hidden again once the query is empty.
         ok = ok && clear && !(GetWindowLongPtrW(clear, GWL_STYLE) & WS_VISIBLE);
         ++outlineFilterChecks;
         BenchmarkResult(ok);

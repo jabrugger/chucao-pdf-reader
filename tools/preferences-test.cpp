@@ -36,6 +36,12 @@ int wmain(int argc, wchar_t** argv) {
         AppSettings withUpdates; withUpdates.checkUpdates = true;
         Check(settings.Write(withUpdates), "save updates preference"); read = settings.Read();
         Check(read && read->checkUpdates && !read->dark && !read->restoreSession && read->autoShowOutline, "updates preference round trip");
+        Raw(settingsFile, "ChucaoSettings 1\ntheme=light\nupdates=1\nupdates_last=1700000000\n"); read = settings.Read();
+        Check(read && read->updatesLastCheck == 1700000000, "last update check parsed");
+        Raw(settingsFile, "ChucaoSettings 1\ntheme=dark\nupdates_last=oops\n"); Check(!settings.Read(), "invalid last update check ignored safely");
+        withUpdates.updatesLastCheck = 1700000123;
+        Check(settings.Write(withUpdates), "save last update check"); read = settings.Read();
+        Check(read && read->updatesLastCheck == 1700000123, "last update check round trip");
         Raw(settingsFile, "ChucaoSettings 1\ntheme=dark\noutline=maybe\n"); Check(!settings.Read(), "invalid outline preference ignored safely");
         Raw(settingsFile, "ChucaoSettings 1\ntheme=dark\nrestore=oops\n"); Check(!settings.Read(), "invalid restore ignored safely");
         Check(settings.Write({false, false, false, true, true, {10, 20, 1010, 720}, false}), "save window placement");

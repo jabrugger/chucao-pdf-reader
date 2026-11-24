@@ -6,9 +6,9 @@ actualizaciones al abrir**. No descarga ni instala nada y no envía telemetría.
 
 ## Comportamiento
 
-- Al arrancar (solo si la opción está activada), un hilo corto consulta la API
-  `releases/latest` del repositorio y compara el tag publicado con
-  `CHUCAO_VERSION_STRING`.
+- Al arrancar (solo si la opción está activada y como máximo una vez por día), un
+  hilo corto consulta la API `releases/latest` del repositorio y compara el tag
+  publicado con `CHUCAO_VERSION_STRING`.
 - Si hay una versión superior, aparece un aviso con botón que abre la página de
   releases en el navegador predeterminado (reutiliza la lógica de enlaces web).
 - Cualquier fallo (sin red, DNS, TLS, HTTP 404/429, timeout o respuesta inválida)
