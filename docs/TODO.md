@@ -128,8 +128,12 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   límites de zoom y regreso a la vista anterior.
 - [x] Completar FitR, FitB, FitBH y FitBV con el rectángulo indicado o la caja de
   contenido de la página. Evidencia: [outline-navigation.md](outline-navigation.md).
-- [ ] Conservar la posición anterior cuando FitH, FitV, FitBH o FitBV omiten su
-  coordenada (la API numérica usada no distingue null de cero).
+- [x] Conservar la posición anterior cuando FitH, FitV, FitBH o FitBV no traen
+  coordenada en el arreglo (`[página /FitH]`). Evidencia:
+  [outline-navigation.md](outline-navigation.md).
+- [ ] Conservar la posición anterior cuando la coordenada es `null`
+  (`[página /FitH null]`, el caso habitual en la práctica): la API pública de PDFium
+  la informa como 0 y cae en el borde. Requiere otra vía de lectura del arreglo.
 - [x] Mejorar accesibilidad y navegación por teclado: orden de tabulación, foco
   entre documento/índice/barra, F6, Espacio, +/−, Escape y nombres MSAA de los
   controles. Evidencia: [accessibility.md](accessibility.md).

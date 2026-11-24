@@ -23,6 +23,9 @@ struct DestinationLocation {
     // Normalized rectangle used by FitR and the content-box modes (FitB/FitBH/FitBV).
     bool hasBox = false;
     double boxLeft = 0, boxTop = 0, boxRight = 1, boxBottom = 1;
+    // FitH/FitBH without a top coordinate keep the reader's vertical scroll;
+    // FitV/FitBV without a left coordinate keep the horizontal one.
+    bool preserveY = false, preserveX = false;
 };
 inline PdfDestination ReadDestination(FPDF_DOCUMENT pdf, FPDF_DEST destination) {
     PdfDestination result;
@@ -39,6 +42,11 @@ inline PdfDestination ReadDestination(FPDF_DOCUMENT pdf, FPDF_DEST destination) 
         result.x = x; result.y = y;
         result.hasZoom = hasZoom && std::isfinite(zoom) && zoom > 0; result.zoom = zoom;
     }
+    // FitH/FitBH carry an optional top coordinate and FitV/FitBV an optional left
+    // one. FPDFDest_GetView reports the parameter only while it is present in the
+    // array (count > 0): an absent coordinate leaves hasX/hasY false, so the reader
+    // can keep its current scroll on that axis. A null coordinate is reported as 0
+    // and cannot be told apart from an explicit zero, so both land on the edge.
     if (count >= 1 && std::isfinite(parameters[0])) {
         if (result.view == PDFDEST_VIEW_FITH || result.view == PDFDEST_VIEW_FITBH) { result.hasY = true; result.y = parameters[0]; }
         if (result.view == PDFDEST_VIEW_FITV || result.view == PDFDEST_VIEW_FITBV) { result.hasX = true; result.x = parameters[0]; }
@@ -110,6 +118,11 @@ inline DestinationLocation ResolveDestination(FPDF_DOCUMENT pdf, const PdfDestin
                 if (hasY) result.y = std::max(0.0, std::min(1.0, y / 100000.0));
             }
         }
+        // FitH/FitBH omit their top coordinate and FitV/FitBV their left one when
+        // the destination array carries no parameter for it; the reader then keeps
+        // its current scroll on that axis instead of jumping to the edge.
+        result.preserveY = (destination.view == PDFDEST_VIEW_FITH || destination.view == PDFDEST_VIEW_FITBH) && !destination.hasY;
+        result.preserveX = (destination.view == PDFDEST_VIEW_FITV || destination.view == PDFDEST_VIEW_FITBV) && !destination.hasX;
     }
     FPDF_ClosePage(page); return result;
 }

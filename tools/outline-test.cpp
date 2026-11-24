@@ -99,6 +99,32 @@ int wmain(int argc, wchar_t** argv) {
         outline = read(L"outline-150-null.pdf");
         target = ResolveDestination(pdf, outline.entries[1].destination);
         Check(target.page == 1 && target.x > 0 && target.y == 0, "nullable Y falls back to page edge");
+        // FitH/FitV/FitBH/FitBV may omit their single coordinate; the reader then
+        // keeps its current scroll on that axis. An explicit zero must not be
+        // treated as omitted, and a null coordinate is indistinguishable from zero
+        // through the public PDFium API, so it also lands on the edge.
+        struct OmitCase { const wchar_t* name; bool hasX, hasY; bool preserveX, preserveY; };
+        const OmitCase omitCases[] = {
+            {L"destination-FitH.pdf",       false, false, false, true },
+            {L"destination-FitH-0.pdf",     false, true,  false, false},
+            {L"destination-FitH-null.pdf",  false, true,  false, false},
+            {L"destination-FitV.pdf",       false, false, true,  false},
+            {L"destination-FitV-0.pdf",     true,  false, false, false},
+            {L"destination-FitV-null.pdf",  true,  false, false, false},
+            {L"destination-FitBH.pdf",      false, false, false, true },
+            {L"destination-FitBH-0.pdf",    false, true,  false, false},
+            {L"destination-FitBH-null.pdf", false, true,  false, false},
+            {L"destination-FitBV.pdf",      false, false, true,  false},
+            {L"destination-FitBV-0.pdf",    true,  false, false, false},
+            {L"destination-FitBV-null.pdf", true,  false, false, false},
+        };
+        for (const auto& c : omitCases) {
+            outline = read(c.name);
+            auto omitted = ResolveDestination(pdf, outline.entries[1].destination);
+            Check(omitted.page == 1, "omitted coordinate resolves the page");
+            Check(outline.entries[1].destination.hasX == c.hasX && outline.entries[1].destination.hasY == c.hasY, "omitted coordinate metadata");
+            Check(omitted.preserveX == c.preserveX && omitted.preserveY == c.preserveY, "omitted axis preserved");
+        }
         Check(read(L"sample.pdf").entries.empty(), "document without outline");
         outline = read(L"outline-cycle.pdf");
         Check(outline.limited && outline.entries.size() == 3, "circular reference stops");

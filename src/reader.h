@@ -1978,11 +1978,13 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
                     zoomMode = ZoomMode::Manual;
                 }
                 Reflow();
-                ScrollTo(layout.Top(target.page) + static_cast<std::int64_t>(target.y * layout.Height(target.page)) - PageGap());
+                if (!target.preserveY)
+                    ScrollTo(layout.Top(target.page) + static_cast<std::int64_t>(target.y * layout.Height(target.page)) - PageGap());
                 // Whole-width modes center the page; rectangles and vertical fits anchor on their left edge.
                 bool centered = target.view == PDFDEST_VIEW_FIT || target.view == PDFDEST_VIEW_FITB || target.view == PDFDEST_VIEW_FITBH;
-                ScrollHorizontal(static_cast<int>(layout.Left(target.page, ViewWidth()) +
-                    (centered ? layout.Width(target.page) / 2.0 - ViewWidth() / 2.0 : target.x * layout.Width(target.page) - PageGap())));
+                if (!target.preserveX)
+                    ScrollHorizontal(static_cast<int>(layout.Left(target.page, ViewWidth()) +
+                        (centered ? layout.Width(target.page) / 2.0 - ViewWidth() / 2.0 : target.x * layout.Width(target.page) - PageGap())));
                 PageStatus();
             } else if (!result->linkTarget.webUrl.empty()) OpenWebLink(result->linkTarget.webUrl);
             else if (result->linkTarget.hit) {

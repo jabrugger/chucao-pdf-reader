@@ -56,8 +56,12 @@ comprueba su SHA-256 y extrae `deps/pdfium`. La compilación enlaza contra
 
 - Firma y semántica de las funciones usadas en `src/` (destinos, texto,
   renderizado progresivo, permisos y metadatos del documento).
-- Comportamiento de `FPDFDest_GetView` y `FPDFDest_GetLocationInPage`, incluida
-  la coordenada omitida de FitH/FitV/FitBH/FitBV.
+- Comportamiento de `FPDFDest_GetView` y `FPDFDest_GetLocationInPage`: el lector
+  usa `FPDFDest_GetView` para saber si FitH/FitV/FitBH/FitBV llevan su coordenada
+  (presente o ausente) y `FPDFDest_GetLocationInPage` para los campos XYZ. Si
+  cambiara la semántica —por ejemplo, que `FPDFDest_GetLocationInPage` dejara de
+  ser exclusivo de XYZ o que `FPDFDest_GetView` distinguiera null de cero— habría
+  que revisar la lectura de la coordenada omitida.
 - Cambios en el tamaño o las dependencias de `pdfium.dll`, y avisos de terceros.
 - Que la carga diferida (`/DELAYLOAD:pdfium.dll`) siga funcionando: abrir la
   ventana vacía no debe cargar el motor, y abrir un PDF sí.
