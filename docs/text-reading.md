@@ -2,7 +2,8 @@
 
 ## Uso
 
-Arrastrar con el mouse selecciona texto. La selección puede cruzar páginas y la
+Arrastrar con el mouse selecciona texto. **Doble clic** selecciona la palabra y un
+tercer clic (triple) la línea/párrafo. La selección puede cruzar páginas y la
 vista avanza al acercarse al borde superior/inferior. Ctrl+C copia texto Unicode;
 Escape limpia la selección. Dentro del campo de búsqueda Ctrl+C conserva su
 comportamiento habitual y copia el texto de ese campo.
@@ -15,7 +16,10 @@ activa usa el resaltado azul para evitar superponerlo con el amarillo de búsque
 ## Implementación y límites
 
 PDFium sigue ejecutándose en un solo worker. Las posiciones de caracteres se
-consultan al seleccionar, no al abrir o renderizar cada página. Las cajas se
+consultan al seleccionar, no al abrir o renderizar cada página. Junto con las cajas
+se guarda el carácter Unicode de cada posición, que la selección por doble/triple
+clic usa para encontrar los límites de palabra y de línea (sin distinguir ASCII de
+acentos/CJK). Las cajas se
 transforman con FPDF_PageToDevice para respetar rotación y CropBox y se guardan en
 coordenadas normalizadas, reutilizables al hacer zoom. Se limita la geometría a
 200.000 caracteres por página, 16 MiB de caché y cuatro peticiones pendientes.
@@ -31,6 +35,8 @@ inusuales pueden producir un orden distinto al esperado. No se añade OCR.
 ## Verificación ejecutada
 
 - Geometría: carácter cercano, cambio de línea, página sin texto y unión de cajas.
+- Límites de doble/triple clic: palabra ASCII, palabra con acento, línea entre
+  saltos y clic sobre un espacio (layout-test).
 - Ejecutable real, oculto: buscar Chucao, comprobar cajas, seleccionar/capturar el
   texto de la palabra, buscar hacia atrás con vuelta al documento, seleccionar entre
   páginas en ambos sentidos y comparar exactamente los resultados.

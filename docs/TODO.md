@@ -109,6 +109,9 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   la última release en GitHub, avisa si hay una versión nueva y abre la página de
   descargas en el navegador, sin descarga automática ni telemetría. Evidencia:
   [updater.md](updater.md).
+- [x] Selección por doble clic (palabra) y triple clic (línea/párrafo), con los
+  caracteres Unicode guardados junto a la geometría. Evidencia:
+  [text-reading.md](text-reading.md).
 - [x] Indicador central de carga animado por pestaña, con nombre de archivo y
   estados de apertura/primera página, que se detiene al llegar el bitmap o fallar.
   Evidencia: [reader-interface.md](reader-interface.md).
@@ -328,6 +331,8 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 - [ ] Impresión física y virtual: rangos, orientación, tamaño, copias, cancelación
   y errores de impresora/spooler.
 - [ ] Seleccionar, copiar y pegar en otras aplicaciones, incluidos acentos y Unicode.
+- [ ] Validar manualmente doble/triple clic de selección con PDF reales (acentos,
+  CJK, RTL, columnas) y pegar el resultado en otra aplicación.
 - [x] Comprobar los controles de copia e impresión del lector con un PDF sintético
   restringido, sin escribir al portapapeles ni iniciar trabajos de impresión.
 - [ ] Comprobar documentos reales con restricciones de copia e impresión y el

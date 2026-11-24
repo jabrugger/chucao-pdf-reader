@@ -130,10 +130,22 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
             client.y < app->ContentTop() || client.y >= app->ContentTop() + app->ViewHeight()) break;
         app->ShowTextMenu(screen); return 0;
     }
-    case WM_LBUTTONDOWN:
-        if (app->TabClick(GET_X_LPARAM(lp), GET_Y_LPARAM(lp))) return 0;
-        if (app->PageFieldClick(GET_X_LPARAM(lp), GET_Y_LPARAM(lp))) return 0;
-        app->BeginSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
+    case WM_LBUTTONDOWN: {
+        int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp);
+        if (app->TabClick(x, y)) return 0;
+        if (app->PageFieldClick(x, y)) return 0;
+        int count = app->TrackDocumentClick(x, y);
+        if (count >= 2) { app->SelectWordOrLine(x, y, count >= 3 ? 2 : 1); return 0; }
+        app->BeginSelection(x, y); return 0;
+    }
+    case WM_LBUTTONDBLCLK: {
+        int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp);
+        if (app->TabClick(x, y)) return 0;
+        if (app->PageFieldClick(x, y)) return 0;
+        int count = app->TrackDocumentClick(x, y);
+        app->SelectWordOrLine(x, y, count >= 3 ? 2 : 1);
+        return 0;
+    }
     case WM_MBUTTONDOWN: {
         bool close = false;
         int index = app->TabHitTest(GET_X_LPARAM(lp), GET_Y_LPARAM(lp), close);
@@ -190,6 +202,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         else if (wp == 6) app->CheckReadingState();
         else if (wp == 3) app->CheckNavigation();
         else if (wp == 5) app->TickLoading();
+        else if (wp == 10) { KillTimer(window, 10); app->CheckOutlineFilterNavigation(); }
         else if (wp == 2) { KillTimer(window, 2); app->BenchmarkResult(false); }
         else { KillTimer(window, 1); app->Render(); }
         return 0;

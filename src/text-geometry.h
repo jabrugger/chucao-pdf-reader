@@ -34,3 +34,31 @@ inline std::vector<TextBox> SelectionBoxes(const std::vector<TextBox>& boxes, in
     }
     return result;
 }
+
+// Word (level 1) or line/paragraph (level 2) range around a character, used by
+// double- and triple-click selection. Non-ASCII characters count as word
+// characters so accented letters and CJK stay inside the same word.
+namespace TextGeometry {
+inline bool IsLineBreak(unsigned int c) { return c == '\r' || c == '\n' || c == 0x2028 || c == 0x2029; }
+inline bool IsSpaceChar(unsigned int c) {
+    return c == ' ' || c == '\t' || c == '\f' || c == 0xA0 || (c >= 0x2000 && c <= 0x200B) || IsLineBreak(c);
+}
+inline bool IsWordChar(unsigned int c) {
+    if (IsSpaceChar(c)) return false;
+    if (c < 0x80) return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '\'';
+    return true;
+}
+inline void MultiClickRange(const std::vector<unsigned int>& chars, int index, int level, int& first, int& last) {
+    first = last = index;
+    if (chars.empty() || index < 0 || index >= static_cast<int>(chars.size())) return;
+    if (level >= 2) {
+        // Whole visual line / paragraph: between line breaks.
+        while (first > 0 && !IsLineBreak(chars[first - 1])) --first;
+        while (last + 1 < static_cast<int>(chars.size()) && !IsLineBreak(chars[last + 1])) ++last;
+    } else if (IsWordChar(chars[index])) {
+        // A click on whitespace or punctuation selects just that character.
+        while (first > 0 && IsWordChar(chars[first - 1])) --first;
+        while (last + 1 < static_cast<int>(chars.size()) && IsWordChar(chars[last + 1])) ++last;
+    }
+}
+} // namespace TextGeometry

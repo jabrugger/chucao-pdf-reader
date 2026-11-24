@@ -26,15 +26,22 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         SendMessageW(app->outlineFilter, EM_SETCUEBANNER, FALSE, reinterpret_cast<LPARAM>(L"Filtrar el índice"));
         SendMessageW(app->outlineFilter, EM_SETLIMITTEXT, 128, 0);
         SetAccessibleName(app->outlineFilter, L"Filtrar el índice");
+        app->outlineFilterClear = CreateWindowW(L"BUTTON", L"Limpiar el filtro", WS_CHILD | WS_TABSTOP | BS_OWNERDRAW | BS_FLAT,
+            0, 0, app->D(28), app->D(28), window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(OutlineFilterClear)), nullptr, nullptr);
+        SetWindowTheme(app->outlineFilterClear, L"", L"");
+        SetWindowSubclass(app->outlineFilterClear, IconButtonProc, 1, 0);
+        SetAccessibleName(app->outlineFilterClear, L"Limpiar el filtro");
         app->outlineTree = CreateWindowExW(0, WC_TREEVIEWW, L"Índice del documento", WS_CHILD | WS_VISIBLE | WS_TABSTOP |
             TVS_LINESATROOT | TVS_HASBUTTONS | TVS_FULLROWSELECT, 0, 0, 1, 1, window, nullptr, nullptr, nullptr);
+        SetWindowSubclass(app->outlineTree, OutlineTreeProc, 1, 0);
         app->outlineLabel = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 8, 0, 1, 1, window, nullptr, nullptr, nullptr);
         app->StyleOutline(); return 0;
     case WM_SIZE: {
         RECT rc{}; GetClientRect(window, &rc);
         MoveWindow(GetDlgItem(window, OutlinePin), rc.right - app->D(80), app->D(6), app->D(36), app->D(36), FALSE);
         MoveWindow(GetDlgItem(window, OutlineClose), rc.right - app->D(42), app->D(6), app->D(36), app->D(36), FALSE);
-        MoveWindow(app->outlineFilter, app->D(12), app->D(52), std::max<LONG>(1, rc.right - app->D(24)), app->D(28), FALSE);
+        MoveWindow(app->outlineFilter, app->D(12), app->D(52), std::max<LONG>(1, rc.right - app->D(24) - app->D(32)), app->D(28), FALSE);
+        MoveWindow(GetDlgItem(window, OutlineFilterClear), rc.right - app->D(40), app->D(52), app->D(28), app->D(28), FALSE);
         MoveWindow(app->outlineTree, app->D(12), app->D(88), std::max<LONG>(1, rc.right - app->D(24)), std::max<LONG>(1, rc.bottom - app->D(132)), FALSE);
         MoveWindow(app->outlineLabel, app->D(20), std::max<LONG>(0, rc.bottom - app->D(36)), std::max<LONG>(1, rc.right - app->D(32)), app->D(28), FALSE); return 0;
     }
@@ -72,17 +79,6 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         if (notification->hwndFrom == app->outlineTree && notification->code == TVN_ITEMEXPANDEDW) {
             app->UpdateOutlineHighlight(false); return 0;
         }
-        if (notification->hwndFrom == app->outlineTree && notification->code == NM_CLICK) {
-            DWORD position = GetMessagePos(); TVHITTESTINFO hit{};
-            hit.pt = {GET_X_LPARAM(position), GET_Y_LPARAM(position)}; ScreenToClient(app->outlineTree, &hit.pt);
-            auto item = TreeView_HitTest(app->outlineTree, &hit);
-            // TVS_FULLROWSELECT makes the whole row clickable, but the hit flags
-            // for the area after the label are TVHT_ONITEMRIGHT. Accept every part
-            // of the row except the expand/collapse button and a state icon.
-            if ((hit.flags & (TVHT_ONITEMLABEL | TVHT_ONITEMICON | TVHT_ONITEMRIGHT | TVHT_ONITEMINDENT)) &&
-                !(hit.flags & (TVHT_ONITEMBUTTON | TVHT_ONITEMSTATEICON)))
-                app->ActivateOutlineItem(item);
-        }
         if (notification->hwndFrom == app->outlineTree && notification->code == TVN_KEYDOWN &&
             reinterpret_cast<NMTVKEYDOWN*>(lp)->wVKey == VK_RETURN) app->NavigateOutline();
         return 0;
@@ -91,6 +87,37 @@ LRESULT CALLBACK OutlineProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     case WM_DESTROY: app->outlineWindow = app->outlineTree = app->outlineLabel = app->outlineFilter = nullptr; return 0;
     }
     return DefWindowProcW(window, message, wp, lp);
+}
+
+// The outline tree navigates on a click. Taking the position from the mouse
+// message itself (lParam) is reliable: GetMessagePos can point at a stale
+// location while the tree pumps messages, and a miss left filtered rows inert.
+// The outline tree navigates on a click. It reacts on the mouse-down (the earliest
+// event, so the first click works even while the window is being activated) and
+// also on the mouse-up as a fallback; outlineClickHandled keeps it to one
+// navigation per click. Taking the position from the message itself (lParam) is
+// reliable: GetMessagePos can point at a stale location while the tree pumps
+// messages, and a miss left filtered rows inert.
+LRESULT CALLBACK OutlineTreeProc(HWND window, UINT message, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR) {
+    if (message == WM_NCDESTROY) RemoveWindowSubclass(window, OutlineTreeProc, 1);
+    if (message == WM_LBUTTONDOWN || message == WM_LBUTTONUP) {
+        LRESULT result = DefSubclassProc(window, message, wp, lp);
+        auto app = reinterpret_cast<Reader*>(GetWindowLongPtrW(GetAncestor(window, GA_ROOT), GWLP_USERDATA));
+        if (app && message == WM_LBUTTONDOWN) app->outlineClickHandled = false;
+        TVHITTESTINFO hit{};
+        hit.pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+        HTREEITEM item = TreeView_HitTest(window, &hit);
+        // TVS_FULLROWSELECT makes the whole row clickable; accept every part of the
+        // row except the expand/collapse button and a state icon.
+        if (app && !app->outlineClickHandled && item &&
+            (hit.flags & (TVHT_ONITEMLABEL | TVHT_ONITEMICON | TVHT_ONITEMRIGHT | TVHT_ONITEMINDENT)) &&
+            !(hit.flags & (TVHT_ONITEMBUTTON | TVHT_ONITEMSTATEICON))) {
+            app->outlineClickHandled = true;
+            app->ActivateOutlineItem(item);
+        }
+        return result;
+    }
+    return DefSubclassProc(window, message, wp, lp);
 }
 
 LRESULT CALLBACK FlatButtonProc(HWND window, UINT message, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR) {

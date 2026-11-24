@@ -11,7 +11,7 @@ constexpr int OutlineFilterId = 3100;
 constexpr int HomeList = 4200;
 enum { Open = 100, Previous, Next, Smaller, Larger, Fit, Find, Print, Query, FindNext, FindPrevious, Copy, Outline, OpenMenu, ForgetHistory,
     FindClose, OutlineClose, OutlinePin, OutlineRail, About, Theme, NewTabCmd, CloseTabCmd, NextTabCmd, PrevTabCmd,
-    FitPageCmd, FitHeightCmd, PageEdit };
+    FitPageCmd, FitHeightCmd, PageEdit, OutlineFilterClear };
 
 // Best-effort dark title bar. Older Windows builds ignore both attributes.
 void ApplyWindowTheme(HWND window, bool dark) {

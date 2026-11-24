@@ -3,6 +3,7 @@
 // Internal fragment of main.cpp: include it only from there, after the Windows/PDFium headers.
 namespace {
 LRESULT CALLBACK OutlineProc(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK OutlineTreeProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
 LRESULT CALLBACK IconButtonProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
 LRESULT CALLBACK HomeListProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
 LRESULT CALLBACK FlatButtonProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
@@ -38,9 +39,13 @@ public:
     HTREEITEM outlineHighlight = nullptr;  // row shaded for the section being read
     int outlineChecks = 0, outlineStep = 0;
     HWND outlineFilter = nullptr;
+    HWND outlineFilterClear = nullptr;
+    bool outlineClickHandled = false;
+    int outlineActivations = 0;
     std::wstring outlineFilterQuery;
     bool outlineFilterTest = false;
     int outlineFilterChecks = 0;
+    int outlineFilterStep = 0;
     bool destinationsTest = false;
     double testedDestinationZoom = 3;
     bool linksTest = false;
@@ -135,6 +140,15 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
     POINT dragStart{};
     bool dragging = false, selected = false, copyWhenReady = false;
     unsigned long long selectionRevision = 0;
+    // Word (double click) or line/paragraph (triple click) selections keep an
+    // explicit character range instead of deriving it from the two click points.
+    bool selectionExplicit = false;
+    Endpoint selectionExplicitFirst{}, selectionExplicitLast{};
+    std::map<int, std::vector<unsigned int>> textPageChars;
+    int documentClickCount = 0;
+    DWORD lastDocumentClickTime = 0;
+    int lastDocumentClickX = 0, lastDocumentClickY = 0;
+    struct PendingMultiClick { bool active = false; int page = 0; double x = 0, y = 0; int level = 1; } pendingMultiClick;
     int searchPage = -1;
     int searchMatch = -1;
     int testWordStart[2]{0, 0};
@@ -221,6 +235,7 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         case Find: icon = UiIcon::Search; active = searchVisible; break;
         case Print: icon = UiIcon::Printer; break;
         case FindClose: icon = UiIcon::Close; break;
+        case OutlineFilterClear: icon = UiIcon::Close; break;
         case OutlinePin: icon = UiIcon::Pin; active = outlinePinned; break;
         case Theme: icon = UiIcon::Gear; break;
         case About: icon = UiIcon::Info; break;
@@ -849,6 +864,8 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
     }
     void ApplyOutlineFilter() {
         outlineFilterQuery = outlineFilter ? Text(outlineFilter) : std::wstring{};
+        if (HWND clear = outlineWindow ? GetDlgItem(outlineWindow, OutlineFilterClear) : nullptr)
+            ShowWindow(clear, outlineFilterQuery.empty() ? SW_HIDE : SW_SHOW);
         PopulateOutline();
     }
     bool ClearOutlineFilterText() {
@@ -856,6 +873,8 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         if (!had) return false;
         outlineFilterQuery.clear();
         if (outlineFilter) SetWindowTextW(outlineFilter, L"");
+        if (HWND clear = outlineWindow ? GetDlgItem(outlineWindow, OutlineFilterClear) : nullptr)
+            ShowWindow(clear, SW_HIDE);
         PopulateOutline();
         return true;
     }
@@ -884,15 +903,38 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         ok = ok && TreeView_GetCount(outlineTree) == 1 && Text(outlineLabel).find(L"1 de 5") != std::wstring::npos;
         auto root = TreeView_GetRoot(outlineTree);
         ok = ok && root != nullptr;
+        // The clear button appears only while there is a query.
+        HWND clear = outlineWindow ? GetDlgItem(outlineWindow, OutlineFilterClear) : nullptr;
+        ok = ok && clear && (GetWindowLongPtrW(clear, GWL_STYLE) & WS_VISIBLE);
         NavigateFirstOutlineMatch();
         ok = ok && TreeView_GetSelection(outlineTree) == root;
         SetWindowTextW(outlineFilter, L"sub"); ApplyOutlineFilter();
         ok = ok && TreeView_GetCount(outlineTree) == 2 && Text(outlineLabel).find(L"1 de 5") != std::wstring::npos;
         SaveTestImage(benchmarkReport + L".outline-filter.bmp", outlineWindow);
+        if (!ok) { BenchmarkResult(false); return; }
+        // A single click on the matching child (page 1) must navigate there. Send
+        // the mouse-up the tree receives, then wait for the async navigation.
+        auto match = TreeView_GetChild(outlineTree, root);
+        RECT itemRect{};
+        if (!match || !TreeView_GetItemRect(outlineTree, match, &itemRect, TRUE)) { BenchmarkResult(false); return; }
+        int before = outlineActivations;
+        int cx = (itemRect.left + itemRect.right) / 2, cy = (itemRect.top + itemRect.bottom) / 2;
+        SendMessageW(outlineTree, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(cx, cy));
+        SendMessageW(outlineTree, WM_LBUTTONUP, 0, MAKELPARAM(cx, cy));
+        if (outlineActivations != before + 1) { BenchmarkResult(false); return; }
+        outlineFilterStep = 1;
+        SetTimer(window, 10, 600, nullptr);
+    }
+    void CheckOutlineFilterNavigation() {
+        if (outlineFilterStep != 1) return;
+        outlineFilterStep = 2;
+        bool ok = page == 1; // the single click reached the child's destination
         SetWindowTextW(outlineFilter, L"zzz"); ApplyOutlineFilter();
         ok = ok && TreeView_GetCount(outlineTree) == 0 && Text(outlineLabel).find(L"0 de 5") != std::wstring::npos;
         ClearOutlineFilterText();
         ok = ok && TreeView_GetCount(outlineTree) == 5 && Text(outlineLabel).find(L"5 secciones") != std::wstring::npos;
+        HWND clear = outlineWindow ? GetDlgItem(outlineWindow, OutlineFilterClear) : nullptr;
+        ok = ok && clear && !(GetWindowLongPtrW(clear, GWL_STYLE) & WS_VISIBLE);
         ++outlineFilterChecks;
         BenchmarkResult(ok);
     }
@@ -919,6 +961,7 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
     }
     void ActivateOutlineItem(HTREEITEM item) {
         if (item) {
+            ++outlineActivations;
             TreeView_SelectItem(outlineTree, item); NavigateOutline();
             if (outlinePeek) SetFocus(window);
         }
@@ -1420,6 +1463,10 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
     }
     bool SelectionRange(Endpoint& first, Endpoint& last) {
         if (!selected) return false;
+        if (selectionExplicit) {
+            first = selectionExplicitFirst; last = selectionExplicitLast;
+            return first.character >= 0 && last.character >= 0;
+        }
         auto a = textPages.find(selectionStart.page), b = textPages.find(selectionEnd.page);
         if (a == textPages.end() || b == textPages.end()) return false;
         first = {selectionStart.page, NearestCharacter(a->second, selectionStart.x, selectionStart.y, layout.Height(selectionStart.page) / static_cast<double>(layout.Width(selectionStart.page)))};
@@ -1428,7 +1475,7 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         if (first.page > last.page || (first.page == last.page && first.character > last.character)) std::swap(first, last);
         return true;
     }
-    void ClearSelection() { selected = false; copyWhenReady = false; ++selectionRevision; ++linkEpoch; Redraw(); }
+    void ClearSelection() { selected = false; selectionExplicit = false; copyWhenReady = false; ++selectionRevision; ++linkEpoch; Redraw(); }
     bool LinkAt(const TextPoint& point) const {
         auto found = pageLinks.find(point.page); if (found == pageLinks.end()) return false;
         for (const auto& link : found->second) if (point.x >= link.box.left && point.x <= link.box.right && point.y >= link.box.top && point.y <= link.box.bottom) return true;
@@ -1488,6 +1535,53 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         MoveSelection(x, y); bool clicked = !selected; TextPoint point;
         bool onPage = PointOnPage(x, y, point); EndSelection();
         if (clicked && onPage) ActivateLink(point);
+    }
+    // Counts rapid clicks at (almost) the same spot. Windows sends WM_LBUTTONDBLCLK
+    // for the second click but the third may arrive as WM_LBUTTONDOWN, so both
+    // handlers share this counter. 2 = word, 3+ = line/paragraph.
+    int TrackDocumentClick(int x, int y) {
+        DWORD now = GetMessageTime();
+        int dx = std::max(1, GetSystemMetrics(SM_CXDOUBLECLK) / 2);
+        int dy = std::max(1, GetSystemMetrics(SM_CYDOUBLECLK) / 2);
+        bool sameSpot = std::abs(x - lastDocumentClickX) <= dx && std::abs(y - lastDocumentClickY) <= dy;
+        if (lastDocumentClickTime && now - lastDocumentClickTime <= GetDoubleClickTime() && sameSpot) ++documentClickCount;
+        else documentClickCount = 1;
+        lastDocumentClickTime = now; lastDocumentClickX = x; lastDocumentClickY = y;
+        return documentClickCount;
+    }
+    // Double click selects the word; a third click selects the visual line/paragraph.
+    // Text geometry loads on demand, so a click before it is ready is remembered and
+    // applied when the geometry arrives.
+    void SelectWordOrLine(int x, int y, int level) {
+        TextPoint point;
+        if (!PointOnPage(x, y, point)) { ClearSelection(); return; }
+        if (!textPages.count(point.page) || !textPageChars.count(point.page)) {
+            pendingMultiClick = {true, point.page, point.x, point.y, level};
+            NeedText(point.page);
+            return;
+        }
+        ApplyMultiClick(point.page, point.x, point.y, level);
+    }
+    void ApplyMultiClick(int targetPage, double x, double y, int level) {
+        auto boxesIt = textPages.find(targetPage);
+        auto charsIt = textPageChars.find(targetPage);
+        if (boxesIt == textPages.end() || charsIt == textPageChars.end()) return;
+        const auto& boxes = boxesIt->second; const auto& chars = charsIt->second;
+        if (boxes.empty() || chars.empty()) return;
+        double aspect = layout.Width(targetPage) > 0 ? layout.Height(targetPage) / static_cast<double>(layout.Width(targetPage)) : 1.0;
+        int index = NearestCharacter(boxes, x, y, aspect);
+        if (index < 0 || index >= static_cast<int>(chars.size())) return;
+        int first = index, last = index;
+        TextGeometry::MultiClickRange(chars, index, level, first, last);
+        while (first < last && TextGeometry::IsSpaceChar(chars[first])) ++first;
+        while (last > first && TextGeometry::IsSpaceChar(chars[last])) --last;
+        selectionExplicit = true;
+        selectionExplicitFirst = {targetPage, first};
+        selectionExplicitLast = {targetPage, last};
+        selectionStart = selectionEnd = {targetPage, x, y};
+        selected = true; copyWhenReady = false; pendingMultiClick.active = false;
+        ++selectionRevision; ++linkEpoch;
+        Redraw();
     }
     void ShowTextMenu(POINT screen) {
         HMENU menu = CreatePopupMenu();
@@ -1643,6 +1737,8 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         pageLinks.clear(); pendingLinks.clear(); linkHistory.clear();
         outlineFilterQuery.clear();
         if (outlineFilter) SetWindowTextW(outlineFilter, L"");
+        if (HWND clear = outlineWindow ? GetDlgItem(outlineWindow, OutlineFilterClear) : nullptr)
+            ShowWindow(clear, SW_HIDE);
         outline = {}; outlineLoaded = outlinePending = false; PopulateOutline();
         EndSelection(); ClearSelection(); textPages.clear(); pendingText.clear(); searchPage = -1; searchBoxes.clear();
         path = file; ++document; pages = 0; canCopy = canPrint = false; page = 0; scroll = 0; horizontal = 0; zoom = 0;
@@ -2000,6 +2096,7 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
             else SetOutlinePinned(true);
             break;
         case Print: PrintFile(); break;
+        case OutlineFilterClear: ClearOutlineFilterText(); if (outlineFilter) SetFocus(outlineFilter); break;
         case Theme:
             if (DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_SETTINGS), window, SettingsProc, reinterpret_cast<LPARAM>(this)) == -1)
                 MessageBoxW(window, L"No se pudieron abrir las opciones. Reiniciá Chucao e intentá de nuevo.",
@@ -2183,7 +2280,14 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         case Result::Geometry: {
             pendingText.erase(result->page);
             textPages[result->page] = std::move(result->boxes);
-            size_t bytes = 0; for (const auto& item : textPages) bytes += item.second.size() * sizeof(TextBox);
+            textPageChars[result->page] = std::move(result->chars);
+            auto pageBytes = [&](int p) {
+                size_t n = 0;
+                auto b = textPages.find(p); if (b != textPages.end()) n += b->second.size() * sizeof(TextBox);
+                auto c = textPageChars.find(p); if (c != textPageChars.end()) n += c->second.size() * sizeof(unsigned int);
+                return n;
+            };
+            size_t bytes = 0; for (const auto& item : textPages) bytes += pageBytes(item.first);
             while (bytes > 16u * 1024u * 1024u) {
                 auto victim = textPages.end(); int distance = -1;
                 for (auto i = textPages.begin(); i != textPages.end(); ++i) {
@@ -2191,9 +2295,13 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
                     if (std::abs(i->first - page) > distance) { victim = i; distance = std::abs(i->first - page); }
                 }
                 if (victim == textPages.end()) break;
-                bytes -= victim->second.size() * sizeof(TextBox); textPages.erase(victim);
+                bytes -= pageBytes(victim->first);
+                textPageChars.erase(victim->first);
+                textPages.erase(victim);
             }
             if (!result->message.empty()) status = result->message;
+            if (pendingMultiClick.active && pendingMultiClick.page == result->page)
+                ApplyMultiClick(pendingMultiClick.page, pendingMultiClick.x, pendingMultiClick.y, pendingMultiClick.level);
             if (dragging || selected) { NeedText(selectionStart.page); NeedText(selectionEnd.page); }
             if (copyWhenReady) CopySelection();
             Redraw(); CheckText(Result::Geometry); break;

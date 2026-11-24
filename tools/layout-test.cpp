@@ -1,6 +1,7 @@
 #include "../src/document-layout.h"
 #include "../src/text-geometry.h"
 #include <cstdio>
+#include <string>
 #include <stdexcept>
 
 void Check(bool condition, const char* message) { if (!condition) throw std::runtime_error(message); }
@@ -48,6 +49,19 @@ int main() {
         Check(NearestCharacter({}, .1, .1, 1) == -1, "empty text page");
         Check(SelectionBoxes(boxes, 0, 3).size() == 2, "line selection merging");
         Check(SelectionBoxes(boxes, 3, 1).empty(), "empty selection interval");
+        std::u32string sample = U"Chucao café\r\nSegunda línea";
+        std::vector<unsigned int> text(sample.begin(), sample.end());
+        int first = 0, last = 0;
+        TextGeometry::MultiClickRange(text, 2, 1, first, last);
+        Check(first == 0 && last == 5, "double click selects the word");
+        TextGeometry::MultiClickRange(text, 8, 1, first, last);
+        Check(first == 7 && last == 10, "accented word stays together");
+        TextGeometry::MultiClickRange(text, 2, 2, first, last);
+        Check(first == 0 && last == 10, "triple click selects the line");
+        TextGeometry::MultiClickRange(text, 13, 2, first, last);
+        Check(first == 13 && last == 25, "second line range");
+        TextGeometry::MultiClickRange(text, 6, 1, first, last);
+        Check(first == 6 && last == 6, "click on a space selects it");
         std::puts("layout: bounds, mixed pages, fit modes, estimates, zoom anchor and 64-bit extent OK"); return 0;
     } catch (const std::exception& error) { std::fprintf(stderr, "%s\n", error.what()); return 1; }
 }

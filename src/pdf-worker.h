@@ -15,6 +15,7 @@ struct Result {
     bool copyAllowed = false;
     bool printAllowed = false;
     std::vector<TextBox> boxes;
+    std::vector<unsigned int> chars;
     std::wstring text;
     std::wstring message;
     std::vector<unsigned char> pixels;
@@ -244,9 +245,11 @@ public:
             if (count > 200000) result->message = L"Esta página tiene demasiado texto para seleccionar.";
             else if (count > 0) {
                 result->boxes.resize(count);
+                result->chars.resize(count);
                 for (int i = 0; i < count && !cancelled_ && document == wantedDocument_; ++i) {
                     double left, right, bottom, top;
                     if (FPDFText_GetCharBox(text, i, &left, &right, &bottom, &top)) result->boxes[i] = PageBox(pdfPage, left, right, bottom, top);
+                    result->chars[i] = static_cast<unsigned int>(FPDFText_GetUnicode(text, i));
                 }
             }
             if (text) FPDFText_ClosePage(text);

@@ -131,14 +131,17 @@ tema oscuro. El estado presionado, el foco y el hover se calculan en el subclass
 ## Botón en la barra de tareas al arrancar
 
 En Windows 11 la ventana principal podía quedar detrás de otras y sin botón en la barra
-de tareas hasta que se activaba (o se ocultaba y volvía a mostrar), por lo que parecía
-que la aplicación se cerraba sola, típicamente al abrirla desde el instalador. Tras
-mostrar la ventana, Chucao pide el primer plano y, si Windows lo rechaza, la oculta y la
-muestra una vez más para que el shell registre el botón. Se verificó leyendo los botones
-de la barra con UI Automation: no aparecía en ningún lanzamiento antes del cambio y
-aparece en todos después, con la compilación y con el EXE del ZIP. Se desconoce la causa
-de fondo; el cambio es un rodeo. Pendiente: repetir el flujo del instalador y probar en
-otra PC.
+de tareas, por lo que parecía que la aplicación se cerraba sola, típicamente al abrirla
+desde el instalador. La causa es que Chucao pasaba el `nCmdShow` crudo al primer
+`ShowWindow`: un lanzador de fondo o el instalador (`CreateProcess` sin
+`STARTF_USESHOWWINDOW`) inicia el proceso con un estado sin activación
+(`SW_HIDE`/`SW_SHOWMINNOACTIVE`/`SW_SHOWNA`/`SW_SHOWNOACTIVATE`), que deja la ventana
+detrás y sin botón. Ahora se normaliza ese estado a `SW_SHOWNORMAL`, se pide el primer
+plano y, si Windows lo niega, se parpadea el botón de la barra de tareas
+(`FlashWindowEx`) en lugar de ocultar y volver a mostrar la ventana. El instalador
+lanza por `shellexec` para ceder el permiso de primer plano. Se verificó leyendo los
+botones de la barra con UI Automation. Pendiente: repetir el flujo del instalador y
+probar en otra PC.
 
 ## Pendiente manual
 

@@ -66,7 +66,7 @@ Root: HKCU; Subkey: "Software\Classes\.pdf\OpenWithProgids"; ValueType: none; Va
 Root: HKCU; Subkey: "Software\Classes\.pdf"; ValueType: string; ValueName: ""; ValueData: "Chucao.PDF"; Tasks: associatepdf
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Abrir {#MyAppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Abrir {#MyAppName}"; Flags: nowait postinstall skipifsilent shellexec
 
 [Code]
 const

@@ -106,7 +106,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     Gdiplus::Status gdiplusStatus = Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusInput, nullptr);
     int initialDpi = SystemDpi();
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_TREEVIEW_CLASSES | ICC_LINK_CLASS | ICC_LISTVIEW_CLASSES}; InitCommonControlsEx(&controls);
-    WNDCLASSW wc{}; wc.hInstance = instance; wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    WNDCLASSW wc{}; wc.style = CS_DBLCLKS; wc.hInstance = instance; wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(IDI_CHUCAO));
     wc.lpszClassName = L"ChucaoReader"; wc.lpfnWndProc = WindowProc; RegisterClassW(&wc);
     wc.lpszClassName = L"ChucaoPassword"; wc.lpfnWndProc = PasswordProc;
@@ -170,17 +170,23 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     bool startMaximized = false;
     if (!benchmark && !shellBenchmark) startMaximized = app.PrepareWindowPlacement();
     if (!benchmark && !shellBenchmark) {
+        // A background launcher (the installer or a script) can start the process
+        // with a non-activating show state (SW_HIDE, SW_SHOWMINNOACTIVE, SW_SHOWNA or
+        // SW_SHOWNOACTIVATE). Passed straight to the first ShowWindow, that leaves the
+        // window behind everything and, on Windows 11, without a taskbar button, as if
+        // the app had closed itself. Normalize those to a normal, activating show.
+        if (show == SW_HIDE || show == SW_SHOWMINNOACTIVE || show == SW_SHOWNA ||
+            show == SW_SHOWNOACTIVATE)
+            show = SW_SHOWNORMAL;
         ShowWindow(window, (startMaximized || show == SW_SHOWMAXIMIZED) ? SW_SHOWMAXIMIZED : show);
         UpdateWindow(window);
         app.StyleNativeBars();
-        // On Windows 11 a newly shown window can stay behind others with no taskbar
-        // button until it is activated or shown again, so it looks as if the app
-        // closed itself (typically when the installer launches it). Ask for the
-        // foreground; if the foreground lock refuses, show the window once more so
-        // the shell registers its taskbar button.
+        // Bring the window to the front when Windows allows it. If the foreground
+        // lock refuses (launched by a finishing installer), flash the taskbar button
+        // to draw the user's attention instead of hiding and re-showing the window.
         if (!SetForegroundWindow(window)) {
-            ShowWindow(window, SW_HIDE);
-            ShowWindow(window, SW_SHOW);
+            FLASHWINFO flash{sizeof(flash), window, FLASHW_ALL | FLASHW_TIMERNOFG, 3, 0};
+            FlashWindowEx(&flash);
         }
     }
     app.shellMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
