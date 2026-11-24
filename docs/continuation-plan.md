@@ -46,10 +46,11 @@ no sustituyen monitores reales ni cambiar Windows a alto contraste. Impresión,
 IME, lectores de pantalla, archivos remotos y sensaciones de interacción siguen
 requiriendo las pruebas manuales registradas.
 
-**Entrega:** `src/app-info.h` y CMake indican 0.2.11, con el manifiesto de Windows
-incrustado y el chequeo de actualizaciones opt-in (desactivado por defecto); el tag
-`v0.2.11` está empujado a `origin` (`v0.2.10`, `v0.2.9` en `34bd54c` y `v0.2.8` en
-`98b9056`). Falta probar el ZIP y el instalador 0.2.11 en otra PC.
+**Entrega:** `src/app-info.h` y CMake indican 0.2.12, con el manifiesto de Windows
+incrustado, el chequeo de actualizaciones opt-in y la corrección de causa raíz del
+botón de la barra de tareas; el tag `v0.2.12` está empujado a `origin` (`v0.2.11`,
+`v0.2.10`, `v0.2.9` en `34bd54c` y `v0.2.8` en `98b9056`). Falta probar el ZIP y el
+instalador 0.2.12 en otra PC.
 
 ## Orden de trabajo
 

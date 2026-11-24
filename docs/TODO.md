@@ -58,6 +58,12 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
     por lo que parecía que la app se cerraba sola (típicamente al abrirla desde el
     instalador). Ahora pide el primer plano y, si Windows se niega, la vuelve a
     mostrar una vez. Evidencia: [accessibility.md](accessibility.md).
+15. [x] Cortar 0.2.12 con la causa raíz del botón de la barra de tareas (normalizar
+    `nCmdShow`, parpadear el botón si Windows niega el primer plano y lanzar el
+    instalador con `shellexec`), un solo clic para navegar el índice con una «×» para
+    limpiar el filtro, y doble clic (palabra) / triple clic (línea/párrafo) en la
+    selección de texto. Evidencia: [accessibility.md](accessibility.md),
+    [document-outline.md](document-outline.md) y [text-reading.md](text-reading.md).
 
 ## Funciones y diseño
 
@@ -173,6 +179,15 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   [reader-interface.md](reader-interface.md) y [accessibility.md](accessibility.md).
 
 ## Validación de funciones implementadas
+
+- [x] Recompilar v0.2.12 y ejecutar la suite completa el 2026-11-24: código de
+  salida 0. ZIP verificado con `test-package.ps1` e instalador generado. SHA-256:
+  ZIP `e9bb0cab07cb3fd981b679732d9e15985c1e6d9defca83a20b93e9ceecdc962b`,
+  instalador `971160d23f002fe2373da89b1ff3101e08b1335fee3edccccf66f94675b52bdd`.
+  Salida local en `test-results/regression-0.2.12-2026-11-24.log`, no versionada.
+  El aviso de actualización, el clic simple del índice y el doble/triple clic se
+  probaron con el instalador local; la validación del flujo real del instalador y
+  en otra PC sigue pendiente.
 
 - [x] Recompilar v0.2.11 y ejecutar la suite completa el 2026-11-24: código de
   salida 0. El botón de la barra de tareas se comprobó leyendo la barra con UI
