@@ -75,6 +75,9 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
     buffer + tracking de hover), bloqueando índice/búsqueda/zoom sin PDF abierto
     (con botones atenuados) y evitando que `WM_SETREDRAW` muestre el panel del
     índice oculto al cambiar de tema.
+19. [x] Cortar 0.2.16 cambiando la consulta de actualizaciones a un `HEAD` sobre
+    `github.com/.../releases/latest` (header `Location`) para evitar el límite de
+    60 req/h sin autenticar de `api.github.com`. Evidencia: [updater.md](updater.md).
 
 ## Funciones y diseño
 

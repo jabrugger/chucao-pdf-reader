@@ -53,22 +53,30 @@ std::wstring LatestTagFromJson(const std::string& json) {
     return result;
 }
 
-// Derive /repos/<owner>/<repo>/releases/latest from CHUCAO_REPOSITORY.
-std::wstring ReleasesApiPath() {
+// Derive /<owner>/<repo>/releases/latest from CHUCAO_REPOSITORY.
+std::wstring ReleasesWebPath() {
     std::wstring repo = CHUCAO_WIDE(CHUCAO_REPOSITORY);
     size_t pos = repo.find(L"github.com/");
     if (pos == std::wstring::npos) return {};
     std::wstring slug = repo.substr(pos + 11);
     while (!slug.empty() && slug.back() == L'/') slug.pop_back();
     if (slug.empty() || slug.find(L'/') == std::wstring::npos) return {};
-    return L"/repos/" + slug + L"/releases/latest";
+    return L"/" + slug + L"/releases/latest";
 }
 
-// Evaluate a release payload against the current version.
-UpdateInfo FromReleaseJson(const std::string& body) {
+// Extract the tag segment from a GitHub redirect URL (.../releases/tag/<tag>).
+std::wstring LatestTagFromLocation(const std::wstring& location) {
+    const std::wstring marker = L"/releases/tag/";
+    size_t pos = location.find(marker);
+    if (pos == std::wstring::npos) return {};
+    pos += marker.size();
+    size_t end = location.find_first_of(L"/?#", pos);
+    return end == std::wstring::npos ? location.substr(pos) : location.substr(pos, end - pos);
+}
+
+UpdateInfo FromReleaseTag(const std::wstring& tag) {
     UpdateInfo info;
     info.url = std::wstring(CHUCAO_WIDE(CHUCAO_REPOSITORY)) + L"/releases";
-    std::wstring tag = LatestTagFromJson(body);
     if (tag.empty()) return info;
     info.checked = true;
     info.latest = tag;
@@ -76,30 +84,39 @@ UpdateInfo FromReleaseJson(const std::string& body) {
     return info;
 }
 
-// Time-boxed HTTPS GET. Returns the empty string on any failure (offline, DNS,
-// TLS, HTTP error, rate limit or oversize), so a broken check stays silent.
-std::string UpdateHttpGet(const wchar_t* host, const std::wstring& path, size_t limit = 65536) {
-    std::string body;
+// Evaluate a release payload against the current version.
+UpdateInfo FromReleaseJson(const std::string& body) {
+    return FromReleaseTag(LatestTagFromJson(body));
+}
+
+// Time-boxed HTTPS HEAD against github.com/<owner>/<repo>/releases/latest,
+// reading the 302 Location header without hitting api.github.com's 60 req/h limit.
+std::wstring UpdateRedirectLocation(const wchar_t* host, const std::wstring& path) {
+    std::wstring location;
     HINTERNET session = WinHttpOpen(L"Chucao/" CHUCAO_WIDE(CHUCAO_VERSION_STRING),
         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!session) return body;
+    if (!session) return location;
     HINTERNET connect = WinHttpConnect(session, host, INTERNET_DEFAULT_HTTPS_PORT, 0);
     if (connect) {
-        HINTERNET request = WinHttpOpenRequest(connect, L"GET", path.c_str(), nullptr,
+        HINTERNET request = WinHttpOpenRequest(connect, L"HEAD", path.c_str(), nullptr,
             WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
         if (request) {
             WinHttpSetTimeouts(request, 3000, 3000, 3000, 3000);
-            const wchar_t* headers = L"User-Agent: Chucao\r\nAccept: application/vnd.github+json\r\n";
-            if (WinHttpSendRequest(request, headers, static_cast<DWORD>(-1), WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
+            DWORD disable = WINHTTP_DISABLE_REDIRECTS;
+            WinHttpSetOption(request, WINHTTP_OPTION_DISABLE_FEATURE, &disable, sizeof(disable));
+            if (WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
                 WinHttpReceiveResponse(request, nullptr)) {
-                DWORD available = 0;
-                while (body.size() < limit && WinHttpQueryDataAvailable(request, &available) && available > 0) {
-                    DWORD chunk = static_cast<DWORD>(std::min<size_t>(available, limit - body.size()));
-                    size_t offset = body.size(); body.resize(offset + chunk);
-                    DWORD read = 0;
-                    if (!WinHttpReadData(request, &body[offset], chunk, &read)) break;
-                    body.resize(offset + read);
-                    if (read == 0) break;
+                DWORD size = 0;
+                WinHttpQueryHeaders(request, WINHTTP_QUERY_LOCATION, WINHTTP_HEADER_NAME_BY_INDEX,
+                    nullptr, &size, WINHTTP_NO_HEADER_INDEX);
+                if (GetLastError() == ERROR_INSUFFICIENT_BUFFER && size >= sizeof(wchar_t) && size <= 4096) {
+                    location.resize(size / sizeof(wchar_t));
+                    if (WinHttpQueryHeaders(request, WINHTTP_QUERY_LOCATION, WINHTTP_HEADER_NAME_BY_INDEX,
+                        &location[0], &size, WINHTTP_NO_HEADER_INDEX)) {
+                        while (!location.empty() && location.back() == L'\0') location.pop_back();
+                    } else {
+                        location.clear();
+                    }
                 }
             }
             WinHttpCloseHandle(request);
@@ -107,12 +124,12 @@ std::string UpdateHttpGet(const wchar_t* host, const std::wstring& path, size_t 
         WinHttpCloseHandle(connect);
     }
     WinHttpCloseHandle(session);
-    return body;
+    return location;
 }
 
 UpdateInfo CheckForUpdate() {
-    std::wstring path = ReleasesApiPath();
+    std::wstring path = ReleasesWebPath();
     if (path.empty()) return {};
-    return FromReleaseJson(UpdateHttpGet(L"api.github.com", path));
+    return FromReleaseTag(LatestTagFromLocation(UpdateRedirectLocation(L"github.com", path)));
 }
 } // namespace
