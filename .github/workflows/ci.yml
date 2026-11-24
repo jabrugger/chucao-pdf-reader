@@ -19,7 +19,14 @@ jobs:
       - name: Pruebas sin interfaz
         shell: powershell
         run: |
+          $tmp = New-Item -ItemType Directory -Path "test-results/ci" -Force
           ./build/layout-test.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./build/reading-state-test.exe "$($tmp.FullName)/state"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./build/recent-test.exe "$($tmp.FullName)/recent"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/smoke-test.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/test-preferences.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

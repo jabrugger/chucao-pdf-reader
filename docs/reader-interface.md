@@ -95,7 +95,7 @@ El pajarito es un botón accesible con ayuda contextual; clic, activación por t
 o F1 abre un diálogo nativo. En esa fecha mostraba versión 0.1.0, Jorge Andres
 Brugger, jbrugger@ideaworks.com.ar, fecha de release 16/11/2026 y el repositorio
 privado https://github.com/jabrugger/chucao-pdf-reader. La versión actual es
-**0.2.7** (release 20/11/2026). Incluye una tabla de atajos con desplazamiento
+**0.2.14** (release 24/11/2026). Incluye una tabla de atajos con desplazamiento
 debajo de los datos de versión. Solo el enlace de GitHub abre el navegador;
 consultar Acerca de no hace conexiones de red ni carga PDFium. Escape y la X del
 diálogo regresan al lector.
@@ -181,8 +181,9 @@ a zoom manual usando la escala efectiva.
 
 El cálculo vive en `DocumentLayout` (`ZoomMode`) y el worker aplica la misma regla
 para elegir la resolución del bitmap; el presupuesto de 16 000 px/12 MP se mantiene.
-Al reabrir un documento, los modos de página/alto se restauran como zoom fijo
-efectivo, porque el perfil de lectura guarda una escala numérica.
+El indicador de zoom en la barra es clickeable para elegir entre Ancho, Página,
+Alto o porcentajes predefinidos (50 % a 200 %). Al reabrir un documento, el modo
+de ajuste (`FitWidth`, `FitPage`, `FitHeight`) se conserva en `reading-state.dat`.
 
 La prueba `--benchmark-fit` (en `test-reader.ps1`) abre un PDF de páginas
 distintas y verifica que página, alto y ancho encajen en el área de lectura;

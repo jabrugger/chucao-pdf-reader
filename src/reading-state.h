@@ -15,6 +15,7 @@ struct ReadingState {
     int pages = 0, page = 0;
     double zoom = 0, vertical = 0, horizontal = .5;
     int gap = 0;
+    int zoomMode = 0; // 0 = auto (Manual if zoom > 0 else FitWidth), 1 = FitWidth, 2 = FitPage, 3 = FitHeight
 };
 
 // Local metadata only: never document contents, search queries or passwords.
@@ -27,7 +28,8 @@ class ReadingStateStore {
             std::isfinite(s.zoom) && (s.zoom == 0 || (s.zoom >= .25 && s.zoom <= 4)) &&
             std::isfinite(s.vertical) && s.vertical >= 0 && s.vertical <= 1 &&
             std::isfinite(s.horizontal) && s.horizontal >= 0 && s.horizontal <= 1 && s.gap >= -24 && s.gap <= 24 &&
-            (s.gap == 0 || s.vertical == 0 || s.vertical == 1);
+            (s.gap == 0 || s.vertical == 0 || s.vertical == 1) &&
+            s.zoomMode >= 0 && s.zoomMode <= 3;
     }
     static std::string Encode(const std::wstring& value) {
         int count = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
@@ -56,8 +58,12 @@ class ReadingStateStore {
     }
     static std::string Serialize(const std::vector<ReadingState>& entries) {
         std::ostringstream output; output.imbue(std::locale::classic()); output << "ChucaoReadingState 1\n" << std::setprecision(17);
-        for (const auto& state : entries) output << Encode(state.path) << '\t' << state.pages << '\t' << state.page << '\t' << state.zoom << '\t'
-            << state.vertical << '\t' << state.horizontal << '\t' << state.gap << '\n';
+        for (const auto& state : entries) {
+            output << Encode(state.path) << '\t' << state.pages << '\t' << state.page << '\t' << state.zoom << '\t'
+                << state.vertical << '\t' << state.horizontal << '\t' << state.gap;
+            if (state.zoomMode > 0) output << '\t' << state.zoomMode;
+            output << '\n';
+        }
         return output.str();
     }
 public:
@@ -85,7 +91,9 @@ public:
             if (line.size() > 262400) continue;
             std::istringstream fields(line); fields.imbue(std::locale::classic());
             ReadingState state; std::string key, extra;
-            if (!(fields >> key >> state.pages >> state.page >> state.zoom >> state.vertical >> state.horizontal >> state.gap) || (fields >> extra)) continue;
+            if (!(fields >> key >> state.pages >> state.page >> state.zoom >> state.vertical >> state.horizontal >> state.gap)) continue;
+            if (!(fields >> state.zoomMode)) { fields.clear(); state.zoomMode = 0; }
+            if (fields >> extra) continue;
             state.path = Decode(key); if (!Valid(state)) continue;
             state.path = NormalizePath(state.path); if (!Valid(state)) continue;
             entries.erase(std::remove_if(entries.begin(), entries.end(), [&](const ReadingState& old) { return SamePath(old.path, state.path); }), entries.end());

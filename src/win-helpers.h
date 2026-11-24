@@ -5,8 +5,10 @@ namespace {
 constexpr UINT Ready = WM_APP + 1;
 constexpr UINT ChromeHover = WM_APP + 2;
 constexpr UINT UpdateReady = WM_APP + 3;
+constexpr UINT SettingsUpdateReady = WM_APP + 4;
 
 constexpr int RecentBase = 4000;
+constexpr int ZoomPresetBase = 4100;
 constexpr int OutlineFilterId = 3100;
 constexpr int HomeList = 4200;
 enum { Open = 100, Previous, Next, Smaller, Larger, Fit, Find, Print, Query, FindNext, FindPrevious, Copy, Outline, OpenMenu, ForgetHistory,

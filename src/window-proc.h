@@ -17,12 +17,12 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->tooltip = CreateWindowExW(0, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
             CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, window, nullptr, nullptr, nullptr);
         SendMessageW(app->tooltip, TTM_SETMAXTIPWIDTH, 0, app->D(320));
-        struct Control { const wchar_t* text; int id, x; };
-        Control buttons[] = {{L"Abrir PDF (Ctrl+O)", OpenMenu, 16},
-            {L"Mostrar u ocultar el índice (Ctrl+B)", Outline, 140}, {L"Buscar en el documento (Ctrl+F)", Find, 180},
-            {L"Página anterior", Previous, 248}, {L"Página siguiente", Next, 396}, {L"Alejar", Smaller, 460},
-            {L"Acercar", Larger, 564}, {L"Ajustar al ancho (Ctrl+0); página (Ctrl+1); alto (Ctrl+2)", Fit, 604},
-            {L"Imprimir (Ctrl+P)", Print, 664}};
+        struct Control { const wchar_t* text; int id; };
+        Control buttons[] = {{L"Abrir PDF (Ctrl+O)", OpenMenu},
+            {L"Mostrar u ocultar el índice (Ctrl+B)", Outline}, {L"Buscar en el documento (Ctrl+F)", Find},
+            {L"Página anterior", Previous}, {L"Página siguiente", Next}, {L"Alejar", Smaller},
+            {L"Acercar", Larger}, {L"Ajustar al ancho (Ctrl+0); página (Ctrl+1); alto (Ctrl+2)", Fit},
+            {L"Imprimir (Ctrl+P)", Print}};
         for (const auto& button : buttons) app->IconButton(window, button.id, button.text);
         app->IconButton(window, Theme, L"Opciones de tema y sesión");
         app->IconButton(window, About, L"Acerca de Chucao (F1)");
@@ -134,6 +134,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp);
         if (app->TabClick(x, y)) return 0;
         if (app->PageFieldClick(x, y)) return 0;
+        if (app->ZoomFieldClick(x, y)) return 0;
         int count = app->TrackDocumentClick(x, y);
         if (count >= 2) { app->SelectWordOrLine(x, y, count >= 3 ? 2 : 1); return 0; }
         app->BeginSelection(x, y); return 0;
@@ -142,6 +143,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp);
         if (app->TabClick(x, y)) return 0;
         if (app->PageFieldClick(x, y)) return 0;
+        if (app->ZoomFieldClick(x, y)) return 0;
         int count = app->TrackDocumentClick(x, y);
         app->SelectWordOrLine(x, y, count >= 3 ? 2 : 1);
         return 0;
@@ -176,14 +178,22 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
                 if (mouse.x >= field.left && mouse.x < field.right && mouse.y >= field.top && mouse.y < field.bottom) {
                     SetCursor(LoadCursor(nullptr, IDC_HAND)); return TRUE;
                 }
+                RECT zfield = app->ZoomFieldRect();
+                if (mouse.x >= zfield.left && mouse.x < zfield.right && mouse.y >= zfield.top && mouse.y < zfield.bottom) {
+                    SetCursor(LoadCursor(nullptr, IDC_HAND)); return TRUE;
+                }
                 Reader::TextPoint point;
                 if (app->PointOnPage(mouse.x, mouse.y, point)) { SetCursor(LoadCursor(nullptr, app->LinkAt(point) ? IDC_HAND : IDC_IBEAM)); return TRUE; }
             }
         }
         break;
     case WM_DROPFILES: {
-        wchar_t path[32768]{}; HDROP drop = reinterpret_cast<HDROP>(wp);
-        if (DragQueryFileW(drop, 0, path, 32768)) app->OpenDocument(path);
+        HDROP drop = reinterpret_cast<HDROP>(wp);
+        UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+        for (UINT i = 0; i < count; ++i) {
+            wchar_t path[32768]{};
+            if (DragQueryFileW(drop, i, path, 32768)) app->OpenDocument(path);
+        }
         DragFinish(drop); return 0;
     }
     case Ready: app->Receive(std::unique_ptr<Result>(reinterpret_cast<Result*>(lp))); return 0;

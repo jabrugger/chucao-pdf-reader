@@ -67,6 +67,10 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
 16. [x] Cortar 0.2.13 limitando el chequeo de actualizaciones a como máximo una vez
     por día (se guarda `updates_last` en `settings.dat`). Evidencia:
     [updater.md](updater.md) y [preferences.md](preferences.md).
+17. [x] Cortar 0.2.14 con barra responsiva, `+` siempre visible en la tira de
+    pestañas, indicador de zoom clickeable, persistencia de modos de ajuste
+    (`FitWidth`/`FitPage`/`FitHeight`), arrastrar y soltar múltiples PDF, botón
+    «Buscar ahora» en Opciones, CI ampliada y limpieza de documentación.
 
 ## Funciones y diseño
 

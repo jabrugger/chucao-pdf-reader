@@ -68,7 +68,7 @@ public:
     std::wstring readingStateFile;
     bool settingsEnabled = true, settingsConfigured = false, forceDarkTheme = false;
     bool forceHighContrast = false, darkTheme = false, applyingPalette = false, paletteReady = false;
-bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
+    bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
     long long updatesLastCheck = 0;
     std::wstring settingsFile;
     bool updatesTest = false;
@@ -264,9 +264,16 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         const ToolbarItem toolbar[] = {{OpenMenu, 16, 36}, {Outline, 76, 36}, {Find, 116, 36},
             {Previous, 184, 36}, {Next, 332, 36}, {Smaller, 400, 36}, {Larger, 508, 36},
             {Fit, 548, 36}, {Print, 612, 36}, {Theme, 664, 36}};
-        for (const auto& item : toolbar)
-            place(GetDlgItem(window, item.id), D(item.x), D(8), D(item.width), D(36));
-        place(GetDlgItem(window, About), rc.right - D(54), D(8), D(36), D(36));
+        int aboutX = std::max(D(16), static_cast<int>(rc.right) - D(54));
+        int toolbarLimit = aboutX - D(12);
+        for (const auto& item : toolbar) {
+            HWND control = GetDlgItem(window, item.id);
+            int x = D(item.x), width = D(item.width);
+            bool visible = x + width <= toolbarLimit;
+            if (control) ShowWindow(control, visible ? SW_SHOWNA : SW_HIDE);
+            if (visible) place(control, x, D(8), width, D(36));
+        }
+        place(GetDlgItem(window, About), aboutX, D(8), D(36), D(36));
         RECT pageField = PageFieldRect();
         place(pageEdit, pageField.left, pageField.top, pageField.right - pageField.left, pageField.bottom - pageField.top);
         int left = ViewLeft(), bottom = static_cast<int>(rc.bottom) - D(26);
@@ -1399,6 +1406,7 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
     ReadingState CurrentReadingState() const {
         ReadingState state; state.path = path; state.pages = pages;
         state.page = layout.PageAt(scroll); state.zoom = zoom;
+        state.zoomMode = static_cast<int>(zoomMode);
         auto offset = scroll - layout.Top(state.page); int height = layout.Height(state.page);
         state.vertical = std::max(0.0, std::min(1.0, offset / static_cast<double>(height)));
         state.gap = offset < 0 ? static_cast<int>(offset) : offset > height ? static_cast<int>(offset - height) : 0;
@@ -1410,7 +1418,10 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         return ReadingStateStore(readingStateFile).Update(CurrentReadingState());
     }
     void ApplyReadingState(const ReadingState& state) {
-        zoom = state.zoom; zoomMode = state.zoom > 0 ? ZoomMode::Manual : ZoomMode::FitWidth;
+        if (state.zoomMode == static_cast<int>(ZoomMode::FitPage)) { zoomMode = ZoomMode::FitPage; zoom = 0; }
+        else if (state.zoomMode == static_cast<int>(ZoomMode::FitHeight)) { zoomMode = ZoomMode::FitHeight; zoom = 0; }
+        else if (state.zoomMode == static_cast<int>(ZoomMode::FitWidth) || state.zoom <= 0) { zoomMode = ZoomMode::FitWidth; zoom = 0; }
+        else { zoomMode = ZoomMode::Manual; zoom = state.zoom; }
         layout.Rebuild(ViewWidth(), ViewHeight(), zoom, zoomMode, PageGap());
         ScrollTo(layout.Top(state.page) + static_cast<std::int64_t>(state.vertical * layout.Height(state.page)) + state.gap, false);
         ScrollHorizontal(static_cast<int>(layout.Left(state.page, ViewWidth()) + state.horizontal * layout.Width(state.page) - ViewWidth() / 2.0));
@@ -1957,11 +1968,42 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         return static_cast<int>(std::max(1LL, std::min<long long>(pages, value)));
     }
     RECT PageFieldRect() const { return { D(226), D(11), D(324), D(41) }; }
+    RECT ZoomFieldRect() const { return { D(440), D(11), D(500), D(41) }; }
     bool PageFieldClick(int x, int y) {
         if (!pages) return false;
         RECT field = PageFieldRect();
         if (x < field.left || x >= field.right || y < field.top || y >= field.bottom) return false;
         ShowPageEdit(); return true;
+    }
+    bool ZoomFieldClick(int x, int y) {
+        if (!pages) return false;
+        RECT field = ZoomFieldRect();
+        if (x < field.left || x >= field.right || y < field.top || y >= field.bottom) return false;
+        ShowZoomMenu(); return true;
+    }
+    void ShowZoomMenu() {
+        HMENU menu = CreatePopupMenu();
+        if (!menu) return;
+        auto add = [&](UINT id, const wchar_t* label, bool checked) {
+            AppendMenuW(menu, MF_STRING | (checked ? MF_CHECKED : 0), id, label);
+        };
+        add(Fit, L"Ajustar al ancho\tCtrl+0", zoomMode == ZoomMode::FitWidth);
+        add(FitPageCmd, L"Ajustar a la página\tCtrl+1", zoomMode == ZoomMode::FitPage);
+        add(FitHeightCmd, L"Ajustar al alto\tCtrl+2", zoomMode == ZoomMode::FitHeight);
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        static constexpr int presets[] = {50, 75, 100, 125, 150, 200};
+        for (int i = 0; i < 6; ++i) {
+            std::wstring label = std::to_wstring(presets[i]) + L"%";
+            bool checked = zoomMode == ZoomMode::Manual && static_cast<int>(std::round(zoom * 100)) == presets[i];
+            add(static_cast<UINT>(ZoomPresetBase + i), label.c_str(), checked);
+        }
+        RECT field = ZoomFieldRect();
+        POINT anchor{field.left, field.bottom + D(2)};
+        ClientToScreen(window, &anchor);
+        UINT chosen = TrackPopupMenuEx(menu, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD | TPM_RIGHTBUTTON,
+            anchor.x, anchor.y, window, nullptr);
+        DestroyMenu(menu);
+        if (chosen) Command(static_cast<int>(chosen));
     }
     // The page indicator is drawn by hand; clicking it reveals a numeric EDIT
     // over the field with the current page preselected.
@@ -2064,6 +2106,13 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         if (id == ForgetHistory) { ClearReadingHistory(); return; }
         pendingReadingState.reset();
         ++linkEpoch;
+        if (id >= ZoomPresetBase && id < ZoomPresetBase + 6) {
+            static constexpr double presets[] = {0.5, 0.75, 1.0, 1.25, 1.5, 2.0};
+            zoomMode = ZoomMode::Manual;
+            zoom = presets[id - ZoomPresetBase];
+            Reflow(); Render();
+            return;
+        }
         if (id >= RecentBase && id < RecentBase + static_cast<int>(recentEntries.size())) {
             auto selectedPath = recentEntries[id - RecentBase].path; SetFocus(window); OpenDocument(selectedPath); return;
         }
@@ -2348,18 +2397,20 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         int height = TabBarHeight(), x = D(8), gap = D(4), closeW = D(26);
         int homeW = D(30);
         int count = static_cast<int>(tabs.size());
-        // Reserve the last slot for the home/mini tab; a PDF opened from the
-        // recents screen becomes the last document tab, just before it.
-        int tabW = std::max(D(96), std::min(D(220),
-            (static_cast<int>(rc.right) - D(8) - homeW - D(8) - gap * count) / count));
-        for (int i = 0; i < count; ++i) {
+        int available = std::max(0, static_cast<int>(rc.right) - D(16) - homeW);
+        int tabW = std::max(D(56), std::min(D(220), (available - gap * count) / count));
+        int maxVisible = std::max(0, (available + gap) / (tabW + gap));
+        int visibleCount = std::min(count, maxVisible);
+        // Keep the '+' button at the end of the visible row, always inside the
+        // window width even when many documents are open.
+        for (int i = 0; i < visibleCount; ++i) {
             TabLayout t;
             t.bounds = {x, BarPixels() + D(3), x + tabW, BarPixels() + height - D(2)};
             t.close = {t.bounds.right - closeW, t.bounds.top + D(3), t.bounds.right - D(6), t.bounds.bottom - D(3)};
             tabLayout.push_back(t);
             x += tabW + gap;
         }
-        homeTabBounds = {x, BarPixels() + D(3), x + homeW, BarPixels() + height - D(2)};
+        homeTabBounds = {x, BarPixels() + D(3), std::min<int>(x + homeW, static_cast<int>(rc.right) - D(8)), BarPixels() + height - D(2)};
     }
     bool HomeTabHitTest(int x, int y) {
         if (tabs.empty()) return false;
@@ -2395,8 +2446,7 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         if (tabs.empty()) return;
         ComputeTabs(rc);
         SetBkMode(dc, TRANSPARENT);
-        // Small home/new-view tab, always at the start of the strip so it stays
-        // reachable no matter how many documents are open.
+        // Mini '+' tab at the end of the strip to return to the recents screen.
         COLORREF homeFill = homeActive ? UiTheme().canvas : hoverHomeTab ? UiTheme().hover : UiTheme().bar;
         UiRoundRect(dc, homeTabBounds, homeFill, UiTheme().line, D(8));
         if (homeActive) {
@@ -2588,24 +2638,32 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         SelectObject(dc, oldPen); DeleteObject(separator);
         DrawTabs(dc, rc);
         SelectObject(dc, font); SetTextColor(dc, UiTheme().ink);
+        int aboutX = std::max(D(16), static_cast<int>(rc.right) - D(54));
+        int toolbarLimit = aboutX - D(12);
         for (int x : {D(60), D(164), D(384), D(600)}) {
+            if (x >= toolbarLimit) break;
             RECT rule{x, D(17), x + std::max(1, D(1)), D(35)}; SetDCBrushColor(dc, UiTheme().line);
             FillRect(dc, &rule, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         }
         // About sits on the far right; give it its own separator before the field.
-        RECT aboutRule{rc.right - D(62), D(17), rc.right - D(62) + std::max(1, D(1)), D(35)};
+        RECT aboutRule{aboutX - D(8), D(17), aboutX - D(8) + std::max(1, D(1)), D(35)};
         SetDCBrushColor(dc, UiTheme().line);
         FillRect(dc, &aboutRule, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
-        RECT pageField = PageFieldRect(); UiRoundRect(dc, pageField, UiTheme().field, UiTheme().field, D(10));
-        auto pageLabel = pages ? std::to_wstring(page + 1) + L" / " + std::to_wstring(pages) : L"— / —";
-        SelectObject(dc, strongFont); DrawTextW(dc, pageLabel.c_str(), -1, &pageField, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-        RECT zoomField{D(440), 0, D(500), BarPixels()};
-        auto zoomLabel = zoomMode == ZoomMode::FitWidth ? std::wstring(L"Ancho") :
-            zoomMode == ZoomMode::FitPage ? std::wstring(L"Página") :
-            zoomMode == ZoomMode::FitHeight ? std::wstring(L"Alto") :
-            zoom > 0 ? std::to_wstring(static_cast<int>(std::round(zoom * 100))) + L"%" : std::wstring(L"Ancho");
-        SelectObject(dc, font); SetTextColor(dc, UiTheme().muted);
-        DrawTextW(dc, zoomLabel.c_str(), -1, &zoomField, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        RECT pageField = PageFieldRect();
+        if (pageField.right <= toolbarLimit) {
+            UiRoundRect(dc, pageField, UiTheme().field, UiTheme().field, D(10));
+            auto pageLabel = pages ? std::to_wstring(page + 1) + L" / " + std::to_wstring(pages) : L"— / —";
+            SelectObject(dc, strongFont); DrawTextW(dc, pageLabel.c_str(), -1, &pageField, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        }
+        RECT zoomField = ZoomFieldRect();
+        if (zoomField.right <= toolbarLimit) {
+            auto zoomLabel = zoomMode == ZoomMode::FitWidth ? std::wstring(L"Ancho") :
+                zoomMode == ZoomMode::FitPage ? std::wstring(L"Página") :
+                zoomMode == ZoomMode::FitHeight ? std::wstring(L"Alto") :
+                zoom > 0 ? std::to_wstring(static_cast<int>(std::round(zoom * 100))) + L"%" : std::wstring(L"Ancho");
+            SelectObject(dc, font); SetTextColor(dc, UiTheme().muted);
+            DrawTextW(dc, zoomLabel.c_str(), -1, &zoomField, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        }
         if (searchVisible) {
             RECT findBar{ViewLeft(), ContentTop() + ViewHeight(), rc.right, rc.bottom - D(26)};
             SetDCBrushColor(dc, UiTheme().bar);

@@ -48,7 +48,7 @@ powershell -ExecutionPolicy Bypass -File scripts/package.ps1
 powershell -ExecutionPolicy Bypass -File scripts/test-package.ps1
 ```
 
-El primero compila y genera `dist/Chucao-0.2.13-win-x64.zip` con el ejecutable,
+El primero compila y genera `dist/Chucao-0.2.14-win-x64.zip` con el ejecutable,
 `pdfium.dll`, el LEEME, la licencia MIT y los avisos de PDFium y sus
 dependencias. El segundo descomprime el paquete, comprueba los archivos
 obligatorios y ejecuta el lector empaquetado contra un PDF sintético.
@@ -60,7 +60,7 @@ PDF opcional):
 powershell -ExecutionPolicy Bypass -File scripts/package-installer.ps1
 ```
 
-Produce `dist/Chucao-0.2.13-setup.exe`. El instalador y el EXE **no están firmados**:
+Produce `dist/Chucao-0.2.14-setup.exe`. El instalador y el EXE **no están firmados**:
 Windows SmartScreen puede mostrar "Windows protegió su PC"; elegí "Más información" y
 "Ejecutar de todas formas" si descargaste Chucao desde este repositorio. Ver [distribución](docs/distribution.md) e
 [instalador](docs/installer.md).
@@ -82,8 +82,8 @@ tamaño, la posición y si la ventana estaba maximizada; ver
 - Enlaces web HTTP/HTTPS: clic para abrirlos en el navegador predeterminado.
   Pasar el mouse, seleccionar texto o abrir el PDF no abre el navegador.
 
-- Abrir: el icono de carpeta, Ctrl+O, arrastrar un PDF o pasar su ruta como argumento.
-  El botón abre directamente el selector, sin menú intermedio.
+- Abrir: el icono de carpeta, Ctrl+O, arrastrar uno o varios PDF o pasar sus rutas
+  como argumentos. El botón abre directamente el selector, sin menú intermedio.
 - Recientes: en la pantalla de bienvenida aparece una lista con hasta diez PDF
   abiertos antes; clic o Enter abre el elegido. Se leen bajo demanda, sin recorrer
   carpetas. **Olvidar recientes y posiciones** está en Opciones y no modifica los
@@ -95,7 +95,8 @@ tamaño, la posición y si la ventana estaba maximizada; ver
 - Home/End: principio/final del documento.
 - Zoom: botones +/−, Ctrl+rueda. Ctrl+rueda hace zoom sobre el punto del PDF
   bajo el puntero. Ajustar al ancho con Ctrl+0, a la página con Ctrl+1 y al alto
-  con Ctrl+2. El indicador muestra Ancho, Página o Alto.
+  con Ctrl+2. El indicador muestra Ancho, Página, Alto o el porcentaje y se puede
+  clickear para elegir modo o porcentajes predefinidos.
 - Desplazamiento horizontal: barra inferior, Shift+rueda o rueda horizontal.
   La búsqueda lleva también a las coincidencias fuera del ancho visible.
 - Índice integrado a la izquierda: se muestra al abrir si el PDF tiene marcadores
@@ -129,9 +130,10 @@ tamaño, la posición y si la ventana estaba maximizada; ver
 - Opciones: el icono de tema abre un diálogo con el tema (claro, oscuro o igual que
   el sistema), mostrar automáticamente el índice, reabrir los PDF de la última
   sesión (desactivado por defecto), **Buscar actualizaciones al abrir**
-  (desactivado por defecto; como máximo una vez por día), **Abrir los PDF con Chucao** y un enlace a la
-  configuración de aplicaciones predeterminadas de Windows. Ver
-  [opciones](docs/preferences.md) y [actualizaciones](docs/updater.md).
+  (desactivado por defecto; como máximo una vez por día) con botón **Buscar ahora**,
+  **Abrir los PDF con Chucao** y un enlace a la configuración de aplicaciones
+  predeterminadas de Windows. Ver [opciones](docs/preferences.md) y
+  [actualizaciones](docs/updater.md).
 - El índice sombrea suavemente la sección que se está leyendo (por página; un
   capítulo plegado sombrea su padre visible) y la muestra sin tocar la selección.
 - Los documentos cifrados solicitan contraseña y avisan si es incorrecta; no se

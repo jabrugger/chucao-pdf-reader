@@ -19,10 +19,12 @@ int wmain(int argc, wchar_t** argv) {
         ReadingStateStore first(filename), second(filename);
         Check(first.Read().empty(), "missing profile is empty");
         ReadingState a{L"C:\\Libros\\lectura-café.pdf", 410, 37, 2.5, .375, .65, 0};
-        ReadingState b{L"C:\\Libros\\otra lectura.pdf", 12, 9, 0, 0, .5, -24};
+        ReadingState b{L"C:\\Libros\\otra lectura.pdf", 12, 9, 0, 0, .5, -24, 2};
         Check(first.Update(a) && second.Update(b), "two writer instances");
         auto read = first.Find(L"c:/LIBROS/lectura-café.pdf", 410);
-        Check(read && read->page == 37 && read->zoom == 2.5 && read->vertical == .375 && read->horizontal == .65, "Unicode, case, separators and round trip");
+        auto readB = second.Find(b.path, 12);
+        Check(read && read->page == 37 && read->zoom == 2.5 && read->vertical == .375 && read->horizontal == .65 && read->zoomMode == 0, "Unicode, case, separators and round trip");
+        Check(readB && readB->zoomMode == 2, "fit zoomMode round trip");
         a.page = 39; Check(first.Update(a) && second.Find(b.path, b.pages).has_value(), "merge does not lose other document");
         Check(!second.Find(a.path, 411), "changed page count skips stale position");
         auto invalid = a; invalid.zoom = (std::numeric_limits<double>::quiet_NaN)();

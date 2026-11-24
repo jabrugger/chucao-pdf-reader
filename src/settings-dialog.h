@@ -18,9 +18,10 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
         SetAccessibleName(GetDlgItem(dialog, IDC_SETTINGS_THEME_SYSTEM), L"Tema igual que el sistema");
         SetAccessibleName(GetDlgItem(dialog, IDC_SETTINGS_THEME_LIGHT), L"Tema claro");
         SetAccessibleName(GetDlgItem(dialog, IDC_SETTINGS_THEME_DARK), L"Tema oscuro");
+        SetAccessibleName(GetDlgItem(dialog, IDC_SETTINGS_CHECK_NOW), L"Buscar actualizaciones ahora");
         for (int id : {IDC_SETTINGS_THEME_SYSTEM, IDC_SETTINGS_THEME_LIGHT, IDC_SETTINGS_THEME_DARK,
                 IDC_SETTINGS_RESTORE, IDC_SETTINGS_OUTLINE, IDC_SETTINGS_UPDATES, IDC_SETTINGS_ASSOCIATE,
-                IDC_SETTINGS_DEFAULTAPPS, IDC_SETTINGS_CLEAR}) {
+                IDC_SETTINGS_CHECK_NOW, IDC_SETTINGS_DEFAULTAPPS, IDC_SETTINGS_CLEAR}) {
             HWND button = GetDlgItem(dialog, id);
             SetWindowTheme(button, L"", L"");
             SetWindowSubclass(button, FlatButtonProc, 1, 0);
@@ -115,34 +116,68 @@ INT_PTR CALLBACK SettingsProc(HWND dialog, UINT message, WPARAM wp, LPARAM lp) {
                 DrawFocusRect(dc, &rect);
             return TRUE;
         }
-        if (item->CtlID != IDC_SETTINGS_DEFAULTAPPS && item->CtlID != IDC_SETTINGS_CLEAR) return FALSE;
+        if (item->CtlID != IDC_SETTINGS_DEFAULTAPPS && item->CtlID != IDC_SETTINGS_CLEAR && item->CtlID != IDC_SETTINGS_CHECK_NOW) return FALSE;
         HDC dc = item->hDC;
         RECT rect = item->rcItem;
         SetDCBrushColor(dc, UiTheme().bar);
         FillRect(dc, &rect, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         if (HFONT font = reinterpret_cast<HFONT>(SendMessageW(item->hwndItem, WM_GETFONT, 0, 0))) SelectObject(dc, font);
         SetBkMode(dc, TRANSPARENT);
-        SetTextColor(dc, UiTheme().accent);
+        bool disabled = (item->itemState & ODS_DISABLED) != 0;
+        COLORREF linkColor = disabled ? UiTheme().muted : UiTheme().accent;
+        SetTextColor(dc, linkColor);
         std::wstring label = Text(item->hwndItem);
         RECT text = rect; text.left += app->D(2); text.right -= app->D(2);
         DrawTextW(dc, label.c_str(), -1, &text, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
         SIZE extent{};
         if (GetTextExtentPoint32W(dc, label.c_str(), static_cast<int>(label.size()), &extent)) {
             int y = rect.top + (rect.bottom - rect.top + extent.cy) / 2 + app->D(1);
-            HPEN pen = CreatePen(PS_SOLID, 1, UiTheme().accent);
-            HGDIOBJ old = SelectObject(dc, pen);
-            MoveToEx(dc, text.left, y, nullptr);
-            LineTo(dc, std::min<int>(text.left + extent.cx, text.right), y);
-            SelectObject(dc, old); DeleteObject(pen);
+            RECT underline{text.left, y, std::min<int>(text.left + extent.cx, text.right), y + 1};
+            SetDCBrushColor(dc, linkColor);
+            FillRect(dc, &underline, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         }
         if ((item->itemState & ODS_FOCUS) &&
             !(SendMessageW(GetAncestor(dialog, GA_ROOT), WM_QUERYUISTATE, 0, 0) & UISF_HIDEFOCUS))
             DrawFocusRect(dc, &rect);
         return TRUE;
     }
+    if (message == SettingsUpdateReady) {
+        std::unique_ptr<UpdateInfo> info(reinterpret_cast<UpdateInfo*>(lp));
+        if (HWND button = GetDlgItem(dialog, IDC_SETTINGS_CHECK_NOW)) {
+            EnableWindow(button, TRUE);
+            InvalidateRect(button, nullptr, FALSE);
+        }
+        if (!info || !info->checked) {
+            SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, L"No se pudo comprobar si hay actualizaciones.");
+        } else if (info->newer) {
+            SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, (L"Hay una nueva versión disponible (" + info->latest + L").").c_str());
+            std::wstring body = L"Hay una nueva versión de Chucao disponible (" + info->latest +
+                L").\n\n¿Abrir la página de descargas en el navegador?";
+            if (MessageBoxW(dialog, body.c_str(), L"Chucao — actualización disponible",
+                MB_YESNO | MB_ICONINFORMATION) == IDYES) {
+                if (reinterpret_cast<INT_PTR>(ShellExecuteW(dialog, L"open", info->url.c_str(), nullptr, nullptr, SW_SHOWNORMAL)) <= 32)
+                    SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, L"No se pudo abrir el navegador.");
+            }
+        } else {
+            SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, L"Estás usando la última versión de Chucao.");
+        }
+        return TRUE;
+    }
     if (message == WM_COMMAND) {
         int id = LOWORD(wp);
         if (id == IDOK || id == IDCANCEL) { EndDialog(dialog, id); return TRUE; }
+        if (id == IDC_SETTINGS_CHECK_NOW && HIWORD(wp) == BN_CLICKED) {
+            if (HWND button = GetDlgItem(dialog, IDC_SETTINGS_CHECK_NOW)) {
+                EnableWindow(button, FALSE);
+                InvalidateRect(button, nullptr, FALSE);
+            }
+            SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, L"Buscando actualizaciones…");
+            std::thread([dialog]() {
+                auto payload = new UpdateInfo(CheckForUpdate());
+                if (!PostMessageW(dialog, SettingsUpdateReady, 0, reinterpret_cast<LPARAM>(payload))) delete payload;
+            }).detach();
+            return TRUE;
+        }
         if (id == IDC_SETTINGS_DEFAULTAPPS && HIWORD(wp) == BN_CLICKED) {
             if (reinterpret_cast<INT_PTR>(ShellExecuteW(dialog, L"open", L"ms-settings:defaultapps", nullptr, nullptr, SW_SHOWNORMAL)) <= 32)
                 SetDlgItemTextW(dialog, IDC_SETTINGS_STATUS, L"No se pudo abrir la configuración de Windows.");
