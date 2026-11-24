@@ -88,11 +88,14 @@ tamaño, la posición y si la ventana estaba maximizada; ver
   abiertos antes; clic o Enter abre el elegido. Se leen bajo demanda, sin recorrer
   carpetas. **Olvidar recientes y posiciones** está en Opciones y no modifica los
   PDF. Ver [alcance y pruebas](docs/recent-files.md).
-- Página anterior/siguiente: botones y flechas izquierda/derecha.
+- Página anterior/siguiente: botones y flechas izquierda/derecha. El indicador
+  «N / M» de la barra se puede clickear para escribir un número de página e ir
+  con Enter; Escape o perder el foco cancela y deja el indicador como estaba.
 - Lectura continua: rueda, barra de desplazamiento, Page Up/Page Down y flechas arriba/abajo.
 - Home/End: principio/final del documento.
-- Zoom: botones +/−, Ctrl+rueda. Ajustar al ancho con Ctrl+0, a la página con
-  Ctrl+1 y al alto con Ctrl+2. El indicador muestra Ancho, Página o Alto.
+- Zoom: botones +/−, Ctrl+rueda. Ctrl+rueda hace zoom sobre el punto del PDF
+  bajo el puntero. Ajustar al ancho con Ctrl+0, a la página con Ctrl+1 y al alto
+  con Ctrl+2. El indicador muestra Ancho, Página o Alto.
 - Desplazamiento horizontal: barra inferior, Shift+rueda o rueda horizontal.
   La búsqueda lleva también a las coincidencias fuera del ancho visible.
 - Índice integrado a la izquierda: se muestra al abrir si el PDF tiene marcadores

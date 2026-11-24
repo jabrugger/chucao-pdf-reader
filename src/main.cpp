@@ -215,6 +215,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     if (argv) LocalFree(argv);
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        if (msg.message == WM_KEYDOWN && GetFocus() == app.pageEdit) {
+            if (msg.wParam == VK_RETURN) { app.CommitPageEdit(); continue; }
+            if (msg.wParam == VK_ESCAPE) { app.CancelPageEdit(); continue; }
+        }
         if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE && app.searchVisible) { app.HideSearch(); continue; }
         if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN && GetFocus() == app.homeList) {
             int selected = static_cast<int>(SendMessageW(app.homeList, LB_GETCURSEL, 0, 0));
@@ -238,7 +242,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         }
         if (msg.message == WM_KEYDOWN) {
             SendMessageW(window, WM_CHANGEUISTATE, MAKEWPARAM(UIS_CLEAR, UISF_HIDEFOCUS), 0);
-            bool ctrl = GetKeyState(VK_CONTROL) < 0, edit = GetFocus() == app.query;
+            bool ctrl = GetKeyState(VK_CONTROL) < 0, edit = GetFocus() == app.query || GetFocus() == app.pageEdit;
             HWND focused = GetFocus();
             if (!edit && focused == window &&
                 (msg.wParam == VK_APPS || (msg.wParam == VK_F10 && GetKeyState(VK_SHIFT) < 0))) {

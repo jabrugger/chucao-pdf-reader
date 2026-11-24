@@ -150,6 +150,13 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   - [x] Distinguir formato, archivo ausente, protección no admitida, documento sin
     páginas y errores desconocidos; agregar el nombre del archivo y el número de
     página cuando corresponde. Evidencia: [error-messages.md](error-messages.md).
+- [x] Zoom con Ctrl+rueda anclado al punto del PDF bajo el puntero (ese punto
+  queda bajo el mismo píxel). Los botones +/− y las teclas conservan su anclado.
+  Evidencia: [reader-interface.md](reader-interface.md) y la prueba `-Navigation`.
+- [x] Indicador de página «N / M» clickeable: clic abre un campo numérico con el
+  valor preseleccionado; Enter va a la página, Escape o perder el foco cancela.
+  Validación de entrada y salto cubiertas en `-Navigation`. Evidencia:
+  [reader-interface.md](reader-interface.md) y [accessibility.md](accessibility.md).
 
 ## Validación de funciones implementadas
 
@@ -264,6 +271,9 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
   actualización y la desinstalación en otra PC, incluidos «Acerca de» y «Opciones».
 - [ ] Validar manualmente los ajustes de zoom con PDF reales, ventanas extremas y
   DPI altos.
+- [ ] Validar manualmente el zoom con Ctrl+rueda anclado al puntero y el clic en el
+  indicador de página (Enter, Escape, pérdida de foco) con mouse/touchpad reales,
+  a distintos DPI.
 - [ ] Validar manualmente tamaño/posición entre monitores reales, maximizar,
   cerrar y reabrir, y escalas de DPI distintas.
 - [ ] Validar manualmente con Narrator/NVDA, alto contraste, IME y navegación

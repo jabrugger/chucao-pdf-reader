@@ -58,10 +58,22 @@ que exponen un nombre a MSAA. Además se fijan nombres explícitos con
 `IAccPropServices`, sin los atajos entre paréntesis, para el botón Abrir, el
 índice, la búsqueda, la paginación, el zoom, la impresión, el tema y Acerca de.
 El campo de búsqueda recibe el nombre «Buscar en el documento», porque el texto
-de sugerencia no es un rótulo accesible.
+de sugerencia no es un rótulo accesible. El campo del indicador de página recibe
+el nombre «Ir a la página».
 
 Si `IAccPropServices` no está disponible, el lector sigue funcionando: el nombre
 del campo de búsqueda simplemente queda vacío.
+
+### Indicador de página clickeable
+
+El indicador «N / M» de la barra se activa con un clic: aparece un campo EDIT
+numérico con el valor actual preseleccionado. Enter va a la página; Escape o
+perder el foco cancela y deja el indicador como estaba. El campo es un EDIT hijo
+(`WS_TABSTOP` + `ES_NUMBER`) oculto hasta el clic, así que no altera el orden de
+tabulación de los once botones mientras no está activo; cuando se muestra, Tab
+sigue el recorrido normal y su pérdida de foco lo cierra. Tiene nombre accesible
+«Ir a la página» y sobre el indicador el cursor cambia a mano para indicar que es
+clickeable.
 
 ## Estado para lectores de pantalla
 
@@ -125,5 +137,7 @@ tema oscuro. El estado presionado, el foco y el hover se calculan en el subclass
   contraste de Windows y con el modo de alto contraste activo desde el arranque.
 - Anuncios de la barra de estado (resultado de búsqueda, página, errores) como
   región viva.
+- Indicador de página clickeable: validación manual del clic, Enter, Escape y
+  pérdida de foco con mouse y teclado reales, a distintos DPI y con Narrator/NVDA.
 - IME, teclados alternativos, touch y navegación completa solo con teclado en
   documentos reales.

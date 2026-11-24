@@ -231,3 +231,43 @@ Acerca de. La barra no usa imágenes rasterizadas para los controles, así que n
 agrega recursos ni tiempo de carga; el dibujo es GDI+ sobre el mismo HDC de
 pintura. Capturas reales en claro y oscuro, y a 144/192 DPI, verificaron la
 ausencia de marcos y la uniformidad de los glifos.
+
+## Zoom anclado al puntero — 2026-11-23
+
+Ctrl+rueda hace zoom sobre el punto del PDF que está bajo el puntero: ese punto
+queda bajo el mismo píxel después del cambio. Antes del zoom se calcula la página
+y las fracciones vertical/horizontal bajo el puntero (en coordenadas de cliente,
+restando `ViewLeft()`/`ContentTop()`); tras `Reflow()` se recompone
+`scroll`/`horizontal` a partir de esas fracciones y se recorta con
+`ScrollTo`/`ScrollHorizontal`. Si el puntero está fuera del área del documento se
+usa el centro de la vista, como los botones +/− y las teclas, que no cambian.
+
+La ruta de zoom vive en `Reader::Zoom(bool, anchorX, anchorY)`; `Command` la llama
+sin ancla (conserva el borde superior y el centro horizontal de siempre). La vista
+previa —la imagen anterior escalada mientras llega el render de la nueva escala—
+usa el mismo `scroll`/`horizontal` nuevos, así que no hay un salto seguido de
+corrección. Los modos de ajuste (ancho/página/alto) salen a Manual al hacer zoom,
+como hoy.
+
+La prueba de navegación (`-Navigation`) conserva los casos existentes y agrega uno
+nuevo que invoca `Zoom` con un ancla explícita (sin simular el mouse) y comprueba
+que el punto bajo el ancla se conserva (tolerancia pequeña), con desplazamiento
+horizontal y sobre documentos de páginas de distinto tamaño (`sample.pdf` y
+`mixed-pages.pdf`). Queda pendiente la validación manual del mouse/touchpad reales
+y de varios DPI.
+
+## Indicador de página clickeable — 2026-11-23
+
+El indicador «N / M» de la barra (que se dibuja a mano) ahora es clickeable: al
+hacer clic aparece un campo EDIT numérico encima con el valor actual
+preseleccionado. Enter va a esa página (con `ChangePage`), Escape o perder el foco
+cancela y deja el indicador como estaba. El número se recorta al rango 1..`pages`;
+vacío o no numérico cancela. Sin documento abierto no hace nada.
+
+El campo es un EDIT hijo (`PageEdit`) oculto hasta el clic, con el mismo patrón de
+fondo, fuente y tema que la búsqueda y el filtro del índice (`WM_CTLCOLOREDIT`,
+`D(...)`, `ApplyFonts`), y nombre accesible «Ir a la página». Sobre el indicador el
+cursor cambia a mano para que se note que es clickeable. La validación de entrada y
+el salto se cubren en `-Navigation` mediante la función pura
+`Reader::ParsePageNumber` y `ChangePage`; el arrastre/teclado reales quedan como
+validación manual.

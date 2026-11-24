@@ -11,10 +11,11 @@ INT_PTR CALLBACK SettingsProc(HWND, UINT, WPARAM, LPARAM);
 class Reader {
 public:
     HWND window = nullptr, query = nullptr, outlineWindow = nullptr, outlineTree = nullptr, outlineLabel = nullptr;
-    HWND tooltip = nullptr, findLabel = nullptr, findFeedback = nullptr;
+    HWND tooltip = nullptr, findLabel = nullptr, findFeedback = nullptr, pageEdit = nullptr;
     bool searchVisible = false, outlinePinned = false, outlinePeek = false, outlineAutoShow = true, arranging = false;
     bool interfaceTest = false;
     int interfaceStep = 0;
+    bool pageEditActive = false;
     int previousContentWidth = 0;
     int dpi = 96;
     int D(int value) const { return MulDiv(value, dpi, 96); }
@@ -251,6 +252,8 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         for (const auto& item : toolbar)
             place(GetDlgItem(window, item.id), D(item.x), D(8), D(item.width), D(36));
         place(GetDlgItem(window, About), rc.right - D(54), D(8), D(36), D(36));
+        RECT pageField = PageFieldRect();
+        place(pageEdit, pageField.left, pageField.top, pageField.right - pageField.left, pageField.bottom - pageField.top);
         int left = ViewLeft(), bottom = static_cast<int>(rc.bottom) - D(26);
         int panelBottom = outlinePinned ? bottom : BarPixels() + ViewHeight();
         place(outlineWindow, 0, ContentTop(), OutlineWidth(), std::max(1, panelBottom - ContentTop()));
@@ -314,7 +317,7 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         if (outlineWindow) ApplyWindowTheme(outlineWindow, UsingHighContrast() ? false : darkTheme);
     }
     void ApplyFonts() {
-        for (HWND control : {query, findLabel, findFeedback, statusBar})
+        for (HWND control : {query, findLabel, findFeedback, statusBar, pageEdit})
             if (control) SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         StyleOutline();
     }
@@ -1208,13 +1211,48 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
             }
             break;
         case 6: navigationStep = 7; ChangePage(0); break;
-        case 7:
-            navigationStep = 8;
+        case 7: {
+            // Anchor zoom: the document point under an explicit anchor must stay
+            // under the same pixel, with horizontal scrolling active too.
+            zoom = 2; zoomMode = ZoomMode::Manual; Reflow();
+            ScrollTo(layout.Top(0) + layout.Height(0) / 4);
+            ScrollHorizontal(layout.MaxHorizontal(ViewWidth()) / 2);
+            int cx = ViewLeft() + ViewWidth() / 2;
+            int cy = ContentTop() + ViewHeight() / 2;
+            TextPoint before;
+            if (!PointOnPage(cx, cy, before)) { BenchmarkResult(false); return; }
+            double zoomBefore = zoom;
+            Zoom(true, cx, cy);
+            TextPoint after;
+            if (!PointOnPage(cx, cy, after)) { BenchmarkResult(false); return; }
+            bool preserved = after.page == before.page &&
+                std::abs(after.x - before.x) <= 0.01 && std::abs(after.y - before.y) <= 0.01;
+            if (!preserved || !(zoom > zoomBefore) || zoomMode != ZoomMode::Manual) { BenchmarkResult(false); return; }
+            navigationStep = 8; break;
+        }
+        case 8: {
+            // Page-number entry: validate the parser and the jump, without mouse.
+            bool ok = ParsePageNumber(L"", pages) == 0 &&
+                ParsePageNumber(L"abc", pages) == 0 &&
+                ParsePageNumber(L"3x", pages) == 0 &&
+                ParsePageNumber(L"0", pages) == 1 &&
+                ParsePageNumber(L"1", pages) == 1 &&
+                ParsePageNumber(L"2", pages) == 2 &&
+                ParsePageNumber(L"999999999999", pages) == pages;
+            if (!ok) { BenchmarkResult(false); return; }
+            int target = ParsePageNumber(L"2", pages);
+            if (target < 1 || target > pages) { BenchmarkResult(false); return; }
+            ChangePage(target - 1);
+            if (page != 1) { BenchmarkResult(false); return; }
+            navigationStep = 9; break;
+        }
+        case 9:
+            navigationStep = 10;
             // Reopen with queued work and verify that old-document results are ignored.
             Load(path); break;
-        case 8: navigationStep = 9; BenchmarkResult(true); break;
+        case 10: navigationStep = 11; BenchmarkResult(true); break;
         }
-        if (navigationStep < 9) PostMessageW(window, WM_TIMER, 3, 0);
+        if (navigationStep < 11) PostMessageW(window, WM_TIMER, 3, 0);
     }
 
     void CheckFit() {
@@ -1819,6 +1857,49 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         target = std::max(0, std::min(pages - 1, target));
         page = target; PageStatus(); ScrollTo(std::max<std::int64_t>(0, layout.Top(target) - PageGap()));
     }
+    // Parses a 1-based page number from the field. Returns the clamped target in
+    // [1, pages], or 0 when the text is empty or not a whole number (cancel).
+    static int ParsePageNumber(const std::wstring& text, int pages) {
+        if (text.empty() || pages <= 0) return 0;
+        long long value = 0;
+        for (wchar_t c : text) {
+            if (c < L'0' || c > L'9') return 0;
+            value = value * 10 + (c - L'0');
+            if (value > pages) value = pages;
+        }
+        return static_cast<int>(std::max(1LL, std::min<long long>(pages, value)));
+    }
+    RECT PageFieldRect() const { return { D(226), D(11), D(324), D(41) }; }
+    bool PageFieldClick(int x, int y) {
+        if (!pages) return false;
+        RECT field = PageFieldRect();
+        if (x < field.left || x >= field.right || y < field.top || y >= field.bottom) return false;
+        ShowPageEdit(); return true;
+    }
+    // The page indicator is drawn by hand; clicking it reveals a numeric EDIT
+    // over the field with the current page preselected.
+    void ShowPageEdit() {
+        if (!pages || !pageEdit) return;
+        pageEditActive = true;
+        SetWindowTextW(pageEdit, std::to_wstring(page + 1).c_str());
+        ShowWindow(pageEdit, SW_SHOW);
+        SetFocus(pageEdit);
+        SendMessageW(pageEdit, EM_SETSEL, 0, -1);
+    }
+    void EndPageEdit(bool focusWindow) {
+        if (!pageEditActive) return;
+        pageEditActive = false;
+        if (pageEdit) ShowWindow(pageEdit, SW_HIDE);
+        if (focusWindow) SetFocus(window);
+        Redraw();
+    }
+    void CommitPageEdit() {
+        if (!pageEditActive) return;
+        int target = ParsePageNumber(Text(pageEdit), pages);
+        if (target > 0) ChangePage(target - 1);
+        EndPageEdit(true);
+    }
+    void CancelPageEdit(bool focusWindow = true) { EndPageEdit(focusWindow); }
     void Search(bool backwards = false) {
         KillTimer(window, 9);
         if (!pages || searching) return;
@@ -1843,6 +1924,43 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         }
         if (pd.hDevMode) GlobalFree(pd.hDevMode);
         if (pd.hDevNames) GlobalFree(pd.hDevNames);
+    }
+    // Zooms in or out. With an anchor point (client coordinates) the document
+    // point under the anchor stays under the same pixel after the zoom; without
+    // one the view keeps the existing top/center anchoring from Reflow, exactly
+    // as the +/− buttons and the +/− keys always did.
+    void Zoom(bool larger, int anchorX = -1, int anchorY = -1) {
+        // Any manual zoom leaves the fit modes and uses the current effective scale.
+        if (zoomMode != ZoomMode::Manual) {
+            zoom = pages ? layout.Scale(page) : 0;
+            zoomMode = ZoomMode::Manual;
+        }
+        if (!zoom) {
+            auto found = cache.find(page);
+            zoom = found != cache.end() ? found->second.image->scale : 1.0;
+        }
+        int anchorPage = -1;
+        double fy = 0, fx = 0;
+        int cx = 0, cy = 0;
+        if (pages && anchorX >= 0) {
+            cx = anchorX - ViewLeft();
+            cy = anchorY - ContentTop();
+            // Outside the document area there is no page under the pointer, so
+            // fall back to the default top/center anchoring of Reflow.
+            if (cx >= 0 && cx < ViewWidth() && cy >= 0 && cy < ViewHeight()) {
+                anchorPage = layout.PageAt(scroll + cy);
+                fy = (scroll + cy - layout.Top(anchorPage)) / static_cast<double>(layout.Height(anchorPage));
+                fx = (cx - layout.Left(anchorPage, ViewWidth(), horizontal)) / static_cast<double>(layout.Width(anchorPage));
+            }
+        }
+        zoom = std::max(0.25, std::min(4.0, zoom * (larger ? 1.2 : 1 / 1.2)));
+        Reflow();
+        if (anchorPage >= 0) {
+            // Re-anchor: keep the same page and fractions under the pointer.
+            ScrollTo(layout.Top(anchorPage) + static_cast<std::int64_t>(fy * layout.Height(anchorPage)) - cy, false);
+            ScrollHorizontal(static_cast<int>(layout.Left(anchorPage, ViewWidth()) + fx * layout.Width(anchorPage) - cx));
+        }
+        Render();
     }
     void Command(int id) {
         if (id == About) {
@@ -1869,19 +1987,7 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         case Fit: zoomMode = ZoomMode::FitWidth; zoom = 0; Reflow(); Render(); break;
         case FitPageCmd: zoomMode = ZoomMode::FitPage; zoom = 0; Reflow(); Render(); break;
         case FitHeightCmd: zoomMode = ZoomMode::FitHeight; zoom = 0; Reflow(); Render(); break;
-        case Larger: case Smaller: {
-            // Any manual zoom leaves the fit modes and uses the current effective scale.
-            if (zoomMode != ZoomMode::Manual) {
-                zoom = pages ? layout.Scale(page) : 0;
-                zoomMode = ZoomMode::Manual;
-            }
-            if (!zoom) {
-                auto found = cache.find(page);
-                zoom = found != cache.end() ? found->second.image->scale : 1.0;
-            }
-            zoom = std::max(0.25, std::min(4.0, zoom * (id == Larger ? 1.2 : 1 / 1.2)));
-            Reflow(); Render(); break;
-        }
+        case Larger: case Smaller: Zoom(id == Larger); break;
         case Find: ShowSearch(); break;
         case FindNext: ShowSearch(false); Search(); break;
         case FindPrevious: ShowSearch(false); Search(true); break;
@@ -2388,7 +2494,7 @@ bool followSystemTheme = false, autoShowOutline = true, checkUpdates = false;
         RECT aboutRule{rc.right - D(62), D(17), rc.right - D(62) + std::max(1, D(1)), D(35)};
         SetDCBrushColor(dc, UiTheme().line);
         FillRect(dc, &aboutRule, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
-        RECT pageField{D(226), D(11), D(324), D(41)}; UiRoundRect(dc, pageField, UiTheme().field, UiTheme().field, D(10));
+        RECT pageField = PageFieldRect(); UiRoundRect(dc, pageField, UiTheme().field, UiTheme().field, D(10));
         auto pageLabel = pages ? std::to_wstring(page + 1) + L" / " + std::to_wstring(pages) : L"— / —";
         SelectObject(dc, strongFont); DrawTextW(dc, pageLabel.c_str(), -1, &pageField, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
         RECT zoomField{D(440), 0, D(500), BarPixels()};

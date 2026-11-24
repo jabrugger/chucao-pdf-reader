@@ -38,6 +38,9 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->query = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL, 0, 0, app->D(220), app->D(26), window, reinterpret_cast<HMENU>(Query), nullptr, nullptr);
         SendMessageW(app->query, EM_SETCUEBANNER, FALSE, reinterpret_cast<LPARAM>(L"Buscar en el documento"));
         SetAccessibleName(app->query, L"Buscar en el documento");
+        app->pageEdit = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_TABSTOP | ES_NUMBER | ES_CENTER, 0, 0, app->D(98), app->D(30), window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(PageEdit)), nullptr, nullptr);
+        SendMessageW(app->pageEdit, EM_SETLIMITTEXT, 10, 0);
+        SetAccessibleName(app->pageEdit, L"Ir a la página");
         struct Accessible { int id; const wchar_t* name; };
         const Accessible names[] = {{OpenMenu, L"Abrir PDF y recientes"}, {Outline, L"Mostrar u ocultar el índice"},
             {Find, L"Buscar en el documento"}, {Previous, L"Página anterior"}, {Next, L"Página siguiente"},
@@ -89,6 +92,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
             }
         }
         else if (LOWORD(wp) == Query && (HIWORD(wp) == EN_SETFOCUS || HIWORD(wp) == EN_KILLFOCUS)) { app->Redraw(); }
+        else if (LOWORD(wp) == PageEdit && HIWORD(wp) == EN_KILLFOCUS) { app->CancelPageEdit(false); }
+        else if (LOWORD(wp) == PageEdit) { /* EN_CHANGE/EN_SETFOCUS: the field manages itself. */ }
         else if (LOWORD(wp) == Query && HIWORD(wp) == EN_CHANGE) {
             app->searching = false; app->searchPage = -1; app->searchBoxes.clear();
             SetWindowTextW(app->findFeedback, L"");
@@ -106,7 +111,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         SetTextColor(reinterpret_cast<HDC>(wp), UiTheme().muted); SetBkColor(reinterpret_cast<HDC>(wp), UiTheme().bar);
         return reinterpret_cast<LRESULT>(UiBackgroundBrush());
     case WM_CTLCOLOREDIT:
-        if (reinterpret_cast<HWND>(lp) == app->query) {
+        if (reinterpret_cast<HWND>(lp) == app->query || reinterpret_cast<HWND>(lp) == app->pageEdit) {
             SetTextColor(reinterpret_cast<HDC>(wp), UiTheme().ink); SetBkColor(reinterpret_cast<HDC>(wp), UiTheme().field);
             SetDCBrushColor(reinterpret_cast<HDC>(wp), UiTheme().field);
             return reinterpret_cast<LRESULT>(GetStockObject(DC_BRUSH));
@@ -127,6 +132,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
     }
     case WM_LBUTTONDOWN:
         if (app->TabClick(GET_X_LPARAM(lp), GET_Y_LPARAM(lp))) return 0;
+        if (app->PageFieldClick(GET_X_LPARAM(lp), GET_Y_LPARAM(lp))) return 0;
         app->BeginSelection(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)); return 0;
     case WM_MBUTTONDOWN: {
         bool close = false;
@@ -151,9 +157,16 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         if (reinterpret_cast<HWND>(lp) != window) app->EndSelection(false);
         return 0;
     case WM_SETCURSOR:
-        if (reinterpret_cast<HWND>(wp) == window && LOWORD(lp) == HTCLIENT && app->pages) {
-            POINT mouse{}; GetCursorPos(&mouse); ScreenToClient(window, &mouse); Reader::TextPoint point;
-            if (app->PointOnPage(mouse.x, mouse.y, point)) { SetCursor(LoadCursor(nullptr, app->LinkAt(point) ? IDC_HAND : IDC_IBEAM)); return TRUE; }
+        if (reinterpret_cast<HWND>(wp) == window && LOWORD(lp) == HTCLIENT) {
+            POINT mouse{}; GetCursorPos(&mouse); ScreenToClient(window, &mouse);
+            if (app->pages) {
+                RECT field = app->PageFieldRect();
+                if (mouse.x >= field.left && mouse.x < field.right && mouse.y >= field.top && mouse.y < field.bottom) {
+                    SetCursor(LoadCursor(nullptr, IDC_HAND)); return TRUE;
+                }
+                Reader::TextPoint point;
+                if (app->PointOnPage(mouse.x, mouse.y, point)) { SetCursor(LoadCursor(nullptr, app->LinkAt(point) ? IDC_HAND : IDC_IBEAM)); return TRUE; }
+            }
         }
         break;
     case WM_DROPFILES: {
@@ -186,7 +199,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         app->pendingReadingState.reset();
         ++app->linkEpoch;
         int delta = app->D(GET_WHEEL_DELTA_WPARAM(wp));
-        if (GetKeyState(VK_CONTROL) < 0) app->Command(GET_WHEEL_DELTA_WPARAM(wp) > 0 ? Larger : Smaller);
+        if (GetKeyState(VK_CONTROL) < 0) {
+            POINT screen{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+            POINT client = screen; ScreenToClient(window, &client);
+            app->Zoom(GET_WHEEL_DELTA_WPARAM(wp) > 0, client.x, client.y);
+        }
         else if (GetKeyState(VK_SHIFT) < 0) app->ScrollHorizontal(app->horizontal - delta);
         else app->ScrollTo(app->scroll - delta); return 0;
     }
