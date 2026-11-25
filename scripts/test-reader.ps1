@@ -1,4 +1,4 @@
-param([string]$Pdf, [string]$Executable = 'Chucao.exe')
+﻿param([string]$Pdf, [string]$Executable = 'Chucao.exe')
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath([IO.Path]::Combine($PSScriptRoot, '..'))
 & ([IO.Path]::Combine($PSScriptRoot, 'smoke-test.ps1'))
@@ -39,16 +39,40 @@ if (!$themeProcess.WaitForExit(15000)) { $themeProcess.Kill(); throw 'La prueba 
 if ($themeProcess.ExitCode -ne 0) { throw 'Falló la prueba de temas.' }
 $themeResult = [IO.File]::ReadAllText($themeReport) | ConvertFrom-Json
 if (!$themeResult.success) { throw 'El cambio de tema o su persistencia no coincidió.' }
-$updatesNewer = [IO.Path]::Combine($results, 'updates-newer.json')
-$updatesOlder = [IO.Path]::Combine($results, 'updates-older.json')
-$updatesReport = [IO.Path]::Combine($results, 'updates.json')
-[IO.File]::WriteAllText($updatesNewer, '{"tag_name":"v9.9.9"}')
-[IO.File]::WriteAllText($updatesOlder, '{"tag_name":"v0.0.1"}')
-foreach ($fixture in @(@($updatesNewer, $true, 'v9.9.9'), @($updatesOlder, $false, 'v0.0.1'))) {
+$updatesNewer = [IO.Path]::Combine($results, 'updates-newer.txt')
+$updatesOlder = [IO.Path]::Combine($results, 'updates-older.txt')
+$updatesInvalid = [IO.Path]::Combine($results, 'updates-invalid.txt')
+$updatesNotVersion = [IO.Path]::Combine($results, 'updates-not-version.txt')
+$updatesTrailing = [IO.Path]::Combine($results, 'updates-trailing.txt')
+$updatesOverflow = [IO.Path]::Combine($results, 'updates-overflow.txt')
+$updatesEmpty = [IO.Path]::Combine($results, 'updates-empty.txt')
+$updatesJson = [IO.Path]::Combine($results, 'updates-json.json')
+[IO.File]::WriteAllText($updatesNewer, 'https://github.com/jabrugger/chucao-pdf-reader/releases/tag/v9.9.9')
+[IO.File]::WriteAllText($updatesOlder, 'https://github.com/jabrugger/chucao-pdf-reader/releases/tag/v0.0.1')
+[IO.File]::WriteAllText($updatesInvalid, 'https://github.com/jabrugger/chucao-pdf-reader/releases')
+[IO.File]::WriteAllText($updatesNotVersion, 'https://github.com/jabrugger/chucao-pdf-reader/releases/tag/not-a-version')
+[IO.File]::WriteAllText($updatesTrailing, 'https://github.com/jabrugger/chucao-pdf-reader/releases/tag/v9garbage')
+[IO.File]::WriteAllText($updatesOverflow, 'https://github.com/jabrugger/chucao-pdf-reader/releases/tag/v4294967296.0.0')
+[IO.File]::WriteAllText($updatesEmpty, '')
+[IO.File]::WriteAllText($updatesJson, '{"tag_name":"v9.9.9"}')
+foreach ($fixture in @(
+    @($updatesNewer, $true, $true, 'v9.9.9', 'updates-newer-out.json'),
+    @($updatesOlder, $true, $false, 'v0.0.1', 'updates-older-out.json'),
+    @($updatesInvalid, $false, $false, '', 'updates-invalid-out.json'),
+    @($updatesNotVersion, $false, $false, '', 'updates-not-version-out.json'),
+    @($updatesTrailing, $false, $false, '', 'updates-trailing-out.json'),
+    @($updatesOverflow, $false, $false, '', 'updates-overflow-out.json'),
+    @($updatesEmpty, $false, $false, '', 'updates-empty-out.json'),
+    @($updatesJson, $true, $true, 'v9.9.9', 'updates-json-out.json'))) {
+    $updatesReport = [IO.Path]::Combine($results, $fixture[4])
+    if ([IO.File]::Exists($updatesReport)) { [IO.File]::Delete($updatesReport) }
     $updatesProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', $Executable)) -ArgumentList @('--benchmark-updates', ('"' + $fixture[0] + '"'), ('"' + $updatesReport + '"')) -WorkingDirectory $root -WindowStyle Hidden -PassThru
     if (!$updatesProcess.WaitForExit(15000)) { $updatesProcess.Kill(); throw 'La prueba del actualizador excedió 15 segundos.' }
+    if ($updatesProcess.ExitCode -ne 0) { throw "Falló el proceso del actualizador ($($fixture[0])). Código: $($updatesProcess.ExitCode)" }
     $updatesResult = [IO.File]::ReadAllText($updatesReport) | ConvertFrom-Json
-    if (!$updatesResult.success -or $updatesResult.newer -ne $fixture[1] -or $updatesResult.latest -ne $fixture[2]) { throw "Falló el análisis de la release ($($fixture[2])). Informe: $updatesReport" }
+    if ($updatesResult.success -ne $fixture[1] -or $updatesResult.newer -ne $fixture[2] -or $updatesResult.latest -ne $fixture[3]) {
+        throw "Falló el análisis de la release ($($fixture[0])). Informe: $updatesReport"
+    }
 }
 $dpiReport = [IO.Path]::Combine($results, 'dpi.json')
 $dpiProcess = Start-Process -FilePath ([IO.Path]::Combine($root, 'build', $Executable)) -ArgumentList @('--benchmark-dpi', 'test-results\dpi.json') -WorkingDirectory $root -WindowStyle Hidden -PassThru

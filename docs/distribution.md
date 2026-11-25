@@ -15,14 +15,14 @@ crea:
 
 ```text
 dist/
-  Chucao-0.2.18-win-x64/
+  Chucao-0.2.19-win-x64/
     Chucao.exe
     pdfium.dll
     LEEME.txt
     LICENSE
     THIRD-PARTY-NOTICES.md
     licenses/…
-  Chucao-0.2.18-win-x64.zip
+  Chucao-0.2.19-win-x64.zip
 ```
 
 `Chucao.exe` lleva el manifiesto de Windows incrustado (Common Controls v6 y

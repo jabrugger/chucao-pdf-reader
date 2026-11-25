@@ -58,10 +58,17 @@ inline bool RegHasValue(HKEY root, const std::wstring& subkey, const wchar_t* va
 
 inline bool RegDeleteValueSafe(HKEY root, const std::wstring& subkey, const wchar_t* value) {
     HKEY key = nullptr;
-    if (RegOpenKeyExW(root, subkey.c_str(), 0, KEY_SET_VALUE, &key) != ERROR_SUCCESS) return false;
-    bool ok = RegDeleteValueW(key, value) == ERROR_SUCCESS;
+    LSTATUS opened = RegOpenKeyExW(root, subkey.c_str(), 0, KEY_SET_VALUE, &key);
+    if (opened == ERROR_FILE_NOT_FOUND || opened == ERROR_PATH_NOT_FOUND) return true;
+    if (opened != ERROR_SUCCESS) return false;
+    LSTATUS deleted = RegDeleteValueW(key, value);
     RegCloseKey(key);
-    return ok;
+    return deleted == ERROR_SUCCESS || deleted == ERROR_FILE_NOT_FOUND;
+}
+
+inline bool RegDeleteTreeSafe(HKEY root, const std::wstring& subkey) {
+    LSTATUS status = RegDeleteTreeW(root, subkey.c_str());
+    return status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND || status == ERROR_PATH_NOT_FOUND;
 }
 
 inline std::wstring ClassesPath(const std::wstring& extension) { return L"Software\\Classes\\" + extension; }
@@ -123,21 +130,27 @@ inline bool RegisterFileAssociation(const std::wstring& exePath, const FileAssoc
 
 inline bool UnregisterFileAssociation(const FileAssociationTarget& target, std::wstring& error) {
     error.clear();
+    bool ok = true;
     // If Windows chose Chucao (UserChoice), clear that record so the shell does not
     // keep pointing at a ProgID that is about to disappear. Another app's default
     // is never touched.
-    if (EffectiveDefaultProgId(target) == target.progId)
-        RegDeleteTreeW(HKEY_CURRENT_USER, UserChoicePath(target.extension).c_str());
+    if (EffectiveDefaultProgId(target) == target.progId) {
+        if (!RegDeleteTreeSafe(HKEY_CURRENT_USER, UserChoicePath(target.extension))) {
+            error = L"No se pudo quitar la asociación de PDF.";
+            return false;
+        }
+    }
     std::wstring current;
     if (RegReadString(HKEY_CURRENT_USER, ClassesPath(target.extension), L"", current) && current == target.progId)
-        RegDeleteValueSafe(HKEY_CURRENT_USER, ClassesPath(target.extension), L"");
-    RegDeleteValueSafe(HKEY_CURRENT_USER, ClassesPath(target.extension) + L"\\OpenWithProgids", target.progId.c_str());
-    RegDeleteTreeW(HKEY_CURRENT_USER, ProgIdPath(target).c_str());
+        ok = RegDeleteValueSafe(HKEY_CURRENT_USER, ClassesPath(target.extension), L"") && ok;
+    ok = RegDeleteValueSafe(HKEY_CURRENT_USER, ClassesPath(target.extension) + L"\\OpenWithProgids", target.progId.c_str()) && ok;
+    ok = RegDeleteTreeSafe(HKEY_CURRENT_USER, ProgIdPath(target)) && ok;
     if (target.extension == L".pdf") {
-        RegDeleteValueSafe(HKEY_CURRENT_USER, L"Software\\RegisteredApplications", target.applicationName.c_str());
-        RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\ChucaoPDFReader");
-        RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\Applications\\Chucao.exe");
+        ok = RegDeleteValueSafe(HKEY_CURRENT_USER, L"Software\\RegisteredApplications", target.applicationName.c_str()) && ok;
+        ok = RegDeleteTreeSafe(HKEY_CURRENT_USER, L"Software\\ChucaoPDFReader") && ok;
+        ok = RegDeleteTreeSafe(HKEY_CURRENT_USER, L"Software\\Classes\\Applications\\Chucao.exe") && ok;
     }
+    if (!ok) error = L"No se pudo quitar la asociación de PDF.";
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
-    return true;
+    return ok;
 }

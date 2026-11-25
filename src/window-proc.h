@@ -160,6 +160,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         bool changed = false;
         bool homeHover = app->HomeTabHitTest(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
         if (app->hoverHomeTab != homeHover) { app->hoverHomeTab = homeHover; changed = true; }
+        bool overflowHover = app->OverflowTabHitTest(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
+        if (app->hoverOverflowTab != overflowHover) { app->hoverOverflowTab = overflowHover; changed = true; }
         bool close = false;
         int index = app->TabHitTest(GET_X_LPARAM(lp), GET_Y_LPARAM(lp), close);
         if (app->hoverTab != index || app->hoverTabClose != close) { app->hoverTab = index; app->hoverTabClose = close; changed = true; }

@@ -157,10 +157,11 @@ public:
     struct DocumentTab { std::wstring path; std::optional<ReadingState> reading; };
     std::vector<DocumentTab> tabs;
     int activeTab = -1, hoverTab = -1;
-    bool hoverTabClose = false, homeActive = false, hoverHomeTab = false;
+    bool hoverTabClose = false, homeActive = false, hoverHomeTab = false, hoverOverflowTab = false;
     struct TabLayout { RECT bounds{}, close{}; };
     std::vector<TabLayout> tabLayout;
-    RECT homeTabBounds{};
+    std::vector<int> visibleTabIndices;
+    RECT homeTabBounds{}, overflowTabBounds{};
     std::wstring benchmarkReport;
     bool navigationTest = false;
     bool textTest = false;
@@ -519,7 +520,21 @@ public:
             }
             CloseHandle(file);
         }
-        UpdateInfo info = FromReleaseJson(body);
+        // Trim trailing whitespace/newlines before inspecting the fixture format.
+        while (!body.empty() && (body.back() == '\r' || body.back() == '\n' || body.back() == ' ' || body.back() == '\t'))
+            body.pop_back();
+        UpdateInfo info;
+        if (body.rfind("https://", 0) == 0 || body.rfind("http://", 0) == 0) {
+            int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, body.data(), static_cast<int>(body.size()), nullptr, 0);
+            std::wstring location;
+            if (count > 0) {
+                location.resize(count);
+                MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, body.data(), static_cast<int>(body.size()), &location[0], count);
+            }
+            info = FromReleaseTag(LatestTagFromLocation(location));
+        } else {
+            info = FromReleaseJson(body);
+        }
         char data[512]{};
         int size = sprintf_s(data, "{\"success\":%s,\"newer\":%s,\"latest\":\"%ls\"}\n",
             info.checked ? "true" : "false", info.newer ? "true" : "false", info.latest.c_str());
@@ -2423,23 +2438,37 @@ public:
     }
     void ComputeTabs(const RECT& rc) {
         tabLayout.clear();
+        visibleTabIndices.clear();
         homeTabBounds = {};
+        overflowTabBounds = {};
         if (tabs.empty()) return;
         int height = TabBarHeight(), x = D(8), gap = D(4), closeW = D(26);
-        int homeW = D(30);
+        int homeW = D(30), overflowW = D(30);
         int count = static_cast<int>(tabs.size());
         int available = std::max(0, static_cast<int>(rc.right) - D(16) - homeW);
         int tabW = std::max(D(56), std::min(D(220), (available - gap * count) / count));
         int maxVisible = std::max(0, (available + gap) / (tabW + gap));
+        bool overflow = maxVisible < count;
+        if (overflow) {
+            int availableWithOverflow = std::max(0, available - overflowW - gap);
+            tabW = std::max(D(56), std::min(D(220), (availableWithOverflow - gap * std::max(1, maxVisible)) / std::max(1, maxVisible)));
+            maxVisible = std::max(0, (availableWithOverflow + gap) / (tabW + gap));
+        }
         int visibleCount = std::min(count, maxVisible);
-        // Keep the '+' button at the end of the visible row, always inside the
-        // window width even when many documents are open.
+        for (int i = 0; i < visibleCount; ++i) visibleTabIndices.push_back(i);
+        // Keep the active tab visible even when tabs overflow by placing it in the last visible slot.
+        if (overflow && visibleCount > 0 && activeTab >= visibleCount && activeTab < count)
+            visibleTabIndices.back() = activeTab;
         for (int i = 0; i < visibleCount; ++i) {
             TabLayout t;
             t.bounds = {x, BarPixels() + D(3), x + tabW, BarPixels() + height - D(2)};
             t.close = {t.bounds.right - closeW, t.bounds.top + D(3), t.bounds.right - D(6), t.bounds.bottom - D(3)};
             tabLayout.push_back(t);
             x += tabW + gap;
+        }
+        if (overflow) {
+            overflowTabBounds = {x, BarPixels() + D(3), std::min<int>(x + overflowW, static_cast<int>(rc.right) - D(8) - homeW - gap), BarPixels() + height - D(2)};
+            x = overflowTabBounds.right + gap;
         }
         homeTabBounds = {x, BarPixels() + D(3), std::min<int>(x + homeW, static_cast<int>(rc.right) - D(8)), BarPixels() + height - D(2)};
     }
@@ -2448,6 +2477,13 @@ public:
         RECT rc{}; GetClientRect(window, &rc); ComputeTabs(rc);
         return x >= homeTabBounds.left && x < homeTabBounds.right &&
             y >= homeTabBounds.top && y < homeTabBounds.bottom;
+    }
+    bool OverflowTabHitTest(int x, int y) {
+        if (tabs.empty()) return false;
+        RECT rc{}; GetClientRect(window, &rc); ComputeTabs(rc);
+        return overflowTabBounds.right > overflowTabBounds.left &&
+            x >= overflowTabBounds.left && x < overflowTabBounds.right &&
+            y >= overflowTabBounds.top && y < overflowTabBounds.bottom;
     }
     int TabHitTest(int x, int y, bool& close) {
         close = false;
@@ -2458,13 +2494,33 @@ public:
             const auto& t = tabLayout[i];
             if (x >= t.bounds.left && x < t.bounds.right && y >= t.bounds.top && y < t.bounds.bottom) {
                 close = x >= t.close.left;
-                return static_cast<int>(i);
+                return visibleTabIndices[i];
             }
         }
         return -1;
     }
+    void ShowTabOverflowMenu() {
+        if (tabs.empty()) return;
+        HMENU menu = CreatePopupMenu();
+        if (!menu) return;
+        for (size_t i = 0; i < tabs.size(); ++i) {
+            bool visible = std::find(visibleTabIndices.begin(), visibleTabIndices.end(), static_cast<int>(i)) != visibleTabIndices.end();
+            if (visible) continue;
+            auto title = TabTitle(tabs[i].path);
+            UINT flags = MF_STRING | (!homeActive && static_cast<int>(i) == activeTab ? MF_CHECKED : 0);
+            AppendMenuW(menu, flags, static_cast<UINT_PTR>(i + 1), title.c_str());
+        }
+        if (GetMenuItemCount(menu) == 0) { DestroyMenu(menu); return; }
+        POINT anchor{overflowTabBounds.left, overflowTabBounds.bottom + D(2)};
+        ClientToScreen(window, &anchor);
+        UINT chosen = TrackPopupMenuEx(menu, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD | TPM_RIGHTBUTTON,
+            anchor.x, anchor.y, window, nullptr);
+        DestroyMenu(menu);
+        if (chosen > 0 && chosen <= tabs.size()) ActivateTab(static_cast<int>(chosen - 1));
+    }
     bool TabClick(int x, int y) {
         if (HomeTabHitTest(x, y)) { ShowHome(); return true; }
+        if (OverflowTabHitTest(x, y)) { ShowTabOverflowMenu(); return true; }
         if (tabs.empty()) return false;
         bool close = false;
         int index = TabHitTest(x, y, close);
@@ -2488,11 +2544,19 @@ public:
         SelectObject(dc, strongFont); SetTextColor(dc, homeActive ? UiTheme().ink : UiTheme().muted);
         RECT plus = homeTabBounds;
         DrawTextW(dc, L"+", -1, &plus, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        if (overflowTabBounds.right > overflowTabBounds.left) {
+            COLORREF overflowFill = hoverOverflowTab ? UiTheme().hover : UiTheme().bar;
+            UiRoundRect(dc, overflowTabBounds, overflowFill, UiTheme().line, D(8));
+            SelectObject(dc, strongFont); SetTextColor(dc, UiTheme().muted);
+            RECT arrow = overflowTabBounds;
+            DrawTextW(dc, L"▾", -1, &arrow, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        }
         SelectObject(dc, font);
         for (size_t i = 0; i < tabLayout.size(); ++i) {
             const auto& t = tabLayout[i];
-            bool active = !homeActive && static_cast<int>(i) == activeTab;
-            bool hovered = static_cast<int>(i) == hoverTab;
+            int tabIndex = visibleTabIndices[i];
+            bool active = !homeActive && tabIndex == activeTab;
+            bool hovered = tabIndex == hoverTab;
             COLORREF fill = active ? UiTheme().canvas : hovered ? UiTheme().hover : UiTheme().bar;
             UiRoundRect(dc, t.bounds, fill, UiTheme().line, D(8));
             if (active) {
@@ -2502,7 +2566,7 @@ public:
             }
             SetTextColor(dc, active ? UiTheme().ink : UiTheme().muted);
             RECT text{t.bounds.left + D(10), t.bounds.top, t.close.left - D(4), t.bounds.bottom};
-            auto title = TabTitle(tabs[i].path);
+            auto title = TabTitle(tabs[tabIndex].path);
             DrawTextW(dc, title.c_str(), -1, &text, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
             // Small close cross with GDI+ so it stays crisp at every DPI.
             Gdiplus::Graphics graphics(dc);

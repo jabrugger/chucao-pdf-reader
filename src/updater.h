@@ -4,6 +4,7 @@
 // headers and app-info.h. Only a single GET of the latest release metadata is
 // performed; nothing is downloaded or installed, and no identifier is sent.
 #include <winhttp.h>
+#include <limits>
 #pragma comment(lib, "winhttp.lib")
 
 namespace {
@@ -14,19 +15,28 @@ struct UpdateInfo {
     std::wstring url;       // releases page to open in the browser
 };
 
-// Parse "v1.2.3" or "1.2.3" into three numeric components; missing pieces are 0.
+// Parse "v1.2.3" or "1.2.3" into three numeric components; returns false if no
+// leading numeric component is present or trailing non-version characters remain.
 bool ParseVersionTriple(const std::wstring& tag, int out[3]) {
     out[0] = out[1] = out[2] = 0;
     size_t i = 0;
     if (i < tag.size() && (tag[i] == L'v' || tag[i] == L'V')) ++i;
+    bool anyDigit = false;
     for (int part = 0; part < 3; ++part) {
         int value = 0; bool digit = false;
-        while (i < tag.size() && tag[i] >= L'0' && tag[i] <= L'9') { value = value * 10 + (tag[i] - L'0'); digit = true; ++i; }
-        if (!digit) break;
+        while (i < tag.size() && tag[i] >= L'0' && tag[i] <= L'9') {
+            int d = tag[i] - L'0';
+            if (value > ((std::numeric_limits<int>::max)() - d) / 10) return false;
+            value = value * 10 + d; digit = true; anyDigit = true; ++i;
+        }
+        if (!digit) return false;
         out[part] = value;
-        if (i < tag.size() && tag[i] == L'.') ++i; else break;
+        if (i < tag.size() && tag[i] == L'.') {
+            ++i;
+            if (part == 2 || i == tag.size()) return false;
+        } else break;
     }
-    return true;
+    return anyDigit && i == tag.size();
 }
 
 bool VersionNewer(const std::wstring& latest, const std::wstring& current) {
@@ -77,7 +87,8 @@ std::wstring LatestTagFromLocation(const std::wstring& location) {
 UpdateInfo FromReleaseTag(const std::wstring& tag) {
     UpdateInfo info;
     info.url = std::wstring(CHUCAO_WIDE(CHUCAO_REPOSITORY)) + L"/releases";
-    if (tag.empty()) return info;
+    int parsed[3]{};
+    if (tag.empty() || !ParseVersionTriple(tag, parsed)) return info;
     info.checked = true;
     info.latest = tag;
     info.newer = VersionNewer(tag, CHUCAO_WIDE(CHUCAO_VERSION_STRING));

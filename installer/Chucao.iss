@@ -59,14 +59,14 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 [Registry]
 ; Always register Chucao in OpenWithProgids and RegisteredApplications so Windows 10/11
 ; lists it in "Abrir con" and Default Apps without stealing an existing default.
-Root: HKCU; Subkey: "Software\Classes\Chucao.PDF"; ValueType: string; ValueName: ""; ValueData: "Documento PDF"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\Chucao.PDF"; ValueType: string; ValueName: ""; ValueData: "Documento PDF"
 Root: HKCU; Subkey: "Software\Classes\Chucao.PDF\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"",0"
 Root: HKCU; Subkey: "Software\Classes\Chucao.PDF\Application"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#MyAppName}"
 Root: HKCU; Subkey: "Software\Classes\Chucao.PDF\Application"; ValueType: string; ValueName: "ApplicationIcon"; ValueData: """{app}\{#MyAppExeName}"",0"
 Root: HKCU; Subkey: "Software\Classes\Chucao.PDF\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
 Root: HKCU; Subkey: "Software\Classes\Applications\{#MyAppExeName}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\Applications\{#MyAppExeName}\SupportedTypes"; ValueType: none; ValueName: ".pdf"
-Root: HKCU; Subkey: "Software\Classes\.pdf\OpenWithProgids"; ValueType: none; ValueName: "Chucao.PDF"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\.pdf\OpenWithProgids"; ValueType: none; ValueName: "Chucao.PDF"
 Root: HKCU; Subkey: "Software\ChucaoPDFReader"; ValueType: string; ValueName: ""; ValueData: ""; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\ChucaoPDFReader\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#MyAppName}"
 Root: HKCU; Subkey: "Software\ChucaoPDFReader\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "Lector de PDF rápido y con una interfaz limpia."
@@ -119,12 +119,22 @@ var
 begin
   if CurUninstallStep = usUninstall then
   begin
-    // Clear Windows' UserChoice only if it points to Chucao.
+    // Clear Windows' UserChoice only after the user confirms uninstall and before
+    // any files are deleted. If deletion fails, abort before removing Chucao.PDF
+    // or Chucao.exe so UserChoice is never left pointing at missing targets.
     if RegQueryStringValue(HKCU,
          'Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.pdf\UserChoice',
          'ProgId', ProgId) and (CompareText(ProgId, 'Chucao.PDF') = 0) then
-      RegDeleteKeyIncludingSubkeys(HKCU,
-        'Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.pdf\UserChoice');
+    begin
+      if not RegDeleteKeyIncludingSubkeys(HKCU,
+           'Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.pdf\UserChoice') then
+      begin
+        if not UninstallSilent then
+          MsgBox('No se pudo quitar la asociación predeterminada de PDF en Windows. Se cancela la desinstalación para no dejar archivos rotos.',
+                 mbError, MB_OK);
+        Abort;
+      end;
+    end;
     // Only clear the extension default when it still points to Chucao.
     if RegQueryStringValue(HKCU, 'Software\Classes\.pdf', '', ProgId) and
        (CompareText(ProgId, 'Chucao.PDF') = 0) then

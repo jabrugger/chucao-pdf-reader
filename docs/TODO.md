@@ -86,6 +86,10 @@ Estado revisado tras el trabajo de DS: [continuation-plan.md](continuation-plan.
     `Capabilities\FileAssociations`, `Applications\Chucao.exe\SupportedTypes`,
     comillas en iconos y aviso de `UserChoice` al finalizar el instalador).
     Evidencia: [installer.md](installer.md).
+22. [x] Cortar 0.2.19 con menú desplegable (`▾`) para pestañas ocultas (manteniendo
+    visible la pestaña activa), manejo estricto de errores y cancelación de
+    `UserChoice` al quitar asociación o desinstalar, y validación estricta de
+    tags numéricos en el actualizador (sin desbordamiento ni sufijos inválidos).
 
 ## Funciones y diseño
 
